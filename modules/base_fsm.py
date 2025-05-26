@@ -24,12 +24,12 @@ class MessageID(Enum):
     STATE_CHANGED = "state_changed"
     STATE_INIT_OK = "state_init_ok"
     STATE_TEST_OK = "state_test_ok"
+    ACTION_RESULT = "action_result"  # ← Nuevo ID para acciones con resultado
 
 class ResultCode(Enum):
     OK = "ok"
     ERROR = "error"
 
-   
 @dataclass
 class Message:
     id: MessageID
@@ -56,7 +56,6 @@ class BaseHandlerFSM:
         return logger
     
     def update(self):
-        """Se ejecuta automáticamente en cada ciclo del FSM para lógica autónoma de estado."""
         pass
     
     def run(self, queue: Queue, status_queue: Optional[Queue] = None):
@@ -69,22 +68,17 @@ class BaseHandlerFSM:
                 self.logger.info(f"Recibido: {msg.id.value} | Params: {msg.params}")
                 self.handle_message(msg)
             else:
-                time.sleep(0.1) #FIXME: qué pasa en la temporización de la FSM si no hay mensajes?
-            
-            # Lógica de actualización del FSM
-
+                time.sleep(0.1)
             self.update()
-            
-            if status_queue:
-                status_queue.put((self.name, self.state))
+            #if status_queue:
+            #    status_queue.put((self.name, self.state))
     
     def handle_message(self, message: Message):
-        # FSM simplificada, concreta en subclase
         pass
 
     def set_state(self, new_state: State, status_queue: Optional[Queue] = None):
         if self.state != new_state:
-            self._on_exit_flag = True  # ← Activa la salida del estado anterior
+            self._on_exit_flag = True
             self.logger.info(f"Cambio de estado: {self.state.name} → {new_state.name}")
             self.state = new_state
             if status_queue:

@@ -1,12 +1,23 @@
-
 from modules.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.behringer_LL import BehringerLowLevel
+from typing import Optional
 
 class BehringerHandlerFSM(BaseHandlerFSM):
     def __init__(self):
         super().__init__("Behringer")
         self.audio = BehringerLowLevel()
         self._pending_params = {}
+
+    def notify_action_result(self, action: str, result: ResultCode, extra: Optional[dict] = None):
+        msg = {
+            "state": self.state.name,
+            "action": action,
+            "result": result.value
+        }
+        if extra:
+            msg.update(extra)
+        if self.status_queue:
+            self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, msg)))
 
     def log_action_result(self, action: str, result: ResultCode):
         if result == ResultCode.OK:
@@ -29,7 +40,6 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                     result = ResultCode.OK if success else ResultCode.ERROR
                     self.log_action_result("Auto-Deinit", result)
                 self._on_entry_flag = False
-
             if self._on_exit_flag:
                 self.logger.info("Saliendo de DISABLE")
                 self._on_exit_flag = False
@@ -40,6 +50,7 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                 success = self.audio.init()
                 result = ResultCode.OK if success else ResultCode.ERROR
                 self.log_action_result("Init", result)
+                self.notify_action_result("init", result)
                 if self.status_queue:
                     self.status_queue.put((self.name, Message(MessageID.STATE_INIT_OK, {"result": result.value})))
                 self.set_state(State.TEST if result == ResultCode.OK else State.ERROR, self.status_queue)
@@ -54,6 +65,7 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                 success = self.audio.test()
                 result = ResultCode.OK if success else ResultCode.ERROR
                 self.log_action_result("Test", result)
+                self.notify_action_result("test", result)
                 if self.status_queue:
                     self.status_queue.put((self.name, Message(MessageID.STATE_TEST_OK, {"result": result.value})))
                 self.set_state(State.IDLE if result == ResultCode.OK else State.ERROR, self.status_queue)
@@ -73,17 +85,16 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                     self.set_state(State.ERROR, self.status_queue)
                 self._on_entry_flag = False
 
-            # Nuevo chequeo de finalización
             done, success = self.audio.is_recording_done()
             if done:
                 result = ResultCode.OK if success else ResultCode.ERROR
                 self.log_action_result("Fin grabación", result)
+                self.notify_action_result("record", result, {"file": self.audio.output_path})
                 self.set_state(State.IDLE if result == ResultCode.OK else State.ERROR, self.status_queue)
 
             if self._on_exit_flag:
                 self.logger.info("Saliendo de ACQUIRE")
                 self._on_exit_flag = False
-
 
         elif self.state == State.IDLE:
             if self._on_entry_flag:
@@ -119,6 +130,7 @@ class BehringerHandlerFSM(BaseHandlerFSM):
             success = self.audio.deinit()
             result = ResultCode.OK if success else ResultCode.ERROR
             self.log_action_result("Deinit", result)
+            self.notify_action_result("deinit", result)
             self.set_state(State.DISABLE, self.status_queue)
 
         elif message.id == MessageID.SIG_QUERY:

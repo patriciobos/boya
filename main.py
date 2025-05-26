@@ -1,4 +1,3 @@
-
 import logging
 from multiprocessing import Process, Queue
 from time import sleep
@@ -10,11 +9,9 @@ def setup_logger():
     logger = logging.getLogger("Main")
     logger.setLevel(logging.INFO)
 
-    # Consola
     ch = logging.StreamHandler()
     ch.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
-    # Archivo
     fh = logging.FileHandler("main.log")
     fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
@@ -56,10 +53,16 @@ if __name__ == "__main__":
                             logger.info(f"[{name}] Nuevo estado: {state_name}")
 
                             if state_name == State.IDLE.name:
-                                fsm["queue"].put(Message(MessageID.SIG_ACQUIRE, {"duration": 3}))
-                                sleep(4)
+                                fsm["queue"].put(Message(MessageID.SIG_ACQUIRE, {"duration": 10}))
 
+                        elif message.id == MessageID.ACTION_RESULT:
+                            state = message.params["state"]
+                            action = message.params["action"]
+                            result = message.params["result"]
+                            logger.info(f"[{name}] Acción '{action}' en estado '{state}' → {result.upper()}")
 
+                            if "file" in message.params:
+                                logger.info(f"[{name}] Archivo generado: {message.params['file']}")
 
                 except Exception:
                     continue
