@@ -1,6 +1,7 @@
 """Módulo de bajo nivel para controlar la interfaz de audio Behringer UMC204HD con PyAudio."""
 
 import os
+import glob
 import wave
 import logging
 import threading
@@ -335,11 +336,14 @@ class BehringerLowLevel:
         # 3. Verificación de permisos de acceso a hardware y archivos
         self.logger.info("[full_test] Verificando permisos de acceso a hardware y archivos...")
         try:
-            acceso_hw = os.access("/dev/snd", os.R_OK | os.W_OK)
+            self.logger.info("[full_test] Verificando permisos de acceso a dispositivos de audio...")
+            pcm_devices = glob.glob("/dev/snd/pcmC*")
+            acceso_hw = any(os.access(dev, os.R_OK | os.W_OK) for dev in pcm_devices)
+
             detalles["permiso_hw"] = acceso_hw
             self.logger.info(f"[full_test] permiso_hw: {acceso_hw}")
             if not acceso_hw:
-                self.logger.error("[full_test] No hay permisos de acceso a /dev/snd.")
+                self.logger.error("[full_test] No hay permisos de lectura/escritura a ningún dispositivo en /dev/snd/pcmC*.")
                 resultado_global = False
         except Exception as e:
             self.logger.exception("[full_test] Error verificando permisos de hardware: %s", e)

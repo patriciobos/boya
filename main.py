@@ -53,11 +53,6 @@ if __name__ == "__main__":
                             state_name = message.params["state"]
                             logger.info(f"[{name}] Nuevo estado: {state_name}")
 
-                        elif message.id == MessageID.STATE_TEST_OK:
-                            result = message.params["result"]
-                            detalles = message.params.get("detalles", {})
-                            logger.info(f"[{name}] Resultado TEST: {result.upper()} - Detalles: {detalles}")
-
                         elif message.id == MessageID.ACTION_RESULT:
                             state = message.params["state"]
                             action = message.params["action"]
