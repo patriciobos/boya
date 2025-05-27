@@ -229,3 +229,181 @@ class BehringerLowLevel:
         """Devuelve (terminó la grabación, grabación exitosa o no)."""
         finished = not self.is_recording_event.is_set() and self.recording_thread is None
         return finished, self.last_record_ok
+
+    def full_test(self) -> tuple[bool, dict]:
+        """
+        Realiza un test completo del dispositivo Behringer.
+        Devuelve (resultado_global, detalles_dict)
+        """
+        import pyaudio
+        detalles = {}
+        resultado_global = True
+
+        # 0. Verificar inicialización previa
+        if self.audio_interface is None or self.device_index is None:
+            msg = "[full_test] El dispositivo NO está inicializado. Abortando tests."
+            self.logger.error(msg)
+            detalles["inicializado"] = False
+            self.logger.info(f"[full_test] inicializado: False")
+            return False, detalles
+        detalles["inicializado"] = True
+        self.logger.info(f"[full_test] inicializado: True")
+
+        # 1. Verificación de dispositivo de audio (sin crear nueva instancia)
+        self.logger.info("[full_test] Verificando dispositivo de audio...")
+        try:
+            p = self.audio_interface
+            num_devices = p.get_device_count()
+            dispositivos = []
+            for i in range(num_devices):
+                try:
+                    device_info = p.get_device_info_by_index(i)
+                    dispositivos.append(device_info)
+                except Exception:
+                    continue
+            detalles["dispositivos_detectados"] = [d.get("name", "?") for d in dispositivos]
+            behringer_ok = any(("Behringer" in d.get("name", "") or "USB" in d.get("name", "")) and int(d.get("maxInputChannels", 0)) > 0 for d in dispositivos)
+            detalles["behringer_detectado"] = behringer_ok
+            self.logger.info(f"[full_test] behringer_detectado: {behringer_ok}")
+            if not behringer_ok:
+                self.logger.error("[full_test] No se detectó dispositivo Behringer USB.")
+                resultado_global = False
+        except Exception as e:
+            self.logger.exception("[full_test] Error al buscar dispositivos: %s", e)
+            detalles["behringer_detectado"] = False
+            self.logger.info(f"[full_test] behringer_detectado: False")
+            resultado_global = False
+
+        # 2. Prueba de grabación corta
+        self.logger.info("[full_test] Prueba de grabación corta...")
+        test_record_ok = False
+        test_file = None
+        recordings_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
+        try:
+            test_duration = 2
+            os.makedirs(recordings_dir, exist_ok=True)
+            test_file = os.path.join(recordings_dir, f"test_recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
+            self.output_path = test_file
+            self.is_recording_event.set()
+            self.start_time = time.time()
+            self.duration = test_duration
+            self.frames_queue.queue.clear()
+            if self.open():
+                wf = wave.open(test_file, "wb")
+                wf.setnchannels(2)
+                if self.audio_interface is not None:
+                    wf.setsampwidth(self.audio_interface.get_sample_size(pyaudio.paInt24))
+                else:
+                    wf.setsampwidth(3)  # fallback
+                wf.setframerate(192000)
+                start = time.time()
+                while time.time() - start < test_duration:
+                    try:
+                        frame = self.frames_queue.get(timeout=0.5)
+                        wf.writeframes(frame)
+                    except queue.Empty:
+                        continue
+                wf.close()
+                self.close()
+                self.is_recording_event.clear()
+                test_record_ok = os.path.exists(test_file) and os.path.getsize(test_file) > 0
+                detalles["grabacion_corta"] = test_record_ok
+                detalles["archivo_test"] = test_file
+                self.logger.info(f"[full_test] grabacion_corta: {test_record_ok}")
+                if not test_record_ok:
+                    self.logger.error(f"[full_test] Grabación de test fallida o archivo vacío: {test_file}")
+                    resultado_global = False
+            else:
+                self.logger.error("[full_test] No se pudo abrir el stream para grabación de test.")
+                detalles["grabacion_corta"] = False
+                self.logger.info(f"[full_test] grabacion_corta: False")
+                resultado_global = False
+        except Exception as e:
+            self.logger.exception("[full_test] Error durante la grabación de test: %s", e)
+            detalles["grabacion_corta"] = False
+            self.logger.info(f"[full_test] grabacion_corta: False")
+            resultado_global = False
+        finally:
+            self.is_recording_event.clear()
+            self.close()
+            if test_file and os.path.exists(test_file):
+                try:
+                    os.remove(test_file)
+                except Exception:
+                    pass
+
+        # 3. Verificación de permisos de acceso a hardware y archivos
+        self.logger.info("[full_test] Verificando permisos de acceso a hardware y archivos...")
+        try:
+            acceso_hw = os.access("/dev/snd", os.R_OK | os.W_OK)
+            detalles["permiso_hw"] = acceso_hw
+            self.logger.info(f"[full_test] permiso_hw: {acceso_hw}")
+            if not acceso_hw:
+                self.logger.error("[full_test] No hay permisos de acceso a /dev/snd.")
+                resultado_global = False
+        except Exception as e:
+            self.logger.exception("[full_test] Error verificando permisos de hardware: %s", e)
+            detalles["permiso_hw"] = False
+            self.logger.info(f"[full_test] permiso_hw: False")
+            resultado_global = False
+        try:
+            os.makedirs(recordings_dir, exist_ok=True)
+            testfile = os.path.join(recordings_dir, "test_perm.txt")
+            with open(testfile, "w") as f:
+                f.write("test")
+            os.remove(testfile)
+            detalles["permiso_fs"] = True
+            self.logger.info(f"[full_test] permiso_fs: True")
+        except Exception as e:
+            self.logger.error("[full_test] No hay permisos de escritura en recordings/: %s", e)
+            detalles["permiso_fs"] = False
+            self.logger.info(f"[full_test] permiso_fs: False")
+            resultado_global = False
+
+        # 4. Chequeo de dependencias
+        self.logger.info("[full_test] Chequeando dependencias...")
+        try:
+            import pyaudio
+            detalles["pyaudio"] = True
+            self.logger.info(f"[full_test] pyaudio: True")
+        except ImportError:
+            self.logger.error("[full_test] PyAudio no está instalado.")
+            detalles["pyaudio"] = False
+            self.logger.info(f"[full_test] pyaudio: False")
+            resultado_global = False
+
+        # 5. Chequeo de espacio en disco
+        self.logger.info("[full_test] Chequeando espacio en disco...")
+        try:
+            statvfs = os.statvfs(recordings_dir)
+            espacio_libre = statvfs.f_frsize * statvfs.f_bavail
+            detalles["espacio_libre_bytes"] = espacio_libre
+            self.logger.info(f"[full_test] espacio_libre_bytes: {espacio_libre}")
+            if espacio_libre < 10 * 1024 * 1024:  # 10 MB
+                self.logger.error("[full_test] Espacio en disco insuficiente (<10MB).")
+                resultado_global = False
+        except Exception as e:
+            self.logger.exception("[full_test] Error verificando espacio en disco: %s", e)
+            detalles["espacio_libre_bytes"] = 0
+            self.logger.info(f"[full_test] espacio_libre_bytes: 0")
+            resultado_global = False
+
+        # 6. Chequeo de errores previos (solo loguea, no afecta resultado)
+        self.logger.info("[full_test] Chequeando errores previos en el log...")
+        try:
+            with open(self.log_file, "r") as flog:
+                log_content = flog.read()
+                detalles["errores_previos"] = "ERROR" in log_content or "Exception" in log_content
+                self.logger.info(f"[full_test] errores_previos: {detalles['errores_previos']}")
+                if detalles["errores_previos"]:
+                    self.logger.warning("[full_test] Se detectaron errores previos en el log, pero no afectan el resultado actual.")
+        except Exception as e:
+            self.logger.warning("[full_test] No se pudo leer el log para chequear errores previos: %s", e)
+            detalles["errores_previos"] = None
+            self.logger.info(f"[full_test] errores_previos: None")
+
+        self.logger.info(f"[full_test] Resultado global: {resultado_global}")
+        return resultado_global, detalles
+
+if __name__ == "__main__":
+    print("Permiso acceso /dev/snd:", os.access("/dev/snd", os.R_OK | os.W_OK))

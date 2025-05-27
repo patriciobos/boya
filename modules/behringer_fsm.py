@@ -49,12 +49,22 @@ class BehringerHandlerFSM(BaseHandlerFSM):
 
         elif self.state == State.TEST and self._on_entry_flag:
             self.logger.info("Entrando a TEST")
-            success = self.audio.test()
-            result = ResultCode.OK if success else ResultCode.ERROR
-            self.log_action_result("Test", result)
+            test_ok, detalles = self.audio.full_test()
+            if test_ok:
+                self.logger.info("[TEST] full_test OK")
+            else:
+                self.logger.error("[TEST] full_test ERROR")
+            # Enviar resultado global como ACTION_RESULT
             if self.status_queue:
-                self.status_queue.put((self.name, Message(MessageID.STATE_TEST_OK, {"result": result.value})))
-            self.set_state(State.IDLE if result == ResultCode.OK else State.ERROR, self.status_queue)
+                self.status_queue.put((self.name, Message(
+                    MessageID.ACTION_RESULT,
+                    {
+                        "state": self.state.name,
+                        "action": "test",
+                        "result": ResultCode.OK.value if test_ok else ResultCode.ERROR.value
+                    }
+                )))
+            self.set_state(State.IDLE if test_ok else State.ERROR, self.status_queue)
             self._on_entry_flag = False
 
         elif self.state == State.IDLE and self._on_entry_flag:
