@@ -29,7 +29,8 @@ def launch_fsm(handler_class, name):
         "name": name,
         "queue": queue,
         "status_queue": status_queue,
-        "process": process
+        "process": process,
+        "handler": handler  # <-- Agregado para acceso en shutdown
     }
 
 if __name__ == "__main__":
@@ -52,9 +53,7 @@ if __name__ == "__main__":
                             state_name = message.params["state"]
                             logger.info(f"[{name}] Nuevo estado: {state_name}")
 
-                            if state_name == State.IDLE.name:
-                                fsm["queue"].put(Message(MessageID.SIG_ACQUIRE, {"duration": 10}))
-
+                            
                         elif message.id == MessageID.ACTION_RESULT:
                             state = message.params["state"]
                             action = message.params["action"]
@@ -74,8 +73,9 @@ if __name__ == "__main__":
             sleep(1)
 
     except KeyboardInterrupt:
-        logger.warning("Interrupción detectada. Terminando FSMs...")
+        logger.warning("Interrupción detectada. Finalizando FSMs...")
         for fsm in fsms.values():
+            fsm["handler"].stop_scheduler()
             fsm["process"].terminate()
             fsm["process"].join()
-        logger.info("Finalizado.")
+        logger.info("Todos los FSMs han sido detenidos correctamente.")
