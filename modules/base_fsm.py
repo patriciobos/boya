@@ -65,14 +65,18 @@ class BaseHandlerFSM:
         self.logger.info("FSM iniciada.")
         self.queue = queue
         self.status_queue = status_queue
-        while self.running:
-            if not queue.empty():
-                msg = queue.get()
-                self.logger.info(f"Recibido: {msg.id.value} | Params: {msg.params}")
-                self.handle_message(msg)
-            else:
-                time.sleep(0.1)
-            self.update()
+        try:
+            while self.running:
+                if not queue.empty():
+                    msg = queue.get()
+                    self.logger.info(f"Recibido: {msg.id.value} | Params: {msg.params}")
+                    self.handle_message(msg)
+                else:
+                    time.sleep(0.1)
+                self.update()
+        except KeyboardInterrupt:
+            self.logger.info("FSM detenida por KeyboardInterrupt. Terminando de forma limpia.")
+            self.running = False
 
     def handle_message(self, message: Message):
         pass

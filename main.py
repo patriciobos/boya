@@ -3,6 +3,7 @@ from multiprocessing import Process, Queue
 from time import sleep
 
 from modules.behringer_fsm import BehringerHandlerFSM
+from modules.windsonic_fsm import WindsonicHandlerFSM
 from modules.base_fsm import Message, MessageID, State
 
 def setup_logger():
@@ -30,17 +31,19 @@ def launch_fsm(handler_class, name):
         "queue": queue,
         "status_queue": status_queue,
         "process": process,
-        "handler": handler  # <-- Agregado para acceso en shutdown
+        "handler": handler
     }
 
 if __name__ == "__main__":
     logger = setup_logger()
     fsms = {
-        "Behringer": launch_fsm(BehringerHandlerFSM, "Behringer")
+        "Behringer": launch_fsm(BehringerHandlerFSM, "Behringer"),
+        "Windsonic": launch_fsm(WindsonicHandlerFSM, "Windsonic")
     }
 
     logger.info("FSMs lanzados. Enviando SIG_INIT...")
-    fsms["Behringer"]["queue"].put(Message(MessageID.SIG_INIT))
+    for fsm in fsms.values():
+        fsm["queue"].put(Message(MessageID.SIG_INIT))
 
     try:
         while True:
