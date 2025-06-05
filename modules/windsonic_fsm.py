@@ -66,8 +66,8 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
         elif self.state == State.ACQUIRE:
             if self._on_entry_flag:
                 self.logger.info("Entrando a ACQUIRE")
-                num = self._pending_params.get("num", 5)
-                success = self.device.acquire(num)
+                # Usar SIEMPRE los valores configurados en el low-level
+                success = self.device.acquire()
                 result = ResultCode.OK if success else ResultCode.ERROR
                 if result == ResultCode.ERROR:
                     self.set_state(State.ERROR, self.status_queue)
@@ -129,3 +129,12 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
                         "result": ResultCode.OK.value
                     }
                 )))
+
+    def set_config(self, samples=None, spacing=None):
+        """Configura los parámetros de Windsonic y los aplica al low-level."""
+        if samples is not None or spacing is not None:
+            self.device.config(
+                samples=samples if samples is not None else self.device.samples,
+                spacing=spacing if spacing is not None else self.device.spacing
+            )
+            self.logger.info(f"Configuración Windsonic actualizada: muestras={self.device.samples}, spacing={self.device.spacing}")

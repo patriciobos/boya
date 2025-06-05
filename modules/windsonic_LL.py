@@ -53,11 +53,11 @@ class WindsonicLowLevel:
 
     def init(self) -> bool:
         """Escanea puertos serie para encontrar y conectar el anemómetro."""
-        manual_ports = [f"/dev/ttyS{i}" for i in range(6)]
+        #manual_ports = [f"/dev/ttyS{i}" for i in range(6)]
         ports = [p.device for p in serial.tools.list_ports.comports()]
-        all_ports = manual_ports + [p for p in ports if p not in manual_ports]
+        #all_ports = manual_ports + [p for p in ports if p not in manual_ports]
 
-        for port_name in all_ports:
+        for port_name in ports:
             if not os.path.exists(port_name):
                 self.logger.info(f"Puerto {port_name} no existe, se omite.")
                 continue
@@ -66,6 +66,8 @@ class WindsonicLowLevel:
                 ser = serial.Serial(port_name, 9600, timeout=1)
                 ser.write(self.identification.encode())
                 response = ser.readline().decode(errors='ignore').strip()
+                print(f"Respuesta del anemómetro: {response}") #FIXME: sacar este print
+            
                 if self.verify_checksum(response):
                     fields = response[1:-1].split(',')
                     if len(fields) >= 5 and fields[0] == self.identification:
@@ -91,14 +93,18 @@ class WindsonicLowLevel:
         finally:
             self.serial_connection = None
 
-    def acquire(self, num_acq: int) -> bool:
-        """Inicia adquisición de num_acq muestras espaciadas 1 segundo."""
+    from typing import Optional
+
+    def acquire(self, num_acq: Optional[int] = None) -> bool:
+        """Inicia adquisición de num_acq muestras espaciadas self.spacing segundos."""
         if not self.serial_connection or not self.serial_connection.is_open:
             self.logger.warning("Conexión serie no inicializada.")
             return False
+        if num_acq is None:
+            num_acq = self.samples
         self.is_acquiring = True
         self.last_acquisition_ok = False
-        self.acquisition_thread = threading.Thread(target=self._acquisition_loop, args=(num_acq,), daemon=True)
+        self.acquisition_thread = threading.Thread(target=self._acquisition_loop, args=(int(num_acq),), daemon=True)
         self.acquisition_thread.start()
         return True
 
