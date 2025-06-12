@@ -410,4 +410,25 @@ class BehringerLowLevel:
         return resultado_global, detalles
 
 if __name__ == "__main__":
-    print("Permiso acceso /dev/snd:", os.access("/dev/snd", os.R_OK | os.W_OK))
+    # Inicializa el dispositivo y ejecuta un test completo
+    b = BehringerLowLevel()
+    print("Inicializando dispositivo Behringer...")
+    if b.init():
+        print("Dispositivo inicializado. Ejecutando test completo...")
+        resultado, detalles = b.full_test()
+        if resultado:
+            print("Resultado del test: OK")
+        else:
+            print("Resultado del test: ERROR")
+            print("Detalles de fallos:")
+            for clave, valor in detalles.items():
+                if clave.startswith("error") or valor is False:
+                    print(f" - {clave}: {valor}")
+        # Cierra recursos de forma prolija y verifica el resultado
+        deinit_ok = b.deinit()
+        if deinit_ok:
+            print("Recursos liberados correctamente.")
+        else:
+            print("Hubo un error al liberar los recursos.")
+    else:
+        print("No se pudo inicializar el dispositivo Behringer.")

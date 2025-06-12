@@ -4,6 +4,7 @@ from time import sleep
 
 from modules.behringer_fsm import BehringerHandlerFSM
 from modules.windsonic_fsm import WindsonicHandlerFSM
+from modules.iridium_fsm import IridiumHandlerFSM
 from modules.base_fsm import Message, MessageID, State
 
 def setup_logger():
@@ -38,7 +39,8 @@ if __name__ == "__main__":
     logger = setup_logger()
     fsms = {
         "Behringer": launch_fsm(BehringerHandlerFSM, "Behringer"),
-        "Windsonic": launch_fsm(WindsonicHandlerFSM, "Windsonic")
+        #"Windsonic": launch_fsm(WindsonicHandlerFSM, "Windsonic"),
+        "Iridium": launch_fsm(IridiumHandlerFSM, "Iridium"),
     }
 
     logger.info("FSMs lanzados. Enviando SIG_INIT...")

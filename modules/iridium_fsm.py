@@ -1,5 +1,5 @@
 from modules.base_fsm import BaseHandlerFSM, State, Message, MessageID
-from modules.iridium_ll import IridiumLowLevel
+from modules.iridium_LL import IridiumLowLevel
 import time
 import logging
 

@@ -24,7 +24,7 @@ class WindsonicLowLevel:
         self.serial_connection = None
         self.samples = 10
         self.spacing = 1
-        self.identification = 'R'
+        self.identification = 'Q'
         self.acquisition_thread = None
         self.is_acquiring = False
         self.last_acquisition_ok = False
