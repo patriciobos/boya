@@ -25,6 +25,10 @@ class IridiumLowLevel:
             else:
                 self.logger.addHandler(file_handler)
         self._open_port()
+        
+        # Si se abrió el puerto
+        if self.serial_port and self.serial_port.is_open:
+            self._log_device_info()
 
     def _open_port(self):
         """Escanea los puertos serie ttyS0-ttyS6 y abre el primero donde responde el módem Iridium."""
@@ -50,6 +54,17 @@ class IridiumLowLevel:
             self.logger.error("No se pudo encontrar el módem Iridium en los puertos ttyS0-ttyS6.")
             self.serial_port = None
             self.port = None
+
+    def _log_device_info(self):
+        """Consulta modelo y versión de firmware y lo registra en el log."""
+        try:
+            modelo = self.send_command("AT+CGMM").strip()
+            version = self.send_command("AT+CGMR").strip()
+            self.logger.info(f"Modelo del módem: {modelo}")
+            self.logger.info(f"Versión de firmware: {version}")
+        except Exception as e:
+            self.logger.error(f"Error al obtener modelo o versión: {e}")
+
 
     def send_command(self, command: str) -> str:
         """Envía un comando AT y espera la respuesta."""
@@ -146,22 +161,73 @@ class IridiumLowLevel:
 
         self.logger.info(f"[full_test] Resultado global: {resultado_global}")
         return resultado_global, detalles
+    
+    def check_status(self) -> dict:
+        """Consulta y loguea el estado general del módem: señal, red, antena y buzón SBD."""
+        estado = {}
+
+        if not self.serial_port or not self.serial_port.is_open:
+            self.logger.error("No se puede consultar el estado: puerto no abierto.")
+            return {"error": "Puerto no abierto"}
+
+        # RSSI
+        try:
+            rssi = self.send_command("AT+CSQ").strip()
+            estado["csq"] = rssi
+            self.logger.info(f"[check_status] Intensidad de señal (CSQ): {rssi}")
+        except Exception as e:
+            estado["csq"] = f"Error: {e}"
+            self.logger.error(f"[check_status] Error al consultar CSQ: {e}")
+
+        # Registro en red
+        try:
+            creg = self.send_command("AT+CREG?").strip()
+            estado["creg"] = creg
+            self.logger.info(f"[check_status] Registro en red (CREG): {creg}")
+        except Exception as e:
+            estado["creg"] = f"Error: {e}"
+            self.logger.error(f"[check_status] Error al consultar CREG: {e}")
+
+        # Estado de antena (si está soportado)
+        try:
+            ant = self.send_command("AT+ANTST").strip()
+            estado["antena"] = ant
+            self.logger.info(f"[check_status] Estado de antena (ANTST): {ant}")
+        except Exception as e:
+            estado["antena"] = f"Error: {e}"
+            self.logger.warning(f"[check_status] No se pudo consultar ANTST: {e}")
+
+        # Estado de buzón SBD
+        try:
+            sbdix = self.send_command("AT+SBDIX").strip()
+            estado["sbdix"] = sbdix
+            self.logger.info(f"[check_status] Estado del buzón SBD (SBDIX): {sbdix}")
+        except Exception as e:
+            estado["sbdix"] = f"Error: {e}"
+            self.logger.error(f"[check_status] Error al consultar SBDIX: {e}")
+
+        return estado
+
 
 if __name__ == "__main__":
     modem = IridiumLowLevel()
     print("Inicializando módem Iridium...")
     if modem.serial_port and modem.serial_port.is_open:
-        print("Módem inicializado. Ejecutando test completo...")
-        resultado, detalles = modem.full_test()
-        if resultado:
+         print("Chequeando estado general...")
+         status = modem.check_status()
+         for clave, valor in status.items():
+            print(f"{clave}: {valor}")
+         print("Módem inicializado. Ejecutando test completo...")
+         resultado, detalles = modem.full_test()
+         if resultado:
             print("Resultado del test: OK")
-        else:
+         else:
             print("Resultado del test: ERROR")
             print("Detalles de fallos:")
             for clave, valor in detalles.items():
                 if clave.startswith("error") or valor is False:
                     print(f" - {clave}: {valor}")
-        modem.close()
-        print("Recursos liberados correctamente.")
+         modem.close()
+         print("Recursos liberados correctamente.")
     else:
         print("No se pudo inicializar el módem Iridium.")
