@@ -64,6 +64,7 @@ class WindsonicLowLevel:
             try:
                 self.logger.info(f"Intentando abrir puerto {port_name}...")
                 ser = serial.Serial(port_name, 9600, timeout=1)
+                ser.write((self.identification + '?').encode())
                 ser.write(self.identification.encode())
                 response = ser.readline().decode(errors='ignore').strip()
                 print(f"Respuesta del anemómetro: {response}") #FIXME: sacar este print
