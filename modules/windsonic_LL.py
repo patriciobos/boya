@@ -5,12 +5,12 @@ Las adquisiciones se guardan en archivos de texto con timestamp en la carpeta "w
 """
 
 import os
-import logging
 import serial
 import serial.tools.list_ports
 import threading
 import datetime
 import time
+from modules.log_utils import get_logger
 
 STX = '\x02'
 ETX = '\x03'
@@ -34,17 +34,10 @@ class WindsonicLowLevel:
         os.makedirs(self.output_dir, exist_ok=True)
 
         self.log_file = os.path.join(base_dir, "windsonic_LL.log")
-        self.logger = logging.getLogger("windsonic_logger")
-        self.logger.setLevel(logging.INFO)
-
-        file_handler = logging.FileHandler(self.log_file)
-        console_handler = logging.StreamHandler()
-        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-        file_handler.setFormatter(formatter)
-        console_handler.setFormatter(formatter)
-
-        self.logger.addHandler(file_handler)
-        self.logger.addHandler(console_handler)
+        self.logger = get_logger(
+            name="windsonic_LL",
+            log_file=self.log_file
+        )
 
     def config(self, samples=10, spacing=1):
         """Configura cantidad de muestras y espaciamiento entre adquisiciones."""

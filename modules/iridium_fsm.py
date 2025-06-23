@@ -64,3 +64,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             self.logger.error("Entrando en el estado ERROR")
             self.modem.close()
             self._on_entry_flag = False
+
+    def stop_scheduler(self):
+        """Método vacío para simetría con otros FSMs."""
+        pass

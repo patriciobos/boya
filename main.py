@@ -39,7 +39,7 @@ if __name__ == "__main__":
     logger = setup_logger()
     fsms = {
         "Behringer": launch_fsm(BehringerHandlerFSM, "Behringer"),
-        #"Windsonic": launch_fsm(WindsonicHandlerFSM, "Windsonic"),
+        "Windsonic": launch_fsm(WindsonicHandlerFSM, "Windsonic"),
         "Iridium": launch_fsm(IridiumHandlerFSM, "Iridium"),
     }
 

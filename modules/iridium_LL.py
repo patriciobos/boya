@@ -1,7 +1,7 @@
 import serial
 import time
-import logging
 import os
+from modules.log_utils import get_logger
 
 class IridiumLowLevel:
     def __init__(self, port=None, baudrate=19200):
@@ -9,21 +9,10 @@ class IridiumLowLevel:
         self.port = port  # None por defecto, se setea si se detecta
         self.baudrate = baudrate
         self.serial_port = None
-        self.logger = logging.getLogger("IridiumLowLevel")
-        self.logger.setLevel(logging.INFO)
-        # Agregar handler de archivo igual que Behringer
-        file_handler = logging.FileHandler("modules/iridium_LL.log")
-        formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-        file_handler.setFormatter(formatter)
-        if not self.logger.hasHandlers():
-            self.logger.addHandler(file_handler)
-        else:
-            # Evitar múltiples handlers si se reinicializa
-            for h in self.logger.handlers:
-                if isinstance(h, logging.FileHandler) and h.baseFilename == file_handler.baseFilename:
-                    break
-            else:
-                self.logger.addHandler(file_handler)
+        self.logger = get_logger(
+            name="iridium_LL",
+            log_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), "iridium_LL.log")
+        )
         self._open_port()
         
         # Si se abrió el puerto

@@ -3,13 +3,13 @@
 import os
 import glob
 import wave
-import logging
 import threading
 import time
 import queue
 from datetime import datetime
 
 import pyaudio
+from modules.log_utils import get_logger
 
 # Suppress warnings and prevent JACK server from starting
 os.environ["PYTHONWARNINGS"] = "ignore"
@@ -33,20 +33,10 @@ class BehringerLowLevel:
         self.log_file = os.path.join(base_dir, "behringer_LL.log")
         self.output_path = None
 
-        self.logger = logging.getLogger("behringer_logger")
-        self.logger.setLevel(logging.INFO)
-
-        file_handler = logging.FileHandler(self.log_file)
-        console_handler = logging.StreamHandler()
-
-        formatter = logging.Formatter(
-            "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        self.logger = get_logger(
+            name="behringer_LL",
+            log_file=self.log_file
         )
-        file_handler.setFormatter(formatter)
-        console_handler.setFormatter(formatter)
-
-        self.logger.addHandler(file_handler)
-        self.logger.addHandler(console_handler)
 
     def init(self) -> bool:
         if self.audio_interface is not None:
