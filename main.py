@@ -1,4 +1,3 @@
-import logging
 from multiprocessing import Process, Queue
 from time import sleep
 
@@ -6,20 +5,7 @@ from modules.behringer_fsm import BehringerHandlerFSM
 from modules.windsonic_fsm import WindsonicHandlerFSM
 from modules.iridium_fsm import IridiumHandlerFSM
 from modules.base_fsm import Message, MessageID, State
-
-def setup_logger():
-    logger = logging.getLogger("Main")
-    logger.setLevel(logging.INFO)
-
-    ch = logging.StreamHandler()
-    ch.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-
-    fh = logging.FileHandler("main.log")
-    fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-
-    logger.addHandler(ch)
-    logger.addHandler(fh)
-    return logger
+from modules.log_utils import get_logger
 
 def launch_fsm(handler_class, name):
     queue = Queue()
@@ -36,7 +22,10 @@ def launch_fsm(handler_class, name):
     }
 
 if __name__ == "__main__":
-    logger = setup_logger()
+    logger = get_logger(
+        name="Main",
+        log_file="main.log"
+    )
     fsms = {
         "Behringer": launch_fsm(BehringerHandlerFSM, "Behringer"),
         "Windsonic": launch_fsm(WindsonicHandlerFSM, "Windsonic"),

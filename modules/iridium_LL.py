@@ -1,7 +1,7 @@
 import serial
 import time
 import os
-from modules.log_utils import get_logger
+from log_utils import get_logger
 
 class IridiumLowLevel:
     def __init__(self, port=None, baudrate=19200):
@@ -65,7 +65,7 @@ class IridiumLowLevel:
             time.sleep(1)  # Espera para recibir la respuesta
             raw_response = self.serial_port.read_all()
             response = raw_response.decode('utf-8') if raw_response is not None else ""
-            self.logger.info(f"Respuesta del módem: {response}")
+            #self.logger.info(f"Respuesta del módem: {response}")
             return response
         except Exception as e:
             self.logger.error(f"Error al enviar el comando {command}: {e}")

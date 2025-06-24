@@ -9,7 +9,7 @@ import queue
 from datetime import datetime
 
 import pyaudio
-from modules.log_utils import get_logger
+from log_utils import get_logger
 
 # Suppress warnings and prevent JACK server from starting
 os.environ["PYTHONWARNINGS"] = "ignore"

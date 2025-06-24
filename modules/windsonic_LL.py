@@ -10,7 +10,7 @@ import serial.tools.list_ports
 import threading
 import datetime
 import time
-from modules.log_utils import get_logger
+from log_utils import get_logger
 
 STX = '\x02'
 ETX = '\x03'
