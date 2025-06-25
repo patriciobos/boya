@@ -53,27 +53,36 @@ class IridiumLowLevel:
 
 
     def send_command(self, command: str) -> str:
-        """Envía un comando AT y espera la respuesta, leyendo en bucle hasta 1s o hasta encontrar 'OK'."""
         if self.serial_port is None or self.port is None:
             self.logger.error("Puerto no abierto o módem no detectado.")
             return ""
         try:
-            self.serial_port.reset_input_buffer()  # Vacía el buffer antes de enviar
+            self.serial_port.reset_input_buffer()
             self.serial_port.write((command + "\r\n").encode())
-            start = time.time()
             response_bytes = b''
-            while time.time() - start < 2.0:
+            start = time.time()
+            while time.time() - start < 10.0:
                 chunk = self.serial_port.read(256)
                 if chunk:
                     response_bytes += chunk
                     if b'OK' in response_bytes or b'ERROR' in response_bytes:
                         break
                 else:
-                    time.sleep(0.05)
+                    time.sleep(0.01)
+            # Sigo leyendo un poco más por si el OK llega tarde
+            for _ in range(5):
+                chunk = self.serial_port.read(256)
+                if chunk:
+                    response_bytes += chunk
             response = response_bytes.decode('utf-8', errors='replace') if response_bytes else ""
+            # Limpiar líneas previas y descartar el eco del comando
+            lines = [line.strip() for line in response.splitlines() if line.strip()]
+            if lines and lines[0] == command:
+                lines = lines[1:]
+            response_clean = "\n".join(lines)
             self.logger.info(f"Respuesta del módem cruda: {response_bytes}")
-            self.logger.info(f"Respuesta del módem: {response}")
-            return response
+            self.logger.info(f"Respuesta del módem: {response_clean}")
+            return response_clean
         except Exception as e:
             self.logger.error(f"Error al enviar el comando {command}: {e}")
             return ""
