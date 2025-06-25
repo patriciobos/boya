@@ -1,5 +1,6 @@
 from multiprocessing import Process, Queue
 from time import sleep
+import os
 
 from modules.behringer_fsm import BehringerHandlerFSM
 from modules.windsonic_fsm import WindsonicHandlerFSM
@@ -22,10 +23,7 @@ def launch_fsm(handler_class, name):
     }
 
 if __name__ == "__main__":
-    logger = get_logger(
-        name="Main",
-        log_file="main.log"
-    )
+    logger = get_logger("main")
     fsms = {
         "Behringer": launch_fsm(BehringerHandlerFSM, "Behringer"),
         "Windsonic": launch_fsm(WindsonicHandlerFSM, "Windsonic"),

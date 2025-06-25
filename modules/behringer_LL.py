@@ -30,13 +30,10 @@ class BehringerLowLevel:
         self.frames_queue = queue.Queue()
 
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.log_file = os.path.join(base_dir, "behringer_LL.log")
+        #self.log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", "behringer_LL.log")
         self.output_path = None
 
-        self.logger = get_logger(
-            name="behringer_LL",
-            log_file=self.log_file
-        )
+        self.logger = get_logger("behringer_LL")
 
     def init(self) -> bool:
         if self.audio_interface is not None:
@@ -381,21 +378,8 @@ class BehringerLowLevel:
             detalles["espacio_libre_bytes"] = 0
             self.logger.info(f"[full_test] espacio_libre_bytes: 0")
             resultado_global = False
-
-        # 6. Chequeo de errores previos (solo loguea, no afecta resultado)
-        self.logger.info("[full_test] Chequeando errores previos en el log...")
-        try:
-            with open(self.log_file, "r") as flog:
-                log_content = flog.read()
-                detalles["errores_previos"] = "ERROR" in log_content or "Exception" in log_content
-                self.logger.info(f"[full_test] errores_previos: {detalles['errores_previos']}")
-                if detalles["errores_previos"]:
-                    self.logger.warning("[full_test] Se detectaron errores previos en el log, pero no afectan el resultado actual.")
-        except Exception as e:
-            self.logger.warning("[full_test] No se pudo leer el log para chequear errores previos: %s", e)
-            detalles["errores_previos"] = None
-            self.logger.info(f"[full_test] errores_previos: None")
-
+        
+        # Resultado final        
         self.logger.info(f"[full_test] Resultado global: {resultado_global}")
         return resultado_global, detalles
 

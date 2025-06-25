@@ -9,10 +9,7 @@ class IridiumLowLevel:
         self.port = port  # None por defecto, se setea si se detecta
         self.baudrate = baudrate
         self.serial_port = None
-        self.logger = get_logger(
-            name="iridium_LL",
-            log_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), "iridium_LL.log")
-        )
+        self.logger = get_logger("iridium_LL")
         self._open_port()
         
         # Si se abrió el puerto
@@ -56,16 +53,26 @@ class IridiumLowLevel:
 
 
     def send_command(self, command: str) -> str:
-        """Envía un comando AT y espera la respuesta."""
+        """Envía un comando AT y espera la respuesta, leyendo en bucle hasta 1s o hasta encontrar 'OK'."""
         if self.serial_port is None or self.port is None:
             self.logger.error("Puerto no abierto o módem no detectado.")
             return ""
         try:
-            self.serial_port.write((command + "\r\n").encode())  # Enviar el comando
-            time.sleep(1)  # Espera para recibir la respuesta
-            raw_response = self.serial_port.read_all()
-            response = raw_response.decode('utf-8') if raw_response is not None else ""
-            #self.logger.info(f"Respuesta del módem: {response}")
+            self.serial_port.reset_input_buffer()  # Vacía el buffer antes de enviar
+            self.serial_port.write((command + "\r\n").encode())
+            start = time.time()
+            response_bytes = b''
+            while time.time() - start < 2.0:
+                chunk = self.serial_port.read(256)
+                if chunk:
+                    response_bytes += chunk
+                    if b'OK' in response_bytes or b'ERROR' in response_bytes:
+                        break
+                else:
+                    time.sleep(0.05)
+            response = response_bytes.decode('utf-8', errors='replace') if response_bytes else ""
+            self.logger.info(f"Respuesta del módem cruda: {response_bytes}")
+            self.logger.info(f"Respuesta del módem: {response}")
             return response
         except Exception as e:
             self.logger.error(f"Error al enviar el comando {command}: {e}")
@@ -96,6 +103,7 @@ class IridiumLowLevel:
         # 2. Comunicación básica: comando AT
         try:
             response = self.send_command("AT")
+            print(f"[respuesta a AT] Respuesta AT: {response.strip()}")
             detalles["respuesta_AT"] = response.strip()
             detalles["ok_AT"] = "OK" in response
             self.logger.info(f"[full_test] respuesta_AT: {response.strip()}")
@@ -199,9 +207,10 @@ class IridiumLowLevel:
 
 
 if __name__ == "__main__":
-    modem = IridiumLowLevel()
     print("Inicializando módem Iridium...")
+    modem = IridiumLowLevel()
     if modem.serial_port and modem.serial_port.is_open:
+         print("Init [OK]")
          print("Chequeando estado general...")
          status = modem.check_status()
          for clave, valor in status.items():
@@ -220,3 +229,6 @@ if __name__ == "__main__":
          print("Recursos liberados correctamente.")
     else:
         print("No se pudo inicializar el módem Iridium.")
+    # Forzar flush de stdout para asegurar impresión inmediata
+    import sys
+    sys.stdout.flush()

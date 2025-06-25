@@ -33,11 +33,8 @@ class WindsonicLowLevel:
         self.output_dir = os.path.join(base_dir, "windsonic")
         os.makedirs(self.output_dir, exist_ok=True)
 
-        self.log_file = os.path.join(base_dir, "windsonic_LL.log")
-        self.logger = get_logger(
-            name="windsonic_LL",
-            log_file=self.log_file
-        )
+        #self.log_file = os.path.join(base_dir, "..", "logs", "windsonic_LL.log")
+        self.logger = get_logger("windsonic_LL")
 
     def config(self, samples=10, spacing=1):
         """Configura cantidad de muestras y espaciamiento entre adquisiciones."""
