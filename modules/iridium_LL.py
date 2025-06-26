@@ -44,48 +44,70 @@ class IridiumLowLevel:
     def _log_device_info(self):
         """Consulta modelo y versión de firmware y lo registra en el log."""
         try:
-            modelo = self.send_command("AT+CGMM").strip()
-            version = self.send_command("AT+CGMR").strip()
+            modelo_resp = self.send_command("AT+CGMM",2)
+            version_resp = self.send_command("AT+CGMR",2)
+            modelo = modelo_resp['payload'] if modelo_resp else ''
+            version = version_resp['payload'] if version_resp else ''
             self.logger.info(f"Modelo del módem: {modelo}")
-            self.logger.info(f"Versión de firmware: {version}")
+            self.logger.info(f"Versiones de firmware:\n{version}")
         except Exception as e:
             self.logger.error(f"Error al obtener modelo o versión: {e}")
 
 
-    def send_command(self, command: str) -> str:
+    def send_command(self, command: str, timeout: float = 1.0):
+        """
+        Envía un comando AT y devuelve un dict con:
+            - 'echo': eco del comando (str)
+            - 'payload': respuesta útil (str)
+            - 'status': 'OK', 'ERROR' o ''
+        Si la respuesta es vacía, devuelve None y loguea el timeout.
+        """
+        import time
         if self.serial_port is None or self.port is None:
             self.logger.error("Puerto no abierto o módem no detectado.")
-            return ""
+            return None
         try:
             self.serial_port.reset_input_buffer()
             self.serial_port.write((command + "\r\n").encode())
             response_bytes = b''
             start = time.time()
-            while time.time() - start < 10.0:
+            status = ''
+            while time.time() - start < timeout:
                 chunk = self.serial_port.read(256)
                 if chunk:
                     response_bytes += chunk
-                    if b'OK' in response_bytes or b'ERROR' in response_bytes:
+                    if b'OK' in response_bytes:
+                        status = 'OK'
+                        break
+                    if b'ERROR' in response_bytes:
+                        status = 'ERROR'
                         break
                 else:
                     time.sleep(0.01)
-            # Sigo leyendo un poco más por si el OK llega tarde
-            for _ in range(5):
-                chunk = self.serial_port.read(256)
-                if chunk:
-                    response_bytes += chunk
-            response = response_bytes.decode('utf-8', errors='replace') if response_bytes else ""
-            # Limpiar líneas previas y descartar el eco del comando
+            elapsed = time.time() - start
+            if not response_bytes:
+                self.logger.warning(f"[send_command] Timeout ({timeout}s) expirado sin respuesta para '{command}'")
+                return None
+            response = response_bytes.decode('utf-8', errors='replace')
+            # Separar líneas y limpiar
             lines = [line.strip() for line in response.splitlines() if line.strip()]
-            if lines and lines[0] == command:
-                lines = lines[1:]
-            response_clean = "\n".join(lines)
-            self.logger.info(f"Respuesta del módem cruda: {response_bytes}")
-            self.logger.info(f"Respuesta del módem: {response_clean}")
-            return response_clean
+            echo = lines[0] if lines and lines[0] == command else ''
+            # Buscar status en las últimas líneas
+            status_line = ''
+            if lines and lines[-1] in ('OK', 'ERROR'):
+                status_line = lines[-1]
+                payload_lines = lines[1:-1] if echo else lines[:-1]
+            else:
+                payload_lines = lines[1:] if echo else lines[:]
+            payload = '\n'.join(payload_lines) if payload_lines else ''
+            # Log de depuración con tiempos
+            self.logger.info(f"[send_command] Comando: {command} | Tiempo de respuesta: {elapsed:.3f}s | Eco: '{echo}' | Status: '{status or status_line}' | Payload: '{payload}'")
+            #self.logger.info(f"Respuesta del módem cruda: {response_bytes}")
+            #self.logger.info(f"Respuesta del módem: {response}")
+            return {'echo': echo, 'payload': payload, 'status': status or status_line}
         except Exception as e:
             self.logger.error(f"Error al enviar el comando {command}: {e}")
-            return ""
+            return None
 
     def close(self):
         """Cierra el puerto serie."""
@@ -112,14 +134,21 @@ class IridiumLowLevel:
         # 2. Comunicación básica: comando AT
         try:
             response = self.send_command("AT")
-            print(f"[respuesta a AT] Respuesta AT: {response.strip()}")
-            detalles["respuesta_AT"] = response.strip()
-            detalles["ok_AT"] = "OK" in response
-            self.logger.info(f"[full_test] respuesta_AT: {response.strip()}")
-            self.logger.info(f"[full_test] ok_AT: {detalles['ok_AT']}")
-            if not detalles["ok_AT"]:
-                self.logger.error("[full_test] El módem no respondió OK a AT.")
+            if response is None:
+                detalles["respuesta_AT"] = None
+                detalles["ok_AT"] = False
+                self.logger.info(f"[full_test] respuesta_AT: <timeout>")
+                self.logger.info(f"[full_test] ok_AT: False")
+                self.logger.error("[full_test] El módem no respondió a AT (timeout).")
                 resultado_global = False
+            else:
+                detalles["respuesta_AT"] = response['status']  # Solo status, el payload de AT es vacío
+                detalles["ok_AT"] = response['status'] == 'OK'
+                self.logger.info(f"[full_test] status_AT: {response['status']}")
+                self.logger.info(f"[full_test] ok_AT: {detalles['ok_AT']}")
+                if not detalles["ok_AT"]:
+                    self.logger.error("[full_test] El módem no respondió OK a AT.")
+                    resultado_global = False
         except Exception as e:
             self.logger.error(f"[full_test] Error en comunicación AT: {e}")
             detalles["error_AT"] = str(e)
@@ -178,7 +207,8 @@ class IridiumLowLevel:
 
         # RSSI
         try:
-            rssi = self.send_command("AT+CSQ").strip()
+            rssi_resp = self.send_command("AT+CSQ")
+            rssi = rssi_resp['payload'] if rssi_resp else ''
             estado["csq"] = rssi
             self.logger.info(f"[check_status] Intensidad de señal (CSQ): {rssi}")
         except Exception as e:
@@ -187,7 +217,8 @@ class IridiumLowLevel:
 
         # Registro en red
         try:
-            creg = self.send_command("AT+CREG?").strip()
+            creg_resp = self.send_command("AT+CREG?")
+            creg = creg_resp['payload'] if creg_resp else ''
             estado["creg"] = creg
             self.logger.info(f"[check_status] Registro en red (CREG): {creg}")
         except Exception as e:
@@ -196,7 +227,8 @@ class IridiumLowLevel:
 
         # Estado de antena (si está soportado)
         try:
-            ant = self.send_command("AT+ANTST").strip()
+            ant_resp = self.send_command("AT+ANTST")
+            ant = ant_resp['payload'] if ant_resp else ''
             estado["antena"] = ant
             self.logger.info(f"[check_status] Estado de antena (ANTST): {ant}")
         except Exception as e:
@@ -205,7 +237,8 @@ class IridiumLowLevel:
 
         # Estado de buzón SBD
         try:
-            sbdix = self.send_command("AT+SBDIX").strip()
+            sbdix_resp = self.send_command("AT+SBDIX", timeout=7.0)
+            sbdix = sbdix_resp['payload'] if sbdix_resp else ''
             estado["sbdix"] = sbdix
             self.logger.info(f"[check_status] Estado del buzón SBD (SBDIX): {sbdix}")
         except Exception as e:

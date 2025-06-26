@@ -15,7 +15,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         """Inicializa el módem Iridium enviando el comando AT y esperando OK."""
         self.logger.info("Inicializando módem Iridium...")
         response = self.modem.send_command("AT")
-        if "OK" in response:
+        if response is not None and response.get('status') == 'OK':
             self.logger.info("Módem inicializado correctamente.")
             return True
         else:
@@ -26,11 +26,11 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         """Ejecuta un test completo del módem (por ejemplo, comprobación de señal)."""
         self.logger.info("Ejecutando test del módem Iridium...")
         response = self.modem.send_command("AT+CSQ")
-        if "+CSQ" in response:
+        if response is not None and response.get('status') == 'OK' and '+CSQ' in response.get('payload', ''):
             self.logger.info("Test completo exitoso.")
             return True
         else:
-            self.logger.error("Error en el test del módem.")
+            self.logger.error(f"Error en el test del módem: {response}")
             return False
 
     def update(self):
