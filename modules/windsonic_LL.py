@@ -10,7 +10,7 @@ import serial.tools.list_ports
 import threading
 import datetime
 import time
-from log_utils import get_logger
+from modules.log_utils import get_logger
 
 STX = '\x02'
 ETX = '\x03'
@@ -321,6 +321,10 @@ class WindsonicLowLevel:
         return resultado_global, detalles
 
 if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
+
     print("Ejecutando prueba de conexión con Windsonic...")
     w = WindsonicLowLevel()
     if w.init():

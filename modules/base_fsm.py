@@ -15,6 +15,7 @@ class State(Enum):
     PROCESS = auto()
     TEST = auto()
     ERROR = auto()
+    REPORT = auto()  # <--- Added explicit REPORT state
 
 class MessageID(Enum):
     SIG_INIT = "sig_init"

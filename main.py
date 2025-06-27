@@ -27,7 +27,7 @@ if __name__ == "__main__":
     fsms = {
         "Behringer": launch_fsm(BehringerHandlerFSM, "Behringer"),
         "Windsonic": launch_fsm(WindsonicHandlerFSM, "Windsonic"),
-        "Iridium": launch_fsm(IridiumHandlerFSM, "Iridium"),
+        "Iridium": launch_fsm(IridiumHandlerFSM, "Iridium")
     }
 
     logger.info("FSMs lanzados. Enviando SIG_INIT...")

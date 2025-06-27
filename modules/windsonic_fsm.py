@@ -1,5 +1,6 @@
 from modules.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
 from modules.windsonic_LL import WindsonicLowLevel
+import time
 
 class WindsonicHandlerFSM(BaseHandlerFSM):
     def __init__(self):
@@ -31,6 +32,7 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
 
         if self.state == State.INIT and self._on_entry_flag:
             self.logger.info("Entrando a INIT")
+            time.sleep(5)  #FIXME: sin este spleep hay problemas de concurrencia con el módulo iridium
             success = self.device.init()
             result = ResultCode.OK if success else ResultCode.ERROR
             if success:

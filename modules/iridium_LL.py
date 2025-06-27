@@ -1,23 +1,19 @@
 import serial
 import time
 import os
-from log_utils import get_logger
+from modules.log_utils import get_logger
 
 class IridiumLowLevel:
     def __init__(self, port=None, baudrate=19200):
-        """Inicializa el acceso al módem Iridium a través del puerto serie."""
+        """Inicializa el acceso al módem Iridium a través del puerto serie (sin abrir el puerto)."""
         self.port = port  # None por defecto, se setea si se detecta
         self.baudrate = baudrate
         self.serial_port = None
         self.logger = get_logger("iridium_LL")
-        self._open_port()
         
-        # Si se abrió el puerto
-        if self.serial_port and self.serial_port.is_open:
-            self._log_device_info()
 
-    def _open_port(self):
-        """Escanea los puertos serie ttyS0-ttyS6 y abre el primero donde responde el módem Iridium."""
+    def init(self):
+        """Escanea los puertos serie ttyS0-ttyS6 y abre el primero donde responde el módem Iridium. Devuelve True/False."""
         found = False
         for i in range(7):
             port_name = f"/dev/ttyS{i}"
@@ -32,6 +28,7 @@ class IridiumLowLevel:
                     self.port = port_name
                     self.logger.info(f"Módem Iridium detectado en {port_name}")
                     found = True
+                    self._log_device_info()
                     break
                 ser.close()
             except Exception as e:
@@ -40,6 +37,7 @@ class IridiumLowLevel:
             self.logger.error("No se pudo encontrar el módem Iridium en los puertos ttyS0-ttyS6.")
             self.serial_port = None
             self.port = None
+        return found
 
     def _log_device_info(self):
         """Consulta modelo y versión de firmware y lo registra en el log."""
@@ -248,21 +246,25 @@ class IridiumLowLevel:
         return estado
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" and __package__ is None:
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
+
     print("Inicializando módem Iridium...")
     modem = IridiumLowLevel()
     if modem.serial_port and modem.serial_port.is_open:
          print("Init [OK]")
-         print("Chequeando estado general...")
+         print("Chequeando estado...")
          status = modem.check_status()
          for clave, valor in status.items():
             print(f"{clave}: {valor}")
-         print("Módem inicializado. Ejecutando test completo...")
+         print("Ejecutando batería de tests...")
          resultado, detalles = modem.full_test()
          if resultado:
-            print("Resultado del test: OK")
+            print("Tests: OK")
          else:
-            print("Resultado del test: ERROR")
+            print("Tests: ERROR")
             print("Detalles de fallos:")
             for clave, valor in detalles.items():
                 if clave.startswith("error") or valor is False:
@@ -271,6 +273,4 @@ if __name__ == "__main__":
          print("Recursos liberados correctamente.")
     else:
         print("No se pudo inicializar el módem Iridium.")
-    # Forzar flush de stdout para asegurar impresión inmediata
-    import sys
-    sys.stdout.flush()
+

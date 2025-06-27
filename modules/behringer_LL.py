@@ -9,7 +9,7 @@ import queue
 from datetime import datetime
 
 import pyaudio
-from log_utils import get_logger
+from modules.log_utils import get_logger
 
 # Suppress warnings and prevent JACK server from starting
 os.environ["PYTHONWARNINGS"] = "ignore"
@@ -383,7 +383,11 @@ class BehringerLowLevel:
         self.logger.info(f"[full_test] Resultado global: {resultado_global}")
         return resultado_global, detalles
 
-if __name__ == "__main__":
+if __name__ == "__main__" and __package__ is None:
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
+
     # Inicializa el dispositivo y ejecuta un test completo
     b = BehringerLowLevel()
     print("Inicializando dispositivo Behringer...")
