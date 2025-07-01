@@ -1,6 +1,8 @@
 import serial
 import time
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.log_utils import get_logger
 
 class IridiumLowLevel:
@@ -246,31 +248,28 @@ class IridiumLowLevel:
         return estado
 
 
-if __name__ == "__main__" and __package__ is None:
-    import sys
-    from pathlib import Path
-    sys.path.append(str(Path(__file__).resolve().parent.parent))
+if __name__ == "__main__":
 
     print("Inicializando módem Iridium...")
     modem = IridiumLowLevel()
-    if modem.serial_port and modem.serial_port.is_open:
-         print("Init [OK]")
-         print("Chequeando estado...")
-         status = modem.check_status()
-         for clave, valor in status.items():
+    if modem.init() and modem.serial_port and modem.serial_port.is_open:
+        print("Init [OK]")
+        print("Chequeando estado...")
+        status = modem.check_status()
+        for clave, valor in status.items():
             print(f"{clave}: {valor}")
-         print("Ejecutando batería de tests...")
-         resultado, detalles = modem.full_test()
-         if resultado:
+        print("Ejecutando batería de tests...")
+        resultado, detalles = modem.full_test()
+        if resultado:
             print("Tests: OK")
-         else:
+        else:
             print("Tests: ERROR")
             print("Detalles de fallos:")
             for clave, valor in detalles.items():
                 if clave.startswith("error") or valor is False:
                     print(f" - {clave}: {valor}")
-         modem.close()
-         print("Recursos liberados correctamente.")
+        modem.close()
+        print("Recursos liberados correctamente.")
     else:
         print("No se pudo inicializar el módem Iridium.")
 

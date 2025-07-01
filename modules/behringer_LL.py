@@ -8,8 +8,13 @@ import time
 import queue
 from datetime import datetime
 
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import pyaudio
 from modules.log_utils import get_logger
+
+
 
 # Suppress warnings and prevent JACK server from starting
 os.environ["PYTHONWARNINGS"] = "ignore"
@@ -103,9 +108,11 @@ class BehringerLowLevel:
             self.logger.warning("No se puede grabar: dispositivo no inicializado.")
             return False
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        recordings_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
+        # Ruta relativa al proyecto: /modules/recordings/yyyymmdd
+        date_str = datetime.now().strftime("%Y%m%d")
+        recordings_dir = os.path.join(os.path.dirname(__file__), "recordings", date_str)
         os.makedirs(recordings_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.output_path = os.path.join(recordings_dir, f"recording_{timestamp}.wav")
 
         self.logger.info("Iniciando grabación: %s por %d segundos.", self.output_path, duration)
@@ -266,7 +273,9 @@ class BehringerLowLevel:
         self.logger.info("[full_test] Prueba de grabación corta...")
         test_record_ok = False
         test_file = None
-        recordings_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
+        # Ruta relativa al proyecto: /modules/recordings/yyyymmdd
+        date_str = datetime.now().strftime("%Y%m%d")
+        recordings_dir = os.path.join(os.path.dirname(__file__), "recordings", date_str)
         try:
             test_duration = 2
             os.makedirs(recordings_dir, exist_ok=True)
@@ -383,7 +392,7 @@ class BehringerLowLevel:
         self.logger.info(f"[full_test] Resultado global: {resultado_global}")
         return resultado_global, detalles
 
-if __name__ == "__main__" and __package__ is None:
+if __name__ == "__main__":
     import sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).resolve().parent.parent))
