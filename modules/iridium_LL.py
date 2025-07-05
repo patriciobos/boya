@@ -1,7 +1,9 @@
-import serial
 import time
 import os
 import sys
+
+import serial
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.log_utils import get_logger
 

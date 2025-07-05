@@ -230,7 +230,6 @@ class BehringerLowLevel:
         Realiza un test completo del dispositivo Behringer.
         Devuelve (resultado_global, detalles_dict)
         """
-        import pyaudio
         detalles = {}
         resultado_global = True
 
