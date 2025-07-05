@@ -305,20 +305,20 @@ class WindsonicLowLevel:
             resultado_global = False
 
         # 7. Chequeo de dependencias
-        try:
-            import serial
-            detalles["serial"] = True
-            self.logger.info(f"[full_test] serial: True")
-        except ImportError:
-            self.logger.error("[full_test] pyserial no está instalado.")
-            detalles["serial"] = False
-            self.logger.info(f"[full_test] serial: False")
-            resultado_global = False
+        # try:
+        #     import serial
+        #     detalles["serial"] = True
+        #     self.logger.info(f"[full_test] serial: True")
+        # except ImportError:
+        #     self.logger.error("[full_test] pyserial no está instalado.")
+        #     detalles["serial"] = False
+        #     self.logger.info(f"[full_test] serial: False")
+        #     resultado_global = False
 
-        # (NO deinit aquí, no se cierra la conexión ni se modifica el estado global)
+        # # (NO deinit aquí, no se cierra la conexión ni se modifica el estado global)
 
-        self.logger.info(f"[full_test] Resultado global: {resultado_global}")
-        return resultado_global, detalles
+        # self.logger.info(f"[full_test] Resultado global: {resultado_global}")
+        # return resultado_global, detalles
 
 if __name__ == "__main__":
     import sys

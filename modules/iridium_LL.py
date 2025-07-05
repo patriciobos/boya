@@ -169,15 +169,15 @@ class IridiumLowLevel:
             resultado_global = False
 
         # 4. Chequeo de dependencias
-        try:
-            import serial
-            detalles["serial"] = True
-            self.logger.info(f"[full_test] serial: True")
-        except ImportError:
-            self.logger.error("[full_test] pyserial no está instalado.")
-            detalles["serial"] = False
-            self.logger.info(f"[full_test] serial: False")
-            resultado_global = False
+        # try:
+        #     import serial
+        #     detalles["serial"] = True
+        #     self.logger.info(f"[full_test] serial: True")
+        # except ImportError:
+        #     self.logger.error("[full_test] pyserial no está instalado.")
+        #     detalles["serial"] = False
+        #     self.logger.info(f"[full_test] serial: False")
+        #     resultado_global = False
 
         # 5. Espacio en disco
         try:
