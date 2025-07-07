@@ -1,3 +1,12 @@
+"""
+iridium_LL.py
+
+This module provides low-level logic for communicating with the Iridium modem, including initialization, message sending, and status monitoring.
+
+Classes:
+    IridiumLowLevel: Manages setup, data transmission, and reception for the Iridium satellite modem.
+"""
+
 import serial
 import time
 import os
@@ -7,7 +16,13 @@ from modules.log_utils import get_logger
 
 class IridiumLowLevel:
     def __init__(self, port=None, baudrate=19200):
-        """Inicializa el acceso al módem Iridium a través del puerto serie (sin abrir el puerto)."""
+        """
+        Initialize access to the Iridium modem via serial port (does not open the port).
+
+        Args:
+            port (str, optional): Serial port to use. Defaults to None.
+            baudrate (int, optional): Baud rate for serial communication. Defaults to 19200.
+        """
         self.port = port  # None por defecto, se setea si se detecta
         self.baudrate = baudrate
         self.serial_port = None
@@ -15,7 +30,12 @@ class IridiumLowLevel:
         
 
     def init(self):
-        """Escanea los puertos serie ttyS0-ttyS6 y abre el primero donde responde el módem Iridium. Devuelve True/False."""
+        """
+        Scan serial ports ttyS0-ttyS6 and open the first one where the Iridium modem responds.
+
+        Returns:
+            bool: True if the modem is found and initialized, False otherwise.
+        """
         found = False
         for i in range(7):
             port_name = f"/dev/ttyS{i}"
@@ -42,7 +62,9 @@ class IridiumLowLevel:
         return found
 
     def _log_device_info(self):
-        """Consulta modelo y versión de firmware y lo registra en el log."""
+        """
+        Query the modem model and firmware version and log the information.
+        """
         try:
             modelo_resp = self.send_command("AT+CGMM",2)
             version_resp = self.send_command("AT+CGMR",2)
@@ -56,11 +78,14 @@ class IridiumLowLevel:
 
     def send_command(self, command: str, timeout: float = 1.0):
         """
-        Envía un comando AT y devuelve un dict con:
-            - 'echo': eco del comando (str)
-            - 'payload': respuesta útil (str)
-            - 'status': 'OK', 'ERROR' o ''
-        Si la respuesta es vacía, devuelve None y loguea el timeout.
+        Send an AT command and return a dictionary with the response.
+
+        Args:
+            command (str): The AT command to send.
+            timeout (float, optional): Timeout in seconds. Defaults to 1.0.
+
+        Returns:
+            dict or None: Dictionary with 'echo', 'payload', and 'status', or None on timeout/error.
         """
         import time
         if self.serial_port is None or self.port is None:
@@ -110,7 +135,9 @@ class IridiumLowLevel:
             return None
 
     def close(self):
-        """Cierra el puerto serie."""
+        """
+        Close the serial port if it is open.
+        """
         if self.serial_port and self.serial_port.is_open:
             self.serial_port.close()
             self.logger.info("Puerto serie cerrado.")
@@ -118,8 +145,10 @@ class IridiumLowLevel:
 
     def full_test(self) -> tuple[bool, dict]:
         """
-        Realiza un test completo del módem Iridium.
-        Devuelve (resultado_global, detalles_dict)
+        Perform a full test of the Iridium modem.
+
+        Returns:
+            tuple: (global_result: bool, details: dict)
         """
         detalles = {}
         resultado_global = True
@@ -198,7 +227,12 @@ class IridiumLowLevel:
         return resultado_global, detalles
     
     def check_status(self) -> dict:
-        """Consulta y loguea el estado general del módem: señal, red, antena y buzón SBD."""
+        """
+        Query and log the general status of the modem: signal, network, antenna, and SBD mailbox.
+
+        Returns:
+            dict: Dictionary with status information.
+        """
         estado = {}
 
         if not self.serial_port or not self.serial_port.is_open:

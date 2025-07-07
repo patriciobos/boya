@@ -1,7 +1,10 @@
 """
-Módulo de bajo nivel para controlar el anemómetro Windsonic mediante puerto serie.
-Permite inicialización, configuración, adquisición de datos espaciados 1 segundo, y test funcional.
-Las adquisiciones se guardan en archivos de texto con timestamp en la carpeta "windsonic".
+windsonic_LL.py
+
+This module provides low-level logic for interfacing with the Windsonic sensor, including data acquisition and communication.
+
+Classes:
+    WindsonicLowLevel: Manages initialization, reading, and processing of data from the Windsonic device.
 """
 
 import os
@@ -20,7 +23,11 @@ class WindsonicLowLevel:
     Controlador de bajo nivel para el anemómetro Windsonic.
     """
     def __init__(self):
-        """Establece entorno, logger y variables internas."""
+        """
+        Initialize the WindsonicLowLevel instance.
+
+        Sets up internal state and logger.
+        """
         self.serial_connection = None
         self.samples = 10
         self.spacing = 1
@@ -37,12 +44,23 @@ class WindsonicLowLevel:
         self.logger = get_logger("windsonic_LL")
 
     def config(self, samples=10, spacing=1):
-        """Configura cantidad de muestras y espaciamiento entre adquisiciones."""
+        """
+        Configure the number of samples and spacing between acquisitions.
+
+        Args:
+            samples (int): Number of samples to acquire.
+            spacing (int): Time in seconds between samples.
+        """
         self.samples = samples
         self.spacing = spacing
 
     def init(self) -> bool:
-        """Escanea puertos serie para encontrar y conectar el anemómetro."""
+        """
+        Scan serial ports to find and connect to the Windsonic anemometer.
+
+        Returns:
+            bool: True if the device is found and initialized, False otherwise.
+        """
         #manual_ports = [f"/dev/ttyS{i}" for i in range(6)]
         ports = [p.device for p in serial.tools.list_ports.comports()]
         #all_ports = manual_ports + [p for p in ports if p not in manual_ports]
@@ -72,7 +90,12 @@ class WindsonicLowLevel:
         return False
 
     def deinit(self) -> bool:
-        """Libera los recursos y cierra la conexión serie."""
+        """
+        Release resources and close the serial connection.
+
+        Returns:
+            bool: True if resources were released, False otherwise.
+        """
         try:
             if self.serial_connection and self.serial_connection.is_open:
                 self.serial_connection.close()
@@ -87,7 +110,15 @@ class WindsonicLowLevel:
     from typing import Optional
 
     def acquire(self, num_acq: Optional[int] = None) -> bool:
-        """Inicia adquisición de num_acq muestras espaciadas self.spacing segundos."""
+        """
+        Start acquisition of num_acq samples spaced by self.spacing seconds.
+
+        Args:
+            num_acq (int, optional): Number of samples to acquire. Defaults to self.samples.
+
+        Returns:
+            bool: True if acquisition started, False otherwise.
+        """
         if not self.serial_connection or not self.serial_connection.is_open:
             self.logger.warning("Conexión serie no inicializada.")
             return False
@@ -100,6 +131,12 @@ class WindsonicLowLevel:
         return True
 
     def _acquisition_loop(self, num_acq: int):
+        """
+        Internal thread function to acquire and save data samples from the Windsonic device.
+
+        Args:
+            num_acq (int): Number of samples to acquire.
+        """
         date_str = datetime.datetime.now().strftime('%Y%m%d')
         filename = os.path.join(self.output_dir, f"mediciones_{date_str}.txt")
         acquired = 0
@@ -131,16 +168,34 @@ class WindsonicLowLevel:
             self.is_acquiring = False
 
     def is_acquisition_done(self) -> tuple[bool, bool]:
-        """Indica si finalizó la adquisición y si fue exitosa."""
+        """
+        Check if the acquisition has finished and if it was successful.
+
+        Returns:
+            tuple: (done: bool, success: bool)
+        """
         done = not self.is_acquiring and (self.acquisition_thread is None or not self.acquisition_thread.is_alive())
         return done, self.last_acquisition_ok
 
     def test(self) -> bool:
-        """Verifica si hay conexión activa con el anemómetro."""
+        """
+        Test if there is an active connection to the anemometer.
+
+        Returns:
+            bool: True if connected, False otherwise.
+        """
         return self.serial_connection is not None and self.serial_connection.is_open
 
     def verify_checksum(self, data):
-        """Verifica el checksum XOR entre <STX> y <ETX> según protocolo Gill."""
+        """
+        Verify the XOR checksum between <STX> and <ETX> according to the Gill protocol.
+
+        Args:
+            data (str): Data string to verify.
+
+        Returns:
+            bool: True if checksum is valid, False otherwise.
+        """
         stx_index = data.find('\x02') + 1
         etx_index = data.find('\x03')
         if stx_index == 0 or etx_index == -1 or etx_index <= stx_index:
@@ -156,7 +211,15 @@ class WindsonicLowLevel:
         return checksum_calculated == checksum_received
 
     def parse_data(self, data):
-        """Extrae los campos entre <STX> y <ETX> de una cadena recibida."""
+        """
+        Extract fields between <STX> and <ETX> from a received string.
+
+        Args:
+            data (str): Data string to parse.
+
+        Returns:
+            str or None: Parsed data or None if invalid.
+        """
         stx_index = data.find('\x02') + 1
         etx_index = data.find('\x03')
         if stx_index == 0 or etx_index == -1 or etx_index <= stx_index:
@@ -165,9 +228,13 @@ class WindsonicLowLevel:
 
     def full_test(self) -> tuple[bool, dict]:
         """
-        Realiza un test completo del anemómetro Windsonic.
-        Devuelve (resultado_global, detalles_dict)
-        No cierra ni modifica el estado de la conexión serie.
+        Perform a full test of the Windsonic anemometer.
+
+        Returns:
+            tuple: (global_result: bool, details: dict)
+
+        Note:
+            Does not close or modify the state of the serial connection.
         """
         detalles = {}
         resultado_global = True

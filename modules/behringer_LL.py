@@ -1,4 +1,11 @@
-"""Módulo de bajo nivel para controlar la interfaz de audio Behringer UMC204HD con PyAudio."""
+"""
+behringer_LL.py
+
+This module provides low-level logic for handling Behringer device audio recording and file management.
+
+Classes:
+    BehringerLowLevel: Manages initialization, recording, and storage of audio data from the Behringer device.
+"""
 
 import os
 import glob
@@ -21,9 +28,16 @@ os.environ["PYTHONWARNINGS"] = "ignore"
 os.environ["JACK_NO_START_SERVER"] = "1"
 
 class BehringerLowLevel:
-    """Controlador de bajo nivel para la interfaz de audio USB Behringer."""
+    """
+    Low-level controller for the Behringer USB audio interface.
+    """
 
     def __init__(self):
+        """
+        Initialize the BehringerLowLevel instance.
+
+        Sets up internal state and logger.
+        """
         self.audio_interface = None
         self.device_index = None
         self.stream = None
@@ -41,6 +55,12 @@ class BehringerLowLevel:
         self.logger = get_logger("behringer_LL")
 
     def init(self) -> bool:
+        """
+        Initialize the Behringer audio interface and search for the device.
+
+        Returns:
+            bool: True if the device is found and initialized, False otherwise.
+        """
         if self.audio_interface is not None:
             self.logger.info("Behringer ya está inicializado. Omite init().")
             return True
@@ -75,6 +95,12 @@ class BehringerLowLevel:
                 p.terminate()
 
     def open(self) -> bool:
+        """
+        Open the audio stream for recording.
+
+        Returns:
+            bool: True if the stream is opened successfully, False otherwise.
+        """
         if self.audio_interface is None or self.device_index is None:
             self.logger.warning("No se puede abrir el stream: dispositivo no inicializado.")
             return False
@@ -96,6 +122,18 @@ class BehringerLowLevel:
             return False
 
     def _callback(self, in_data, _frame_count, _time_info, status):
+        """
+        PyAudio stream callback for audio data.
+
+        Args:
+            in_data (bytes): Input audio data.
+            _frame_count (int): Number of frames.
+            _time_info (dict): Timing information.
+            status (int): Stream status code.
+
+        Returns:
+            tuple: (audio data, stream flag)
+        """
         if status:
             self.logger.warning("Estado del stream: %s", status)
         if not self.is_recording_event.is_set():
@@ -104,6 +142,15 @@ class BehringerLowLevel:
         return (in_data, pyaudio.paContinue)
 
     def record(self, duration: int) -> bool:
+        """
+        Start recording audio for a given duration.
+
+        Args:
+            duration (int): Duration of the recording in seconds.
+
+        Returns:
+            bool: True if recording started successfully, False otherwise.
+        """
         if self.audio_interface is None or self.device_index is None:
             self.logger.warning("No se puede grabar: dispositivo no inicializado.")
             return False
@@ -130,6 +177,11 @@ class BehringerLowLevel:
         return True
 
     def _write_audio(self):
+        """
+        Internal thread function to write audio frames to a WAV file.
+
+        Handles the actual writing of audio data during recording.
+        """
         if self.audio_interface is None:
             self.logger.error("Interfaz no inicializada. Abortando _write_audio().")
             self.last_record_ok = False
@@ -172,6 +224,9 @@ class BehringerLowLevel:
 
 
     def stop_recording(self):
+        """
+        Stop the current recording and clean up the recording thread.
+        """
         self.is_recording_event.clear()
 
         # No intentar hacer join desde el mismo thread
@@ -187,10 +242,22 @@ class BehringerLowLevel:
 
 
     def test(self) -> bool:
+        """
+        Test if the Behringer device is initialized.
+
+        Returns:
+            bool: True if initialized, False otherwise.
+        """
         self.logger.info("Ejecutando test de dispositivo...")
         return self.audio_interface is not None
 
     def deinit(self) -> bool:
+        """
+        Deinitialize and release the Behringer audio interface resources.
+
+        Returns:
+            bool: True if resources were released, False otherwise.
+        """
         if self.audio_interface is None:
             self.logger.info("No hay recursos que liberar.")
             return True
@@ -207,6 +274,9 @@ class BehringerLowLevel:
             self.device_index = None
 
     def close(self):
+        """
+        Close the audio stream if it is open.
+        """
         if self.stream is not None:
             try:
                 self.stream.stop_stream()
@@ -221,14 +291,21 @@ class BehringerLowLevel:
 
 
     def is_recording_done(self) -> tuple[bool, bool]:
-        """Devuelve (terminó la grabación, grabación exitosa o no)."""
+        """
+        Check if the recording has finished and if it was successful.
+
+        Returns:
+            tuple: (finished: bool, success: bool)
+        """
         finished = not self.is_recording_event.is_set() and self.recording_thread is None
         return finished, self.last_record_ok
 
     def full_test(self) -> tuple[bool, dict]:
         """
-        Realiza un test completo del dispositivo Behringer.
-        Devuelve (resultado_global, detalles_dict)
+        Perform a full test of the Behringer device.
+
+        Returns:
+            tuple: (global_result: bool, details: dict)
         """
         import pyaudio
         detalles = {}
