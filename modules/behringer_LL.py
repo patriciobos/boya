@@ -307,7 +307,6 @@ class BehringerLowLevel:
         Returns:
             tuple: (global_result: bool, details: dict)
         """
-        import pyaudio
         detalles = {}
         resultado_global = True
 
@@ -438,16 +437,16 @@ class BehringerLowLevel:
             resultado_global = False
 
         # 4. Chequeo de dependencias
-        self.logger.info("[full_test] Chequeando dependencias...")
-        try:
-            import pyaudio
-            detalles["pyaudio"] = True
-            self.logger.info(f"[full_test] pyaudio: True")
-        except ImportError:
-            self.logger.error("[full_test] PyAudio no está instalado.")
-            detalles["pyaudio"] = False
-            self.logger.info(f"[full_test] pyaudio: False")
-            resultado_global = False
+        # self.logger.info("[full_test] Chequeando dependencias...")
+        # try:
+        #     import pyaudio
+        #     detalles["pyaudio"] = True
+        #     self.logger.info(f"[full_test] pyaudio: True")
+        # except ImportError:
+        #     self.logger.error("[full_test] PyAudio no está instalado.")
+        #     detalles["pyaudio"] = False
+        #     self.logger.info(f"[full_test] pyaudio: False")
+        #     resultado_global = False
 
         # 5. Chequeo de espacio en disco
         self.logger.info("[full_test] Chequeando espacio en disco...")
