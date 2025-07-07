@@ -13,6 +13,10 @@ import serial.tools.list_ports
 import threading
 import datetime
 import time
+
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from modules.log_utils import get_logger
 
 STX = '\x02'
@@ -384,8 +388,8 @@ class WindsonicLowLevel:
 
         # # (NO deinit aquí, no se cierra la conexión ni se modifica el estado global)
 
-        # self.logger.info(f"[full_test] Resultado global: {resultado_global}")
-        # return resultado_global, detalles
+        self.logger.info(f"[full_test] Resultado global: {resultado_global}")
+        return resultado_global, detalles
 
 if __name__ == "__main__":
     import sys
