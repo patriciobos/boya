@@ -14,8 +14,8 @@ except ImportError:
     lfilter = None
 
 # Parámetros configurables
-TIPO_RUIDO = "blanco"  # Opciones: "blanco", "rosa", "marron"
-FS = 196000            # Frecuencia de muestreo (Hz)
+TIPO_RUIDO = "rosa"  # Opciones: "blanco", "rosa", "marron"
+FS = 192000            # Frecuencia de muestreo (Hz)
 BITS = 24              # Resolución vertical (bits)
 DURACION = 5           # Duración del archivo (segundos)
 N_CANALES = 1          # Mono=1, Estéreo=2

@@ -195,7 +195,7 @@ class BehringerLowLevel:
                 return
 
             with wave.open(self.output_path, "wb") as wf:
-                wf.setnchannels(2)
+                wf.setnchannels(1)
                 wf.setsampwidth(self.audio_interface.get_sample_size(pyaudio.paInt24))
                 wf.setframerate(192000)
 
@@ -363,7 +363,7 @@ class BehringerLowLevel:
             self.frames_queue.queue.clear()
             if self.open():
                 wf = wave.open(test_file, "wb")
-                wf.setnchannels(2)
+                wf.setnchannels(1)
                 if self.audio_interface is not None:
                     wf.setsampwidth(self.audio_interface.get_sample_size(pyaudio.paInt24))
                 else:
