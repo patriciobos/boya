@@ -36,7 +36,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             success = self.modem.init()
             result = ResultCode.OK if success else ResultCode.ERROR
             if self.status_queue:
-                self.status_queue.put((self.name, Message(MessageID.STATE_INIT_OK, {"result": result.value})))
+                self.status_queue.put((self.name, Message(MessageID.STATE_RESULT, {"result": result.value})))
             self.set_state(State.TEST if success else State.ERROR, self.status_queue)
             self._on_entry_flag = False
 

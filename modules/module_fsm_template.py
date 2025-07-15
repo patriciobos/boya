@@ -1,17 +1,34 @@
-from modules.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
-from modules.behringer_LL import BehringerLowLevel
-from typing import Optional
+"""
+Template FSM module for new hardware/software handlers.
 
-class BehringerHandlerFSM(BaseHandlerFSM):
+This class provides a finite state machine (FSM) structure for managing the lifecycle and actions of a hardware or software module.
+It communicates upstream via a message queue and interacts with its low-level driver via direct method calls.
+"""
+
+from modules.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
+from modules.module_LL import ModuleLowLevel  # Replace with actual LL module name
+
+class ModuleHandlerFSM(BaseHandlerFSM):
+    """
+    FSM handler for a generic module.
+    """
+
     def __init__(self):
-        super().__init__("Behringer")
-        self.audio = BehringerLowLevel()
+        super().__init__("ModuleName")
+        self.ll = ModuleLowLevel()
         self._pending_params = {}
         self.status_queue = None
         self.scheduler = None
 
     def start_scheduler(self, interval_sec=3600, duration_sec=10):
-        self._acquire_duration = duration_sec  # Guardar duración para uso propio
+        """
+        Start the periodic scheduler for automatic acquisition or actions.
+
+        Args:
+            interval_sec (int): Interval between actions in seconds.
+            duration_sec (int): Duration of each acquisition/action.
+        """
+        self._acquire_duration = duration_sec
         self.scheduler = Scheduler(
             name=self.name,
             queue=self.queue,
@@ -21,25 +38,38 @@ class BehringerHandlerFSM(BaseHandlerFSM):
         self.scheduler.start()
 
     def stop_scheduler(self):
+        """
+        Stop the periodic scheduler if running.
+        """
         if self.scheduler:
             self.scheduler.stop()
             self.scheduler = None
 
     def log_action_result(self, action: str, result: ResultCode):
+        """
+        Log the result of an action.
+
+        Args:
+            action (str): Action name.
+            result (ResultCode): Result code.
+        """
         if result == ResultCode.OK:
             self.logger.info(f"{action} → OK")
         else:
             self.logger.error(f"{action} → ERROR")
 
     def update(self):
+        """
+        Main FSM update loop. Handles state transitions and actions.
+        """
         if self._last_state != self.state:
             self._on_entry_flag = True
             self._on_exit_flag = False
             self._last_state = self.state
 
         if self.state == State.INIT and self._on_entry_flag:
-            self.logger.info("Entrando a INIT")
-            success = self.audio.init()
+            self.logger.info("Entering INIT")
+            success = self.ll.init()
             result = ResultCode.OK if success else ResultCode.ERROR
             self.log_action_result("Init", result)
             if self.status_queue:
@@ -48,13 +78,12 @@ class BehringerHandlerFSM(BaseHandlerFSM):
             self._on_entry_flag = False
 
         elif self.state == State.TEST and self._on_entry_flag:
-            self.logger.info("Entrando a TEST")
-            test_ok, detalles = self.audio.full_test()
+            self.logger.info("Entering TEST")
+            test_ok, details = self.ll.full_test()
             if test_ok:
                 self.logger.info("[TEST] full_test OK")
             else:
                 self.logger.error("[TEST] full_test ERROR")
-            # Enviar resultado global como ACTION_RESULT
             if self.status_queue:
                 self.status_queue.put((self.name, Message(
                     MessageID.ACTION_RESULT,
@@ -68,59 +97,62 @@ class BehringerHandlerFSM(BaseHandlerFSM):
             self._on_entry_flag = False
 
         elif self.state == State.IDLE and self._on_entry_flag:
-            self.logger.info("Entrando a IDLE")
+            self.logger.info("Entering IDLE")
             if self.scheduler is None:
                 self.start_scheduler(interval_sec=60, duration_sec=10)
             self._on_entry_flag = False
 
         elif self.state == State.ACQUIRE:
             if self._on_entry_flag:
-                self.logger.info("Entrando a ACQUIRE")
+                self.logger.info("Entering ACQUIRE")
                 duration = self._pending_params.get("duration", 10)
-                success = self.audio.record(duration)
+                success = self.ll.acquire(duration)
                 result = ResultCode.OK if success else ResultCode.ERROR
-                self.log_action_result("Record", result)
+                self.log_action_result("Acquire", result)
                 if result == ResultCode.ERROR:
                     self.set_state(State.ERROR, self.status_queue)
                 self._on_entry_flag = False
 
-            done, success = self.audio.is_recording_done()
+            done, success = self.ll.is_acquisition_done()
             if done:
                 result = ResultCode.OK if success else ResultCode.ERROR
-                self.log_action_result("Fin grabación", result)
+                self.log_action_result("Acquisition finished", result)
                 if self.status_queue:
                     self.status_queue.put((self.name, Message(
                         MessageID.ACTION_RESULT,
                         {
                             "state": self.state.name,
-                            "action": "record",
+                            "action": "acquire",
                             "result": result.value,
-                            "file": self.audio.output_path
+                            "file": getattr(self.ll, "output_path", None)
                         }
                     )))
                 self.set_state(State.IDLE if result == ResultCode.OK else State.ERROR, self.status_queue)
 
         elif self.state == State.DISABLE and self._on_entry_flag:
-            self.logger.info("Entrando a DISABLE")
+            self.logger.info("Entering DISABLE")
             self.stop_scheduler()
-            if self.audio.audio_interface is not None:
-                self.audio.deinit()
+            self.ll.deinit()
             self._on_entry_flag = False
 
         elif self.state == State.ERROR and self._on_entry_flag:
-            self.logger.error("Entrando a ERROR")
+            self.logger.error("Entering ERROR")
             self.stop_scheduler()
-            if self.audio.audio_interface is not None:
-                self.audio.deinit()
+            self.ll.deinit()
             self._on_entry_flag = False
 
     def handle_message(self, message: Message):
+        """
+        Handle incoming messages for FSM control.
+
+        Args:
+            message (Message): The message to handle.
+        """
         if self.state == State.DISABLE:
             if message.id == MessageID.SIG_INIT:
                 self.set_state(State.INIT, self.status_queue)
             return
 
         if self.state == State.IDLE and message.id == MessageID.SIG_TIMEOUT:
-            # Usar la duración almacenada
             self._pending_params = {"duration": getattr(self, '_acquire_duration', 10)}
             self.set_state(State.ACQUIRE, self.status_queue)

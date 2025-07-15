@@ -26,7 +26,7 @@ class MessageID(Enum):
     SIG_QUERY = "sig_query"
     SIG_TIMEOUT = "sig_timeout"
     STATE_CHANGED = "state_changed"
-    STATE_INIT_OK = "state_init_ok"
+    STATE_RESULT = "state_result"
     STATE_TEST_OK = "state_test_ok"
     ACTION_RESULT = "action_result"
 
