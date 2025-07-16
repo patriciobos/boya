@@ -31,12 +31,26 @@ class BehringerHandlerFSM(BaseHandlerFSM):
         else:
             self.logger.error(f"{action} → ERROR")
 
+    def handle_message(self, message: Message):
+        if self.state == State.DISABLE:
+            if message.id == MessageID.SIG_INIT:
+                self.set_state(State.INIT, self.status_queue)
+            return
+
+        if self.state == State.IDLE and message.id == MessageID.SIG_TIMEOUT:
+            # Usar la duración almacenada
+            self._pending_params = {"duration": getattr(self, '_acquire_duration', 10)}
+            self.set_state(State.ACQUIRE, self.status_queue)
+
     def update(self):
         if self._last_state != self.state:
             self._on_entry_flag = True
             self._on_exit_flag = False
             self._last_state = self.state
 
+        ###############
+        # state INIT
+        ###############
         if self.state == State.INIT and self._on_entry_flag:
             self.logger.info("Entrando a INIT")
             success = self.audio.init()
@@ -47,6 +61,9 @@ class BehringerHandlerFSM(BaseHandlerFSM):
             self.set_state(State.TEST if result == ResultCode.OK else State.ERROR, self.status_queue)
             self._on_entry_flag = False
 
+        ###############
+        # state TEST
+        ###############
         elif self.state == State.TEST and self._on_entry_flag:
             self.logger.info("Entrando a TEST")
             test_ok, detalles = self.audio.full_test()
@@ -67,12 +84,18 @@ class BehringerHandlerFSM(BaseHandlerFSM):
             self.set_state(State.IDLE if test_ok else State.ERROR, self.status_queue)
             self._on_entry_flag = False
 
+        ###############
+        # state IDLE
+        ###############
         elif self.state == State.IDLE and self._on_entry_flag:
             self.logger.info("Entrando a IDLE")
             if self.scheduler is None:
                 self.start_scheduler(interval_sec=60, duration_sec=10)
             self._on_entry_flag = False
 
+        ###############
+        # state ACQUIRE
+        ###############
         elif self.state == State.ACQUIRE:
             if self._on_entry_flag:
                 self.logger.info("Entrando a ACQUIRE")
@@ -100,6 +123,9 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                     )))
                 self.set_state(State.IDLE if result == ResultCode.OK else State.ERROR, self.status_queue)
 
+        ###############
+        # state DISABLE
+        ###############
         elif self.state == State.DISABLE and self._on_entry_flag:
             self.logger.info("Entrando a DISABLE")
             self.stop_scheduler()
@@ -107,6 +133,9 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                 self.audio.deinit()
             self._on_entry_flag = False
 
+        ###############
+        # state ERROR
+        ###############
         elif self.state == State.ERROR and self._on_entry_flag:
             self.logger.error("Entrando a ERROR")
             self.stop_scheduler()
@@ -114,13 +143,4 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                 self.audio.deinit()
             self._on_entry_flag = False
 
-    def handle_message(self, message: Message):
-        if self.state == State.DISABLE:
-            if message.id == MessageID.SIG_INIT:
-                self.set_state(State.INIT, self.status_queue)
-            return
-
-        if self.state == State.IDLE and message.id == MessageID.SIG_TIMEOUT:
-            # Usar la duración almacenada
-            self._pending_params = {"duration": getattr(self, '_acquire_duration', 10)}
-            self.set_state(State.ACQUIRE, self.status_queue)
+    

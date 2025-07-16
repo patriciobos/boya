@@ -77,30 +77,7 @@ class ModuleLowLevel:
         self.logger.info("Running full test...")
         return True, "Test passed"
 
-    def acquire(self, duration=10):
-        """
-        Start data acquisition or recording.
-
-        Args:
-            duration (int): Duration of acquisition in seconds.
-
-        Returns:
-            bool: True if acquisition started successfully, False otherwise.
-        """
-        self.logger.info(f"Acquiring data for {duration} seconds...")
-        self.output_path = "output_file_path"  # Placeholder
-        return True
-
-    def is_acquisition_done(self):
-        """
-        Check if acquisition is complete.
-
-        Returns:
-            tuple: (bool, bool) indicating (done, success)
-        """
-        self.logger.info("Checking if acquisition is done...")
-        return True, True
-
+    
     def test(self):
         """
         Run a basic test of the module.
@@ -117,8 +94,6 @@ if __name__ == "__main__":
     print("Init:", ll.init())
     print("Open:", ll.open())
     print("Full test:", ll.full_test())
-    print("Acquire:", ll.acquire(5))
-    print("Is acquisition done:", ll.is_acquisition_done())
     print("Test:", ll.test())
     ll.close()
     ll.deinit()

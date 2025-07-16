@@ -13,14 +13,14 @@ try:
 except ImportError:
     lfilter = None
 
-# Parámetros configurables
-TIPO_RUIDO = "rosa"  # Opciones: "blanco", "rosa", "marron"
-FS = 192000            # Frecuencia de muestreo (Hz)
-BITS = 24              # Resolución vertical (bits)
-DURACION = 5           # Duración del archivo (segundos)
-N_CANALES = 1          # Mono=1, Estéreo=2
+# Configurable parameters
+NOISE_TYPE = "pink"   # Options: "white", "pink", "brown"
+FS = 192000           # Sampling frequency (Hz)
+BITS = 24             # Bit depth (bits)
+DURATION = 5          # File duration (seconds)
+N_CHANNELS = 1        # Mono=1, Stereo=2
 
-# Carpeta de salida
+# Output folder
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RECORDINGS_DIR = os.path.join(BASE_DIR, "modules", "recordings")
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
@@ -28,25 +28,34 @@ os.makedirs(RECORDINGS_DIR, exist_ok=True)
 # Logger
 logger = get_logger("mock_audio_signals")
 
-def generar_ruido(tipo, num_samples):
-    if tipo == "blanco":
+def generate_noise(noise_type, num_samples):
+    if noise_type == "white":
         return np.random.normal(0, 1, num_samples)
-    elif tipo == "rosa":
+    elif noise_type == "pink":
         if lfilter is None:
-            raise ImportError("scipy es requerido para generar ruido rosa.")
-        # Filtro de ruido rosa simple (Voss-McCartney)
+            raise ImportError("scipy is required to generate pink noise.")
+        # Simple pink noise filter (Voss-McCartney)
         b = [0.02109238, 0.07113478, 0.68873558]
         a = [1, -1.73472577, 0.7660066]
         white = np.random.normal(0, 1, num_samples)
         return lfilter(b, a, white)
-    elif tipo == "marron":
+    elif noise_type == "brown":
         white = np.random.normal(0, 1, num_samples)
         return np.cumsum(white)
     else:
-        raise ValueError(f"Tipo de ruido no soportado: {tipo}")
+        raise ValueError(f"Unsupported noise type: {noise_type}")
 
-def guardar_wav(data, fs, bits, n_canales, path):
-    # Normaliza y convierte a formato PCM
+def save_wav(data, fs, bits, n_channels, path):
+    """
+    Normalize and save the audio data as a WAV file.
+
+    Args:
+        data (np.ndarray): Audio data.
+        fs (int): Sampling frequency.
+        bits (int): Bit depth.
+        n_channels (int): Number of channels.
+        path (str): Output file path.
+    """
     max_val = np.max(np.abs(data))
     if max_val > 0:
         data = data / max_val
@@ -60,17 +69,17 @@ def guardar_wav(data, fs, bits, n_canales, path):
         data_pcm = (data * 2**31).astype(np.int32)
         sampwidth = 4
     else:
-        raise ValueError("Solo se soportan 16, 24 o 32 bits.")
-    if n_canales == 2:
+        raise ValueError("Only 16, 24, or 32 bits are supported.")
+    if n_channels == 2:
         data_pcm = np.column_stack([data_pcm, data_pcm])
     with wave.open(path, 'wb') as wf:
-        wf.setnchannels(n_canales)
+        wf.setnchannels(n_channels)
         wf.setsampwidth(sampwidth)
         wf.setframerate(fs)
         if bits == 24:
-            # Guardar 24 bits como 3 bytes por muestra
+            # Save 24 bits as 3 bytes per sample
             for frame in data_pcm:
-                if n_canales == 1:
+                if n_channels == 1:
                     wf.writeframesraw(frame.astype(np.int32).tobytes()[:3])
                 else:
                     wf.writeframesraw(b''.join([ch.astype(np.int32).tobytes()[:3] for ch in frame]))
@@ -78,12 +87,12 @@ def guardar_wav(data, fs, bits, n_canales, path):
             wf.writeframes(data_pcm.tobytes())
 
 if __name__ == "__main__":
-    logger.info(f"Generando ruido {TIPO_RUIDO} - fs={FS}Hz, bits={BITS}, duración={DURACION}s, canales={N_CANALES}")
-    print(f"Generando ruido {TIPO_RUIDO} - fs={FS}Hz, bits={BITS}, duración={DURACION}s, canales={N_CANALES}")
-    num_samples = FS * DURACION
-    ruido = generar_ruido(TIPO_RUIDO, num_samples)
+    logger.info(f"Generating {NOISE_TYPE} noise - fs={FS}Hz, bits={BITS}, duration={DURATION}s, channels={N_CHANNELS}")
+    print(f"Generating {NOISE_TYPE} noise - fs={FS}Hz, bits={BITS}, duration={DURATION}s, channels={N_CHANNELS}")
+    num_samples = FS * DURATION
+    noise = generate_noise(NOISE_TYPE, num_samples)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{timestamp}_mock.wav"
     path = os.path.join(RECORDINGS_DIR, filename)
-    guardar_wav(ruido, FS, BITS, N_CANALES, path)
-    logger.info(f"Archivo generado: {path}")
+    save_wav(noise, FS, BITS, N_CHANNELS, path)
+    logger.info(f"File generated: {path}")
