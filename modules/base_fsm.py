@@ -114,7 +114,7 @@ class Scheduler:
                 self.get_state() == State.IDLE
                 and now - self.last_event >= timedelta(seconds=self.interval)
             ):
-                print(f"[{self.name}] Timer cumplido. Enviando SIG_TIMEOUT.")
+                print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} [{self.name}] Timer cumplido. Enviando SIG_TIMEOUT.")
                 self.queue.put(Message(MessageID.SIG_TIMEOUT))
                 self.last_event = now
             time.sleep(5)

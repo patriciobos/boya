@@ -75,6 +75,8 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         elif self.state == State.TEST and self._on_entry_flag:
             self.logger.info("Entrando a TEST")
             test_ok, detalles = self.modem.full_test()
+            
+            # upstream message with test result
             if self.status_queue:
                 self.status_queue.put((self.name, Message(
                     MessageID.ACTION_RESULT,
@@ -103,6 +105,8 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         elif self.state == State.REPORT and self._on_entry_flag:
             self.logger.info("Entrando a REPORT (consulta de estado)")
             status = self.modem.check_status()
+            
+            # upstream message with result
             if self.status_queue:
                 self.status_queue.put((self.name, Message(
                     MessageID.ACTION_RESULT,
