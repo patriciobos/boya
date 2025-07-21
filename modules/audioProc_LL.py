@@ -95,8 +95,12 @@ class AudioProcLowLevel:
         normal_cutoff = cutoff_hz / nyq
         if not (0 < normal_cutoff < 1):
             raise ValueError(f"Cutoff frequency too high for sampling rate: normal_cutoff={normal_cutoff}. Must be between 0 and 1.")
-        b, a = butter(order, normal_cutoff, btype='low', analog=False)
+        ba = butter(order, normal_cutoff, btype='low', analog=False)
+        if ba is None or not isinstance(ba, (tuple, list)) or len(ba) != 2:
+            raise RuntimeError("Failed to design Butterworth filter: butter() returned None or invalid output.")
+        b, a = ba
         filtered = lfilter(b, a, audio)
+        filtered = np.asarray(filtered)  # Ensure filtered is a NumPy array
 
         # Normalize to avoid clipping
         max_val = np.max(np.abs(filtered))
@@ -113,9 +117,10 @@ class AudioProcLowLevel:
             wf.setframerate(fs)
             if sampwidth == 3:
                 # 24-bit PCM: convert float [-1,1] to int32, then write 3 bytes/sample
-                data_pcm = (filtered * (2**23 - 1)).astype(np.int32)
+                filtered_arr = np.asarray(filtered)
+                data_pcm = (filtered_arr * (2**23 - 1)).astype(np.int32)
                 for val in data_pcm:
-                    wf.writeframesraw(val.astype(np.int32).tobytes()[:3])
+                    wf.writeframesraw(val.tobytes()[:3])
             elif sampwidth == 2:
                 data_pcm = (filtered * 32767).astype(np.int16)
                 wf.writeframes(data_pcm.tobytes())
@@ -125,21 +130,7 @@ class AudioProcLowLevel:
         self.logger.info(f"Filtered file saved: {output_path}")
         return output_path
     
-    def open(self):
-        """
-        Open the device or resource.
-        Returns:
-            bool: True if open succeeded, False otherwise.
-        """
-        self.logger.info("Opening device/resource...")
-        return True
-
-    def close(self):
-        """
-        Close the device or resource.
-        """
-        self.logger.info("Closing device/resource...")
-
+   
     def full_test(self):
         """
         Run a full self-test of the module.
@@ -149,21 +140,11 @@ class AudioProcLowLevel:
         self.logger.info("Running full test...")
         return True, "Test passed"
 
-    def test(self):
-        """
-        Run a basic test of the module.
-        Returns:
-            bool: True if test passed, False otherwise.
-        """
-        self.logger.info("Running basic test...")
-        return True
+    
 
 if __name__ == "__main__":
     # Basic tests when run as a script
     ll = AudioProcLowLevel()
     print("Init:", ll.init())
-    print("Open:", ll.open())
     print("Full test:", ll.full_test())
-    print("Test:", ll.test())
-    ll.close()
     ll.deinit()
