@@ -17,8 +17,8 @@ except ImportError:
 NOISE_TYPE = "pink"   # Options: "white", "pink", "brown"
 FS = 192000           # Sampling frequency (Hz)
 BITS = 24             # Bit depth (bits)
-DURATION = 5          # File duration (seconds)
-N_CHANNELS = 1        # Mono=1, Stereo=2
+DURATION = 70         # File duration (seconds)
+N_CHANNELS = 1       # Mono=1, Stereo=2
 
 # Output folder
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
