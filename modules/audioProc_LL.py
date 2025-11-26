@@ -37,11 +37,29 @@ class AudioProcLowLevel:
     def _create_logger(self):
         logger = logging.getLogger("AudioProcLowLevel")
         logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler()
+
+        # Stream (console) handler
+        stream_handler = logging.StreamHandler()
         formatter = logging.Formatter("%(asctime)s [AudioProcLowLevel] %(levelname)s: %(message)s")
-        handler.setFormatter(formatter)
+        stream_handler.setFormatter(formatter)
+
+        # File handler: append logs into logs/AudioProcLowLevel.log at repo root
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_dir = os.path.join(base_dir, "logs")
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+        except Exception:
+            # If directory creation fails, keep going and let FileHandler raise if necessary
+            pass
+        log_path = os.path.join(log_dir, "AudioProcLowLevel.log")
+        file_handler = logging.FileHandler(log_path, mode='a', encoding='utf-8')
+        file_handler.setFormatter(formatter)
+
+        # Add handlers only once to avoid duplicate logs on re-instantiation
         if not logger.handlers:
-            logger.addHandler(handler)
+            logger.addHandler(stream_handler)
+            logger.addHandler(file_handler)
+
         return logger
 
     def init(self):
@@ -192,9 +210,9 @@ class AudioProcLowLevel:
         else:
             raise ValueError(f"Unsupported number of channels: {n_channels}")
         
-        # Load configuration from JSON
+        # Load configuration from JSON (config.json moved to repository root)
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        config_path = os.path.join(base_dir, "support", "config.json")
+        config_path = os.path.join(base_dir, "config.json")
         with open(config_path, 'r') as f:
             config = json.load(f)
         nperseg = config['nperseg']
