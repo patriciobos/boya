@@ -14,9 +14,14 @@ from scipy.signal import butter, lfilter, welch
 from scipy import signal
 from scipy.interpolate import interp1d
 from scipy.stats import chi2
+from pathlib import Path
 
-# Define the path to the test WAV file
-TEST_WAV_PATH = 'C:/repo/boya/modules/recordings/20180824_8105_20m_daspre_cap_2.wav'
+# Define the path to the test WAV file (project-relative, cross-platform)
+# Keep the same filename, but construct it relative to repository root so it works
+# on Windows and Linux. If the file isn't present, TEST_WAV_PATH will be None.
+BASE_DIR = Path(__file__).resolve().parents[1]
+_candidate = BASE_DIR / 'modules' / 'recordings' / '20180824_8105_20m_daspre_cap_2.wav'
+TEST_WAV_PATH = str(_candidate) if _candidate.exists() else None
 
 class AudioProcLowLevel:
     

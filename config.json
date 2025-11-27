@@ -8,5 +8,5 @@
  "preamp": "preamp_das",
  "hid_ch1": "B&K8103_xxxx",
  "hid_ch2": "B&K8103_xxxx",
- "noise_ref": "hid_freq_resp_rough"
+ "noise_ref": "hid_freq_resp_rough.csv"
 }

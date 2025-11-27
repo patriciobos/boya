@@ -112,15 +112,19 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                 result = ResultCode.OK if success else ResultCode.ERROR
                 self.log_action_result("Fin grabación", result)
                 if self.status_queue:
-                    self.status_queue.put((self.name, Message(
-                        MessageID.ACTION_RESULT,
-                        {
-                            "state": self.state.name,
-                            "action": "record",
-                            "result": result.value,
-                            "file": self.audio.output_path
-                        }
-                    )))
+                    # Notify upstream that a recording file has been created
+                    payload = {
+                        "state": self.state.name,
+                        "action": "record",
+                        "result": result.value,
+                        "file": self.audio.output_path,
+                        "timestamp": getattr(self.audio, 'last_recording_ts', None),
+                        "duration": self._pending_params.get('duration')
+                    }
+                    # Standard ACTION_RESULT for backward compatibility
+                    self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
+                    # Also send a dedicated RECORDING_DONE message to allow routing
+                    self.status_queue.put((self.name, Message(MessageID.RECORDING_DONE, {"file": self.audio.output_path, "duration": payload['duration'], "timestamp": payload['timestamp']})))
                 self.set_state(State.IDLE if result == ResultCode.OK else State.ERROR, self.status_queue)
 
         ###############

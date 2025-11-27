@@ -7,6 +7,7 @@ It communicates upstream via a message queue and interacts with its low-level dr
 
 from modules.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
 from modules.audioProc_LL import AudioProcLowLevel
+from threading import Thread
 
 
 class AudioProcHandlerFSM(BaseHandlerFSM):
@@ -20,6 +21,7 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
         self.ll = AudioProcLowLevel()
         self._pending_params = {}
         self.status_queue = None
+        self._processing_thread = None
 
     def start_scheduler(self, interval_sec=3600, duration_sec=10):
         """
@@ -122,8 +124,39 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
         ###############
         elif self.state == State.PROCESS and self._on_entry_flag:
             self.logger.info("Entering PROCESS")
-            # Add processing logic here
-            self._on_entry_flag = False
+            file_path = self._pending_params.get("file")
+            if not file_path:
+                self.logger.error("PROCESS entered without a file path in params")
+                if self.status_queue:
+                    self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, {"state": self.state.name, "action": "process", "result": ResultCode.ERROR.value, "error": "no_file_provided"})))
+                self.set_state(State.ERROR, self.status_queue)
+                self._on_entry_flag = False
+            else:
+                # Run processing in background thread
+                def _run(path):
+                    try:
+                        self.logger.info(f"Processing file in background: {path}")
+                        result = self.ll.process(path)
+                        if result is None:
+                            # process() returns None on error
+                            payload = {"state": self.state.name, "action": "process", "result": ResultCode.ERROR.value, "file": path}
+                            if self.status_queue:
+                                self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
+                            self.set_state(State.ERROR, self.status_queue)
+                        else:
+                            payload = {"state": self.state.name, "action": "process", "result": ResultCode.OK.value, "file": path, "output": result}
+                            if self.status_queue:
+                                self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
+                            self.set_state(State.IDLE, self.status_queue)
+                    except Exception as e:
+                        self.logger.exception(f"Processing thread failed: {e}")
+                        if self.status_queue:
+                            self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, {"state": self.state.name, "action": "process", "result": ResultCode.ERROR.value, "error": str(e), "file": path})))
+                        self.set_state(State.ERROR, self.status_queue)
+
+                self._processing_thread = Thread(target=_run, args=(file_path,), daemon=True)
+                self._processing_thread.start()
+                self._on_entry_flag = False
 
         ###############
         # state DISABLE

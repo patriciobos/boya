@@ -29,6 +29,7 @@ class MessageID(Enum):
     STATE_RESULT = "state_result"
     STATE_TEST_OK = "state_test_ok"
     ACTION_RESULT = "action_result"
+    RECORDING_DONE = "recording_done"
 
 class ResultCode(Enum):
     OK = "ok"
