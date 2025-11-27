@@ -381,31 +381,115 @@ class AudioProcLowLevel:
                           If mono: 1D array of differences in dB.
                           If stereo: 2D array of shape (N_bands, 2) with differences in dB.
         """
-        self.logger.info("Calculating relative power with respect to minimum reference...")
-        
-        # Load minimum reference powers from TXT
+        self.logger.info("Calculating relative power with respect to minimum reference (noise_ref from config)...")
+
+        # Determine base and support directories
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        reference_path = os.path.join(base_dir, "support", "reference_minimum_BL.txt")
-        
-        # Read reference values (one per line, in dB)
-        reference_minimum = np.loadtxt(reference_path)
-        
-        # Verify that dimensions match
-        n_bands = powers.shape[0] if powers.ndim > 1 else len(powers)
-        if n_bands != len(reference_minimum):
-            raise ValueError(f"Number of bands in powers ({n_bands}) does not match "
-                           f"the number of reference values ({len(reference_minimum)})")
-        
-        # Calculate difference: powers - reference_minimum (both in dB)
-        # numpy broadcasting automatically handles mono and stereo cases
-        
-        if (len(powers.shape)==2) and (powers.shape[1] == 2):
-            powers[:,0] = powers[:,0] - reference_minimum            
-            powers[:,1] = powers[:,1] - reference_minimum
+        support_dir = os.path.join(base_dir, "support")
+
+        # Load config to get noise_ref filename and sampling frequency
+        config_path = os.path.join(base_dir, "config.json")
+        try:
+            with open(config_path, 'r') as cf:
+                config = json.load(cf)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load config.json at '{config_path}': {e}")
+
+        noise_ref_name = config.get('noise_ref')
+        if not noise_ref_name:
+            raise ValueError("'noise_ref' not specified in config.json")
+
+        fs = config.get('fs[Hz]')
+        if fs is None:
+            raise ValueError("Sampling rate 'fs[Hz]' not found in config.json")
+
+        # Locate noise_ref file (prefer absolute path if given, else in support dir)
+        if os.path.isabs(noise_ref_name):
+            noise_ref_path = noise_ref_name
         else:
-            powers = powers - reference_minimum
-        
-        self.logger.info("Relative power calculation completed.")
+            noise_ref_path = os.path.join(support_dir, noise_ref_name)
+
+        if not os.path.exists(noise_ref_path):
+            raise FileNotFoundError(f"noise_ref file not found: {noise_ref_path}")
+
+        # Load PSD reference file. Expect columns: freq, psd (power spectral density)
+        try:
+            ref_df = pd.read_csv(noise_ref_path)
+        except Exception as e:
+            raise RuntimeError(f"Failed to read noise_ref CSV '{noise_ref_path}': {e}")
+
+        # Try to find columns
+        if {'freq', 'psd'}.issubset(ref_df.columns):
+            ref_freq = ref_df['freq'].values
+            ref_psd = ref_df['psd'].values
+        else:
+            # Fallback: use first two columns
+            if ref_df.shape[1] < 2:
+                raise ValueError(f"noise_ref file '{noise_ref_path}' must have at least two columns (freq, psd)")
+            ref_freq = ref_df.iloc[:, 0].values
+            ref_psd = ref_df.iloc[:, 1].values
+
+        # Create interpolator for PSD (power per Hz)
+        try:
+            psd_interp = interp1d(ref_freq, ref_psd, kind='linear', bounds_error=False, fill_value='extrapolate')
+        except Exception as e:
+            raise RuntimeError(f"Failed to create PSD interpolator: {e}")
+
+        # Load third-octave bands
+        bands_path = os.path.join(support_dir, "third_octave_bands.csv")
+        bands_df = pd.read_csv(bands_path)
+
+        # Filter bands in the same way BL_calculator does
+        f_min = 1.0
+        f_max = 100000.0
+        bands_df = bands_df[(bands_df['fl'] >= f_min) & (bands_df['fh'] <= f_max)].copy()
+        nyquist = float(fs) / 2.0
+        bands_df = bands_df[bands_df['fh'] <= nyquist * 0.99]
+
+        f_lower = bands_df['fl'].values
+        f_upper = bands_df['fh'].values
+
+        n_bands = len(f_lower)
+
+        # Integrate PSD in each band to obtain power per band
+        ref_powers = np.zeros(n_bands)
+        for i in range(n_bands):
+            fl = f_lower[i]
+            fh = f_upper[i]
+            if fh <= fl:
+                ref_powers[i] = np.nan
+                continue
+            # Sample frequencies within band for integration
+            num_samples = 256
+            freqs_band = np.linspace(fl, fh, num_samples)
+            psd_vals = psd_interp(freqs_band)
+            # Ensure non-negative PSD
+            psd_vals = np.maximum(psd_vals, 0.0)
+            power_in_band = np.trapz(psd_vals, freqs_band)
+            ref_powers[i] = power_in_band
+
+        # Convert reference powers to dB (10*log10)
+        # Avoid log of zero
+        ref_powers_safe = np.where(np.isfinite(ref_powers), np.maximum(ref_powers, 1e-20), ref_powers)
+        reference_minimum_dB = 10.0 * np.log10(ref_powers_safe)
+        # Preserve NaNs
+        reference_minimum_dB[~np.isfinite(ref_powers)] = np.nan
+
+        # Now compare shapes and compute rel powers: powers (dB) - reference_minimum_dB
+        # Determine number of bands in 'powers'
+        n_bands_meas = powers.shape[0] if powers.ndim > 1 else len(powers)
+        if n_bands_meas != len(reference_minimum_dB):
+            raise ValueError(f"Number of bands in measured powers ({n_bands_meas}) does not match number of reference bands ({len(reference_minimum_dB)})")
+
+        # Subtract reference from measured powers (both in dB)
+        if (powers.ndim == 2) and (powers.shape[1] == 2):
+            # Broadcast reference to both channels
+            powers[:, 0] = powers[:, 0] - reference_minimum_dB
+            powers[:, 1] = powers[:, 1] - reference_minimum_dB
+        else:
+            powers = powers - reference_minimum_dB
+
+        self.logger.info("Relative power calculation completed using noise_ref PSD.")
         return powers
     
     def generate_output(self, rel_powers, wav_path):
@@ -541,6 +625,105 @@ class AudioProcLowLevel:
             self.logger.error(error_msg)
             return False, error_msg
         
+        # If the test WAV is in recordings/test_recordings, look for an
+        # external reference CSV in data/test_data with the same basename.
+        # If present, run BL_calculator and compare per-band powers (dB).
+        try:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # The recordings folder referenced for tests is the one inside `modules`.
+            modules_dir = os.path.dirname(os.path.abspath(__file__))
+            test_recordings_dir = os.path.join(modules_dir, "recordings", "test_recordings")
+            test_data_dir = os.path.join(base_dir, "data", "test_data")
+            # Ensure the directories exist (they may have been created outside)
+            os.makedirs(test_recordings_dir, exist_ok=True)
+            os.makedirs(test_data_dir, exist_ok=True)
+
+            # Check if wav_path is located under test_recordings_dir
+            abs_wav = os.path.abspath(wav_path)
+            abs_tr = os.path.abspath(test_recordings_dir)
+            is_in_test_recordings = False
+            try:
+                is_in_test_recordings = os.path.commonpath([abs_wav, abs_tr]) == abs_tr
+            except Exception:
+                is_in_test_recordings = False
+
+            if is_in_test_recordings:
+                ref_csv = os.path.join(test_data_dir, os.path.splitext(os.path.basename(wav_path))[0] + ".csv")
+                if os.path.exists(ref_csv):
+                    self.logger.info(f"Found external reference CSV for comparison: {ref_csv}")
+                    # Compute measured band powers using BL_calculator (returns dB)
+                    measured = self.BL_calculator(wav_path)
+
+                    # Load external reference
+                    try:
+                        external = np.loadtxt(ref_csv, delimiter=',')
+                    except Exception as e:
+                        msg = f"Failed to load reference CSV '{ref_csv}': {e}"
+                        self.logger.error(msg)
+                        return False, msg
+
+                    # Normalize shapes for comparison
+                    # If external is 1D but measured is 2D (stereo), try to reshape
+                    if measured.ndim == 2 and external.ndim == 1:
+                        if external.shape[0] == measured.shape[0]:
+                            # Assume external contains single-column per-band values (mono-like)
+                            # Broadcast to both channels for comparison
+                            external = np.tile(external.reshape(-1, 1), (1, measured.shape[1]))
+                        else:
+                            msg = "Reference CSV shape does not match measured bands."
+                            self.logger.error(msg)
+                            return False, msg
+                    elif measured.ndim == 1 and external.ndim == 2:
+                        # If measured mono but external has two columns, and second is empty, try first column
+                        if external.shape[1] == 1:
+                            external = external.flatten()
+                        else:
+                            msg = "Reference CSV shape does not match measured bands."
+                            self.logger.error(msg)
+                            return False, msg
+
+                    if measured.shape != external.shape:
+                        msg = f"Measured bands shape {measured.shape} does not match reference shape {external.shape}."
+                        self.logger.error(msg)
+                        return False, msg
+
+                    # Compute absolute differences, ignoring NaNs (only compare where both are finite)
+                    measured_arr = np.array(measured)
+                    external_arr = np.array(external)
+                    finite_mask = np.isfinite(measured_arr) & np.isfinite(external_arr)
+                    if not np.any(finite_mask):
+                        msg = "No comparable band values (all NaN or non-finite) between measured and reference."
+                        self.logger.error(msg)
+                        return False, msg
+
+                    diffs = np.abs(measured_arr - external_arr)
+                    # Mask out non-finite positions
+                    diffs_masked = np.where(finite_mask, diffs, 0.0)
+
+                    # Find failures where diff >= 1.0 dB
+                    failing = np.argwhere(diffs_masked >= 1.0)
+                    if failing.size == 0:
+                        msg = "External comparison: all bands within 1 dB."
+                        self.logger.info(msg)
+                        # Continue with the rest of the full_test (process etc.)
+                    else:
+                        # Build detailed failure message: list bands and values
+                        details = []
+                        for idx in failing:
+                            if measured_arr.ndim == 1:
+                                i = int(idx[0])
+                                details.append(f"band {i}: measured={measured_arr[i]:.2f} dB, ref={external_arr[i]:.2f} dB, diff={diffs[i]:.2f} dB")
+                            else:
+                                i, ch = int(idx[0]), int(idx[1])
+                                details.append(f"band {i} ch{ch+1}: measured={measured_arr[i,ch]:.2f} dB, ref={external_arr[i,ch]:.2f} dB, diff={diffs[i,ch]:.2f} dB")
+                        err_msg = "External comparison failed for bands: " + "; ".join(details)
+                        self.logger.error(err_msg)
+                        return False, err_msg
+
+        except Exception as e:
+            # If anything goes wrong in the external comparison logic, log and continue with standard test
+            self.logger.exception(f"Error during external comparison setup: {e}")
+
         try:
             # Enable CSV writing for the test
             self.write_csv_output = True
