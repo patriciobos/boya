@@ -3,6 +3,7 @@ from time import sleep
 import os
 
 from modules.behringer_fsm import BehringerHandlerFSM
+from modules.audioProc_fsm import AudioProcHandlerFSM
 from modules.windsonic_fsm import WindsonicHandlerFSM
 from modules.iridium_fsm import IridiumHandlerFSM
 from modules.base_fsm import Message, MessageID, State
@@ -26,6 +27,7 @@ if __name__ == "__main__":
     logger = get_logger("main")
     fsms = {
         "Behringer": launch_fsm(BehringerHandlerFSM, "Behringer"),
+        "AudioProc": launch_fsm(AudioProcHandlerFSM, "AudioProc"),
         "Windsonic": launch_fsm(WindsonicHandlerFSM, "Windsonic"),
         "Iridium": launch_fsm(IridiumHandlerFSM, "Iridium")
     }
