@@ -468,30 +468,31 @@ class BehringerLowLevel:
         self.logger.info(f"[full_test] Resultado global: {resultado_global}")
         return resultado_global, detalles
 
-if __name__ == "__main__":
+def main(argv=None) -> bool:
+    """Run Behringer full test when executed as script; return True/False."""
     import sys
-    from pathlib import Path
-    sys.path.append(str(Path(__file__).resolve().parent.parent))
-
-    # Inicializa el dispositivo y ejecuta un test completo
+    import logging
     b = BehringerLowLevel()
-    print("Inicializando dispositivo Behringer...")
+    b.logger.info("Script start: running Behringer init and full_test")
     if b.init():
-        print("Dispositivo inicializado. Ejecutando test completo...")
+        b.logger.info("Dispositivo inicializado. Ejecutando test completo...")
         resultado, detalles = b.full_test()
         if resultado:
-            print("Resultado del test: OK")
+            b.logger.info("Resultado del test: OK")
         else:
-            print("Resultado del test: ERROR")
-            print("Detalles de fallos:")
-            for clave, valor in detalles.items():
-                if clave.startswith("error") or valor is False:
-                    print(f" - {clave}: {valor}")
-        # Cierra recursos de forma prolija y verifica el resultado
+            b.logger.error("Resultado del test: ERROR")
+            b.logger.debug("Detalles del test: %s", detalles)
         deinit_ok = b.deinit()
-        if deinit_ok:
-            print("Recursos liberados correctamente.")
-        else:
-            print("Hubo un error al liberar los recursos.")
+        if not deinit_ok:
+            b.logger.warning("Error liberando recursos tras test.")
+        return bool(resultado)
     else:
-        print("No se pudo inicializar el dispositivo Behringer.")
+        b.logger.error("No se pudo inicializar el dispositivo Behringer.")
+        return False
+
+
+if __name__ == "__main__":
+    import sys
+
+    ok = main(sys.argv[1:])
+    raise SystemExit(0 if ok else 1)

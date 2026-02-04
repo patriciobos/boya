@@ -357,11 +357,26 @@ def _run_self_test(bus: Optional[int] = None) -> int:
             pass
 
 
-if __name__ == '__main__':
+def main(argv=None) -> bool:
+    """Run self-test as a script and return True on success, False on failure."""
     import argparse
+    import logging
 
     parser = argparse.ArgumentParser(description='AHT10 low-level driver self-test')
     parser.add_argument('--bus', '-b', type=int, default=None, help='I2C bus number override (optional)')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    logger = logging.getLogger('AHT10LowLevel')
     rc = _run_self_test(bus=args.bus)
-    raise SystemExit(rc)
+    success = rc == 0
+    if success:
+        logger.info('AHT10 self-test: OK')
+    else:
+        logger.error(f'AHT10 self-test: FAILED (rc={rc})')
+    return success
+
+
+if __name__ == '__main__':
+    import sys
+
+    ok = main(sys.argv[1:])
+    raise SystemExit(0 if ok else 1)

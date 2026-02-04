@@ -391,22 +391,40 @@ class WindsonicLowLevel:
         self.logger.info(f"[full_test] Resultado global: {resultado_global}")
         return resultado_global, detalles
 
-if __name__ == "__main__":
+def main(argv=None) -> bool:
+    """Run Windsonic init and full_test when executed as a script; return True/False."""
     import sys
-    from pathlib import Path
-    sys.path.append(str(Path(__file__).resolve().parent.parent))
-
-    print("Ejecutando prueba de conexión con Windsonic...")
     w = WindsonicLowLevel()
-    if w.init():
-        print("Conexión establecida. Realizando adquisición de prueba...")
-        w.full_test()
+    w.logger.info("Script start: Windsonic init/full_test")
+    if not w.init():
+        w.logger.error("No se pudo establecer conexión con el anemómetro.")
+        return False
+
+    w.logger.info("Conexión establecida. Realizando adquisición de prueba...")
+    resultado, detalles = w.full_test()
+    if resultado:
+        w.logger.info("full_test: OK")
+    else:
+        w.logger.error("full_test: ERROR")
+        w.logger.debug("Detalles: %s", detalles)
+
+    # optionally run a short acquisition to exercise IO
+    try:
         if w.acquire(3):
             while not w.is_acquisition_done()[0]:
                 time.sleep(0.5)
-            print("Adquisición finalizada.")
+            w.logger.info("Adquisición finalizada.")
         else:
-            print("Error al iniciar adquisición.")
-        w.deinit()
-    else:
-        print("No se pudo establecer conexión con el anemómetro.")
+            w.logger.warning("Error al iniciar adquisición de prueba.")
+    except Exception:
+        w.logger.exception("Error durante la adquisición de prueba")
+
+    w.deinit()
+    return bool(resultado)
+
+
+if __name__ == "__main__":
+    import sys
+
+    ok = main(sys.argv[1:])
+    raise SystemExit(0 if ok else 1)

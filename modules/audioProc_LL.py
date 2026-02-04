@@ -760,27 +760,37 @@ class AudioProcLowLevel:
 
     
 
-if __name__ == "__main__":
-    # Basic tests when run as a standalone script
+def main(argv=None) -> bool:
+    """Run audio processing self-test and return True on success, False on failure."""
+    import sys
+    import logging
+
     ll = AudioProcLowLevel()
-    print("Initializing AudioProcLowLevel...")
+    ll.logger.info("Script start: AudioProcLowLevel init/full_test")
     init_result = ll.init()
-    print(f"Init: {init_result}")
-    
-    if init_result:
-        # Set the wav_path for the test (adjust as needed)
-        # Example: ll.test_wav_path = "path/to/file.wav"
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if not init_result:
+        ll.logger.error("Could not initialize. Aborting full_test.")
+        ll.deinit()
+        return False
+
+    # prefer the packaged TEST_WAV_PATH unless overridden via argv (not parsed here)
+    if TEST_WAV_PATH:
         ll.test_wav_path = TEST_WAV_PATH
-        
-        print("Running full_test...")
-        test_passed, details = ll.full_test()
-        if test_passed:
-            print(f"Full test: OK - {details}")
-        else:
-            print(f"Full test: ERROR - {details}")
     else:
-        print("Could not initialize. Aborting full_test.")
-    
+        ll.logger.warning("No test WAV file available (TEST_WAV_PATH is None). full_test will likely fail.")
+
+    ll.logger.info("Running full_test...")
+    test_passed, details = ll.full_test()
+    if test_passed:
+        ll.logger.info(f"Full test: OK - {details}")
+    else:
+        ll.logger.error(f"Full test: ERROR - {details}")
     ll.deinit()
-    print("Process completed.")
+    return bool(test_passed)
+
+
+if __name__ == "__main__":
+    import sys
+
+    ok = main(sys.argv[1:])
+    raise SystemExit(0 if ok else 1)

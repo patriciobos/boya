@@ -285,28 +285,31 @@ class IridiumLowLevel:
         return estado
 
 
-if __name__ == "__main__":
-
-    print("Inicializando módem Iridium...")
+def main(argv=None) -> bool:
+    """Run Iridium modem init and full_test when executed as a script; return True/False."""
+    import sys
     modem = IridiumLowLevel()
-    if modem.init() and modem.serial_port and modem.serial_port.is_open:
-        print("Init [OK]")
-        print("Chequeando estado...")
-        status = modem.check_status()
-        for clave, valor in status.items():
-            print(f"{clave}: {valor}")
-        print("Ejecutando batería de tests...")
-        resultado, detalles = modem.full_test()
-        if resultado:
-            print("Tests: OK")
-        else:
-            print("Tests: ERROR")
-            print("Detalles de fallos:")
-            for clave, valor in detalles.items():
-                if clave.startswith("error") or valor is False:
-                    print(f" - {clave}: {valor}")
-        modem.close()
-        print("Recursos liberados correctamente.")
+    modem.logger.info("Script start: initializing Iridium modem")
+    if not modem.init() or not (modem.serial_port and modem.serial_port.is_open):
+        modem.logger.error("No se pudo inicializar el módem Iridium.")
+        return False
+
+    modem.logger.info("Init [OK]. Checking status and running tests...")
+    status = modem.check_status()
+    modem.logger.debug("Iridium status: %s", status)
+    resultado, detalles = modem.full_test()
+    if resultado:
+        modem.logger.info("Tests: OK")
     else:
-        print("No se pudo inicializar el módem Iridium.")
+        modem.logger.error("Tests: ERROR")
+        modem.logger.debug("Detalles de fallos: %s", detalles)
+    modem.close()
+    return bool(resultado)
+
+
+if __name__ == "__main__":
+    import sys
+
+    ok = main(sys.argv[1:])
+    raise SystemExit(0 if ok else 1)
 

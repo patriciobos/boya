@@ -476,8 +476,13 @@ def _nmea_validate_checksum(line: str) -> bool:
     # end of _nmea_validate_checksum
 
 
-if __name__ == '__main__':
-    # Test funcional cuando se ejecuta como script
+def main(argv=None) -> bool:
+    """Run functional test and return True on success, False on failure."""
+    import os
+    import json
+    import logging
+    import sys
+
     preferred = os.getenv('PREFERRED_PORT')
     try:
         scan_window = float(os.getenv('SCAN_WINDOW', '2.0'))
@@ -492,10 +497,24 @@ if __name__ == '__main__':
     ll.logger.info("Script start: preferred=%s scan_window=%s wait_for_fix=%s", ll.preferred_port, ll.scan_window, ll.wait_for_fix)
 
     ok = ll.init(timeout=max(5, wait_for_fix))
-    import json
     if not ok:
         ll.logger.error("init() no detectó dispositivo en el puerto preferido/escaneados.")
         print(json.dumps({"port_opened": False, "device_present": False, "has_fix": False}, indent=2))
+        return False
     else:
         res = ll.test(wait_for_fix=wait_for_fix)
         print(json.dumps(res, indent=2, default=str))
+        # Interpret success: device_present True
+        success = bool(res.get('device_present', False)) if isinstance(res, dict) else bool(res)
+        if success:
+            ll.logger.info('AIS self-test: OK')
+        else:
+            ll.logger.error('AIS self-test: FAILED')
+        return success
+
+
+if __name__ == '__main__':
+    import sys
+
+    ok = main(sys.argv[1:])
+    raise SystemExit(0 if ok else 1)
