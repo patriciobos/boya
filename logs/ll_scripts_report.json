@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "script": "modules/aht10_LL.py",
+      "module": "modules.aht10_LL",
+      "main_return": true,
+      "returncode": null,
+      "success": true,
+      "reason": "",
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "script": "modules/ais_LL.py",
+      "module": "modules.ais_LL",
+      "main_return": true,
+      "returncode": null,
+      "success": true,
+      "reason": "",
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "script": "modules/audioProc_LL.py",
+      "module": "modules.audioProc_LL",
+      "main_return": true,
+      "returncode": null,
+      "success": true,
+      "reason": "",
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "script": "modules/behringer_LL.py",
+      "module": "modules.behringer_LL",
+      "main_return": true,
+      "returncode": null,
+      "success": true,
+      "reason": "",
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "script": "modules/iridium_LL.py",
+      "module": "modules.iridium_LL",
+      "main_return": true,
+      "returncode": null,
+      "success": true,
+      "reason": "",
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "script": "modules/windsonic_LL.py",
+      "module": "modules.windsonic_LL",
+      "main_return": true,
+      "returncode": null,
+      "success": true,
+      "reason": "",
+      "stdout": "",
+      "stderr": ""
+    }
+  ]
+}
