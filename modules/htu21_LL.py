@@ -90,6 +90,14 @@ class HTU21LowLevel:
         self.bus_num: Optional[int] = None
         self.bus: Optional[SMBusType] = None
         self.address = self.DEFAULT_ADDRESS
+        # MPU-6050 (GY-521) related attributes
+        self.mpu_address: Optional[int] = None
+        self.mpu_present: bool = False
+        self._mpu_woken: bool = False
+        # accelerometer scale for default FS = +/-2g -> 16384 LSB/g
+        self._accel_scale = 16384.0
+        # gyro scale for default FS = +/-250 deg/s -> 131 LSB/(deg/s)
+        self._gyro_scale = 131.0
 
     def _require_i2c(self) -> None:
         if SMBus is None or i2c_msg is None:
@@ -115,7 +123,7 @@ class HTU21LowLevel:
                 logger.addHandler(fh)
         return logger
 
-    def init(self, bus: Optional[int] = None, address: int = DEFAULT_ADDRESS) -> None:
+    def init(self, bus: Optional[int] = None, address: int = DEFAULT_ADDRESS, detect_others: bool = True) -> None:
         if SMBus is None:
             raise NotFound("smbus2 is required for HTU21 I2C operations. Install smbus2 package")
         self.address = address
@@ -144,6 +152,22 @@ class HTU21LowLevel:
                 self.bus = b
                 self.bus_num = busnum
                 self.logger.info(f"Opened I2C bus {busnum}")
+                # Optionally detect common devices sharing the bus (e.g. GY-521 / MPU-6050)
+                if detect_others:
+                    try:
+                        # only check the canonical MPU-6050 address 0x68 (do not try 0x69)
+                        try_addr = 0x68
+                        try:
+                            b.read_byte(try_addr)
+                            self.mpu_address = try_addr
+                            self.mpu_present = True
+                            self.logger.info(f"Detected MPU-6050 at 0x{try_addr:02x}")
+                        except OSError:
+                            # not present at canonical address
+                            pass
+                    except Exception:
+                        # detection best-effort only
+                        pass
                 return
             except Exception as e:
                 last_exc = e
@@ -241,7 +265,7 @@ class HTU21LowLevel:
                 try:
                     r = i2c.read(self.address, 3)
                     b = cast(SMBusType, self.bus)
-                    b.i2c_rdwr(r)
+                    b.i2c_rdwr(r) 
                     data = bytes(list(cast(Iterable[int], r)))
                     if len(data) == 3:
                         return data
@@ -297,6 +321,11 @@ class HTU21LowLevel:
         hum_raw = (h_msb << 8) | h_lsb
         temp_raw = (t_msb << 8) | t_lsb
 
+        # Mask status bits: HTU21/SHT21 use 14-bit humidity/temperature values
+        # The two least-significant bits contain status flags and must be cleared
+        hum_raw = hum_raw & 0xFFFC
+        temp_raw = temp_raw & 0xFFFC
+
         # CRC validation
         if self._crc8(bytes([h_msb, h_lsb])) != h_crc:
             raise CRCError("Humidity CRC mismatch")
@@ -307,6 +336,162 @@ class HTU21LowLevel:
         rh = -6.0 + 125.0 * (hum_raw / 65536.0)
         temp_c = -46.85 + 175.72 * (temp_raw / 65536.0)
         return temp_c, rh
+
+    # --- HTU21 convenience API ---
+    def read_htu21(self, timeout: float = 1.0) -> Tuple[float, float]:
+        """Convenience: perform HTU21 measurement and return (temp_c, rh_pct)."""
+        raw = self.read_measurement_raw(timeout=timeout)
+        return self.parse(raw)
+
+    # --- MPU-6050 (GY-521) support ---
+    def probe_mpu(self, address: int = 0x68) -> bool:
+        """Probe for an MPU-6050 at the given address. Returns True if present."""
+        self._require_i2c()
+        if self.bus is None:
+            raise I2CError("Bus is not initialized. Call init() first.")
+        try:
+            b = cast(SMBusType, self.bus)
+            b.read_byte(address)
+            self.mpu_address = address
+            self.mpu_present = True
+            return True
+        except OSError:
+            return False
+
+    def _mpu_write(self, register: int, value: int) -> None:
+        if self.bus is None:
+            raise I2CError("Bus is not initialized. Call init() first.")
+        try:
+            b = cast(SMBusType, self.bus)
+            b.write_byte_data(self.mpu_address, register, value)  # type: ignore[arg-type]
+        except Exception as e:
+            raise I2CError(f"I2C error writing MPU register 0x{register:02x}: {e}")
+
+    def _mpu_read_block(self, register: int, length: int) -> bytes:
+        if self.bus is None:
+            raise I2CError("Bus is not initialized. Call init() first.")
+        try:
+            b = cast(SMBusType, self.bus)
+            data = b.read_i2c_block_data(self.mpu_address, register, length)  # type: ignore[arg-type]
+            return bytes(data)
+        except Exception as e:
+            raise I2CError(f"I2C error reading MPU block 0x{register:02x}: {e}")
+
+    def mpu_wake(self) -> None:
+        """Wake MPU-6050 (clear sleep bit in PWR_MGMT_1)."""
+        if not self.mpu_present or self.mpu_address is None:
+            raise I2CError("MPU-6050 not present; probe or init with detection enabled")
+        # PWR_MGMT_1 = 0x6B, write 0x00 to wake
+        self._mpu_write(0x6B, 0x00)
+        time.sleep(0.01)
+        self._mpu_woken = True
+
+    def read_mpu6050(self) -> Tuple[float, float, float]:
+        """Read accelerometer (x,y,z) in g from MPU-6050.
+
+        Returns (ax, ay, az) in units of g. This only reads accelerometer.
+        """
+        if not self.mpu_present:
+            # try to probe default address automatically
+            if not self.probe_mpu(0x68):
+                # try alternate
+                if not self.probe_mpu(0x69):
+                    raise I2CError("MPU-6050 not detected on I2C bus")
+        if not self._mpu_woken:
+            try:
+                self.mpu_wake()
+            except I2CError:
+                # try to continue anyway
+                pass
+
+        data = self._mpu_read_block(0x3B, 6)
+        if len(data) < 6:
+            raise ProtocolError("Incomplete accelerometer data from MPU-6050")
+        def _to_signed(msb: int, lsb: int) -> int:
+            v = (msb << 8) | lsb
+            if v & 0x8000:
+                v = -((~v & 0xFFFF) + 1)
+            return v
+
+        ax = _to_signed(data[0], data[1]) / self._accel_scale
+        ay = _to_signed(data[2], data[3]) / self._accel_scale
+        az = _to_signed(data[4], data[5]) / self._accel_scale
+        return ax, ay, az
+
+    def read_mpu_gyro(self) -> Tuple[float, float, float]:
+        """Read gyroscope (x,y,z) in deg/s from MPU-6050.
+
+        Returns (gx, gy, gz) in deg/s using default full-scale (±250 dps).
+        """
+        if not self.mpu_present:
+            if not self.probe_mpu(0x68):
+                raise I2CError("MPU-6050 not detected on I2C bus")
+        data = self._mpu_read_block(0x43, 6)
+        if len(data) < 6:
+            raise ProtocolError("Incomplete gyroscope data from MPU-6050")
+        def _to_signed(msb: int, lsb: int) -> int:
+            v = (msb << 8) | lsb
+            if v & 0x8000:
+                v = -((~v & 0xFFFF) + 1)
+            return v
+
+        gx = _to_signed(data[0], data[1]) / self._gyro_scale
+        gy = _to_signed(data[2], data[3]) / self._gyro_scale
+        gz = _to_signed(data[4], data[5]) / self._gyro_scale
+        return gx, gy, gz
+
+    def read_mpu_temp(self) -> float:
+        """Read internal MPU-6050 temperature in degrees Celsius.
+
+        Datasheet: Temp_degC = (TEMP_OUT Register)/340 + 36.53
+        """
+        if not self.mpu_present:
+            if not self.probe_mpu(0x68):
+                raise I2CError("MPU-6050 not detected on I2C bus")
+        data = self._mpu_read_block(0x41, 2)
+        if len(data) < 2:
+            raise ProtocolError("Incomplete temperature data from MPU-6050")
+        raw = (data[0] << 8) | data[1]
+        if raw & 0x8000:
+            raw = -((~raw & 0xFFFF) + 1)
+        temp_c = (raw / 340.0) + 36.53
+        return temp_c
+
+    def test_mpu_accel(self, samples: int = 5, delay: float = 0.02) -> bool:
+        """Basic accelerometer self-test for MPU-6050.
+
+        Reads `samples` accelerometer measurements and verifies values are
+        responsive and within plausible bounds. Returns True on pass.
+        """
+        if not self.mpu_present:
+            if not self.probe_mpu(0x68):
+                self.logger.warning("test_mpu_accel: MPU-6050 not detected at 0x68")
+                return False
+        try:
+            if not self._mpu_woken:
+                self.mpu_wake()
+        except I2CError:
+            pass
+
+        readings = []
+        for _ in range(max(1, samples)):
+            ax, ay, az = self.read_mpu6050()
+            readings.append((ax, ay, az))
+            time.sleep(delay)
+
+        # sanity checks: no all-zero readings and values within +/-4 g
+        all_zero = all(abs(a) < 1e-6 and abs(b) < 1e-6 and abs(c) < 1e-6 for (a, b, c) in readings)
+        if all_zero:
+            self.logger.error("MPU-6050 accelerometer appears to be stuck at zero")
+            return False
+
+        for (a, b, c) in readings:
+            if any(abs(x) > 4.0 for x in (a, b, c)):
+                self.logger.error("MPU-6050 accelerometer reading out of plausible range: %s", (a, b, c))
+                return False
+
+        # basic pass
+        return True
 
 
 __all__ = [
@@ -354,6 +539,25 @@ def _run_self_test(bus: Optional[int] = None) -> int:
         raw = drv.read_measurement_raw(timeout=2.0)
         temp_c, rh = drv.parse(raw)
         logger.info(f'Measurement: temp={temp_c:.2f} C, rh={rh:.2f} %')
+        # MPU-6050 (GY-521) self-test (best-effort)
+        try:
+            if drv.probe_mpu(0x68):
+                logger.info('MPU-6050 detected at 0x68; running accelerometer self-test')
+                try:
+                    ok = drv.test_mpu_accel()
+                    if ok:
+                        logger.info('MPU-6050 accelerometer self-test: OK')
+                    else:
+                        logger.error('MPU-6050 accelerometer self-test: FAILED')
+                        return 6
+                except HTU21Error as e:
+                    logger.exception('MPU-6050 self-test error: %s', e)
+                    return 6
+            else:
+                logger.warning('MPU-6050 not detected at 0x68')
+        except Exception:
+            logger.exception('Unexpected error during MPU-6050 self-test')
+            return 6
         return 0
     except NotFound as e:
         logger.error('Missing dependency: smbus2 is required for I2C operations.\n' + str(e))
