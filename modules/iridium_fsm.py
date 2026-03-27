@@ -1,4 +1,4 @@
-from modules.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
 from modules.iridium_LL import IridiumLowLevel
 import time
 

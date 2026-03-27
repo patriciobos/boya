@@ -1,4 +1,4 @@
-from modules.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
 from modules.behringer_LL import BehringerLowLevel
 from typing import Optional
 

@@ -72,7 +72,7 @@ from __future__ import annotations
 import time, math
 from typing import Optional, Tuple, TYPE_CHECKING, Any
 
-from i2c_common import create_driver_logger, discover_i2c_buses
+from modules.support.i2c_common import create_driver_logger, discover_i2c_buses
 
 if TYPE_CHECKING:
     from smbus2 import SMBus as SMBusType
@@ -566,6 +566,50 @@ class MPU6050LowLevel:
             "gy_dps": gy_dps,
             "gz_dps": gz_dps,
         }
+    
+    def tilt_from_accel(self, accel_g: Tuple[float, float, float]) -> Tuple[float, float]:
+        ax, ay, az = accel_g
+
+        if az < 0.0:
+            ay_ref = -ay
+            az_ref = -az
+        else:
+            ay_ref = ay
+            az_ref = az
+
+        roll_rad = math.atan2(ay_ref, az_ref)
+        pitch_rad = math.atan2(-ax, math.sqrt((ay * ay) + (az * az)))
+
+        return math.degrees(roll_rad), math.degrees(pitch_rad)
+
+    def read_tilt_deg(self) -> Tuple[float, float]:
+        """Read accelerometer and return (roll_deg, pitch_deg)."""
+        return self.tilt_from_accel(self.read_accel_g())
+
+    def read_tilt_deg_corrected(self) -> Tuple[float, float]:
+        """Read corrected accelerometer and return (roll_deg, pitch_deg)."""
+        return self.tilt_from_accel(self.read_accel_g_corrected())
+
+    def read_tilt_deg_avg(self, samples: int = 10, delay: float = 0.02) -> Tuple[float, float]:
+        """Average several corrected accel samples and return (roll_deg, pitch_deg)."""
+        if samples <= 0:
+            raise CalibrationError("samples must be > 0")
+        if delay < 0:
+            raise CalibrationError("delay must be >= 0")
+
+        sx = 0.0
+        sy = 0.0
+        sz = 0.0
+
+        for i in range(samples):
+            ax, ay, az = self.read_accel_g_corrected()
+            sx += ax
+            sy += ay
+            sz += az
+            if delay > 0 and i < (samples - 1):
+                time.sleep(delay)
+
+        return self.tilt_from_accel((sx / samples, sy / samples, sz / samples))
 
 
 __all__ = [
@@ -673,196 +717,6 @@ def _run_self_test(bus: Optional[int] = None, address: int = MPU6050LowLevel.DEF
         except Exception:
             pass
 
-def set_accel_offsets(self, x: float, y: float, z: float) -> None:
-    """Set accelerometer offsets in g."""
-    self.accel_offsets_g = (float(x), float(y), float(z))
-
-
-def get_accel_offsets(self) -> Tuple[float, float, float]:
-    """Get accelerometer offsets in g."""
-    return self.accel_offsets_g
-
-
-def clear_accel_offsets(self) -> None:
-    """Clear accelerometer offsets."""
-    self.accel_offsets_g = (0.0, 0.0, 0.0)
-
-
-def set_gyro_offsets(self, x: float, y: float, z: float) -> None:
-    """Set gyroscope offsets in deg/s."""
-    self.gyro_offsets_dps = (float(x), float(y), float(z))
-
-
-def get_gyro_offsets(self) -> Tuple[float, float, float]:
-    """Get gyroscope offsets in deg/s."""
-    return self.gyro_offsets_dps
-
-
-def clear_gyro_offsets(self) -> None:
-    """Clear gyroscope offsets."""
-    self.gyro_offsets_dps = (0.0, 0.0, 0.0)
-
-
-def clear_offsets(self) -> None:
-    """Clear accelerometer and gyroscope offsets."""
-    self.clear_accel_offsets()
-    self.clear_gyro_offsets()
-
-
-def calibrate_gyro(
-    self,
-    samples: int = 500,
-    delay: float = 0.005,
-) -> Tuple[float, float, float]:
-    """Estimate gyro bias in deg/s while sensor is stationary.
-
-    The sensor must remain still during the whole calibration interval.
-    Offsets are stored internally and also returned.
-    """
-    if samples <= 0:
-        raise CalibrationError("samples must be > 0")
-    if delay < 0:
-        raise CalibrationError("delay must be >= 0")
-
-    sx = 0.0
-    sy = 0.0
-    sz = 0.0
-
-    self.logger.info(f"Starting gyro calibration: samples={samples} delay={delay}")
-    for _ in range(samples):
-        gx, gy, gz = self.read_gyro_dps()
-        sx += gx
-        sy += gy
-        sz += gz
-        if delay > 0:
-            time.sleep(delay)
-
-    offsets = (sx / samples, sy / samples, sz / samples)
-    self.set_gyro_offsets(*offsets)
-    self.logger.info(f"Gyro calibration complete: offsets_dps={offsets}")
-    return offsets
-
-
-def calibrate_accel(
-    self,
-    samples: int = 500,
-    delay: float = 0.005,
-    expected: Tuple[float, float, float] = (0.0, 0.0, 1.0),
-) -> Tuple[float, float, float]:
-    """Estimate accelerometer bias in g against an expected static gravity vector.
-
-    For a sensor lying flat with Z pointing up, use expected=(0.0, 0.0, 1.0).
-    Offsets are stored internally and also returned.
-    """
-    if samples <= 0:
-        raise CalibrationError("samples must be > 0")
-    if delay < 0:
-        raise CalibrationError("delay must be >= 0")
-
-    ex, ey, ez = expected
-    sx = 0.0
-    sy = 0.0
-    sz = 0.0
-
-    self.logger.info(
-        f"Starting accel calibration: samples={samples} delay={delay} expected={expected}"
-    )
-    for _ in range(samples):
-        ax, ay, az = self.read_accel_g()
-        sx += ax
-        sy += ay
-        sz += az
-        if delay > 0:
-            time.sleep(delay)
-
-    mx = sx / samples
-    my = sy / samples
-    mz = sz / samples
-
-    offsets = (mx - ex, my - ey, mz - ez)
-    self.set_accel_offsets(*offsets)
-    self.logger.info(f"Accel calibration complete: offsets_g={offsets}")
-    return offsets
-
-
-def read_accel_g_corrected(self) -> Tuple[float, float, float]:
-    """Read accelerometer in g and subtract configured offsets."""
-    ax, ay, az = self.read_accel_g()
-    ox, oy, oz = self.accel_offsets_g
-    return ax - ox, ay - oy, az - oz
-
-
-def read_gyro_dps_corrected(self) -> Tuple[float, float, float]:
-    """Read gyroscope in deg/s and subtract configured offsets."""
-    gx, gy, gz = self.read_gyro_dps()
-    ox, oy, oz = self.gyro_offsets_dps
-    return gx - ox, gy - oy, gz - oz
-
-
-def read_all_corrected(self) -> dict:
-    """Return parsed accel/temp/gyro, applying configured accel/gyro offsets."""
-    ax_g, ay_g, az_g = self.read_accel_g_corrected()
-    gx_dps, gy_dps, gz_dps = self.read_gyro_dps_corrected()
-    temp_c = self.read_temp_c()
-    return {
-        "ax_g": ax_g,
-        "ay_g": ay_g,
-        "az_g": az_g,
-        "temp_c": temp_c,
-        "gx_dps": gx_dps,
-        "gy_dps": gy_dps,
-        "gz_dps": gz_dps,
-    }
-
-
-def tilt_from_accel(self, accel_g: Tuple[float, float, float]) -> Tuple[float, float]:
-    """Compute tilt from accelerometer vector in g.
-
-    Returns:
-        (roll_deg, pitch_deg)
-
-    Valid mainly for static or quasi-static conditions.
-    """
-    ax, ay, az = accel_g
-
-    roll_rad = math.atan2(ay, az)
-    pitch_rad = math.atan2(-ax, math.sqrt((ay * ay) + (az * az)))
-
-    roll_deg = math.degrees(roll_rad)
-    pitch_deg = math.degrees(pitch_rad)
-    return roll_deg, pitch_deg
-
-
-def read_tilt_deg(self) -> Tuple[float, float]:
-    """Read accelerometer and return (roll_deg, pitch_deg)."""
-    return self.tilt_from_accel(self.read_accel_g())
-
-
-def read_tilt_deg_corrected(self) -> Tuple[float, float]:
-    """Read corrected accelerometer and return (roll_deg, pitch_deg)."""
-    return self.tilt_from_accel(self.read_accel_g_corrected())
-
-
-def read_tilt_deg_avg(self, samples: int = 10, delay: float = 0.02) -> Tuple[float, float]:
-    """Average several corrected accel samples and return (roll_deg, pitch_deg)."""
-    if samples <= 0:
-        raise CalibrationError("samples must be > 0")
-    if delay < 0:
-        raise CalibrationError("delay must be >= 0")
-
-    sx = 0.0
-    sy = 0.0
-    sz = 0.0
-
-    for i in range(samples):
-        ax, ay, az = self.read_accel_g_corrected()
-        sx += ax
-        sy += ay
-        sz += az
-        if delay > 0 and i < (samples - 1):
-            time.sleep(delay)
-
-    return self.tilt_from_accel((sx / samples, sy / samples, sz / samples))
 
 def main(argv=None) -> bool:
     """Run self-test as a script and return True on success, False on failure."""

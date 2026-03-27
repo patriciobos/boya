@@ -6,8 +6,8 @@ from modules.behringer_fsm import BehringerHandlerFSM
 from modules.audioProc_fsm import AudioProcHandlerFSM
 from modules.windsonic_fsm import WindsonicHandlerFSM
 from modules.iridium_fsm import IridiumHandlerFSM
-from modules.base_fsm import Message, MessageID, State
-from modules.log_utils import get_logger
+from modules.support.base_fsm import Message, MessageID, State
+from modules.support.log_utils import get_logger
 
 def launch_fsm(handler_class, name):
     queue = Queue()

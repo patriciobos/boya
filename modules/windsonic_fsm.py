@@ -1,4 +1,4 @@
-from modules.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
 from modules.windsonic_LL import WindsonicLowLevel
 import time
 

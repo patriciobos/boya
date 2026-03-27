@@ -56,7 +56,7 @@ def main(argv=None) -> int:
     parser.add_argument("--delay", type=float, default=0.01)
     parser.add_argument("--expected-x", type=float, default=0.0)
     parser.add_argument("--expected-y", type=float, default=0.0)
-    parser.add_argument("--expected-z", type=float, default=1.0)
+    parser.add_argument("--expected-z", type=float, default=-1.0)
     parser.add_argument(
         "--output",
         "-o",

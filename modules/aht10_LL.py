@@ -24,7 +24,7 @@ from __future__ import annotations
 import time
 from typing import Optional, Tuple, TYPE_CHECKING, Any, Iterable, cast
 
-from i2c_common import create_driver_logger, discover_i2c_buses
+from modules.support.i2c_common import create_driver_logger, discover_i2c_buses
 
 if TYPE_CHECKING:
     from smbus2 import SMBus as SMBusType

@@ -19,7 +19,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pyaudio
-from modules.log_utils import get_logger
+from modules.support.log_utils import get_logger
 
 
 

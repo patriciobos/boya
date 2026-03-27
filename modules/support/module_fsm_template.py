@@ -5,8 +5,8 @@ This class provides a finite state machine (FSM) structure for managing the life
 It communicates upstream via a message queue and interacts with its low-level driver via direct method calls.
 """
 
-from modules.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
-from modules.module_LL_template import ModuleLowLevel  # Replace with actual LL module name
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
+from modules.support.module_LL_template import ModuleLowLevel  # Replace with actual LL module name
 
 class ModuleHandlerFSM(BaseHandlerFSM):
     """

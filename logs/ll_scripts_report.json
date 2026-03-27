@@ -13,9 +13,9 @@
     {
       "script": "modules/ais_LL.py",
       "module": "modules.ais_LL",
-      "main_return": true,
+      "main_return": false,
       "returncode": null,
-      "success": true,
+      "success": false,
       "reason": "",
       "stdout": "",
       "stderr": ""
@@ -33,9 +33,19 @@
     {
       "script": "modules/behringer_LL.py",
       "module": "modules.behringer_LL",
-      "main_return": true,
+      "main_return": false,
       "returncode": null,
-      "success": true,
+      "success": false,
+      "reason": "",
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "script": "modules/htu21_LL.py",
+      "module": "modules.htu21_LL",
+      "main_return": false,
+      "returncode": null,
+      "success": false,
       "reason": "",
       "stdout": "",
       "stderr": ""
@@ -43,6 +53,16 @@
     {
       "script": "modules/iridium_LL.py",
       "module": "modules.iridium_LL",
+      "main_return": false,
+      "returncode": null,
+      "success": false,
+      "reason": "",
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "script": "modules/mpu6050_LL.py",
+      "module": "modules.mpu6050_LL",
       "main_return": true,
       "returncode": null,
       "success": true,
@@ -53,9 +73,9 @@
     {
       "script": "modules/windsonic_LL.py",
       "module": "modules.windsonic_LL",
-      "main_return": true,
+      "main_return": false,
       "returncode": null,
-      "success": true,
+      "success": false,
       "reason": "",
       "stdout": "",
       "stderr": ""
