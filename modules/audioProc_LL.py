@@ -4,68 +4,29 @@ Low-level driver template for the AudioProc module.
 This class provides a standard interface for initializing, testing, acquiring data, and resource management for the AudioProc module.
 """
 
-import logging
 import os
 import json
 import numpy as np
 import wave
 import pandas as pd
 from scipy.signal import butter, lfilter, welch
-from scipy import signal
 from scipy.interpolate import interp1d
-from scipy.stats import chi2
-from pathlib import Path
-
-# Define the path to the test WAV file (project-relative, cross-platform)
-# Keep the same filename, but construct it relative to repository root so it works
-# on Windows and Linux. If the file isn't present, TEST_WAV_PATH will be None.
-BASE_DIR = Path(__file__).resolve().parents[1]
-_candidate = BASE_DIR / 'modules' / 'recordings' / '20180824_8105_20m_daspre_cap_2.wav'
-TEST_WAV_PATH = str(_candidate) if _candidate.exists() else None
+from support.log_utils import get_logger
+from typing import Optional
 
 class AudioProcLowLevel:
-    
     """
     Low-level driver for the AudioProc module.
     """
 
-    def __init__(self):
-        """
-        Initialize the low-level driver instance.
-        Sets up internal state and logger.
-        """
-        self.logger = self._create_logger()
-        self.output_path = None
-        self.test_wav_path = None
+    def __init__(self, logger_name: str = "AudioProcLowLevel"):
+        self.logger = self._create_logger(logger_name)
+        self.output_path: Optional[str] = None
+        self.test_wav_path: Optional[str] = None
         self.write_csv_output = False
 
-    def _create_logger(self):
-        logger = logging.getLogger("AudioProcLowLevel")
-        logger.setLevel(logging.INFO)
-
-        # Stream (console) handler
-        stream_handler = logging.StreamHandler()
-        formatter = logging.Formatter("%(asctime)s [AudioProcLowLevel] %(levelname)s: %(message)s")
-        stream_handler.setFormatter(formatter)
-
-        # File handler: append logs into logs/AudioProcLowLevel.log at repo root
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        log_dir = os.path.join(base_dir, "logs")
-        try:
-            os.makedirs(log_dir, exist_ok=True)
-        except Exception:
-            # If directory creation fails, keep going and let FileHandler raise if necessary
-            pass
-        log_path = os.path.join(log_dir, "AudioProcLowLevel.log")
-        file_handler = logging.FileHandler(log_path, mode='a', encoding='utf-8')
-        file_handler.setFormatter(formatter)
-
-        # Add handlers only once to avoid duplicate logs on re-instantiation
-        if not logger.handlers:
-            logger.addHandler(stream_handler)
-            logger.addHandler(file_handler)
-
-        return logger
+    def _create_logger(self, name: str):
+        return get_logger(name)
 
     def init(self):
         """
@@ -762,22 +723,34 @@ class AudioProcLowLevel:
 
 def main(argv=None) -> bool:
     """Run audio processing self-test and return True on success, False on failure."""
-    import sys
-    import logging
+    import os
 
     ll = AudioProcLowLevel()
     ll.logger.info("Script start: AudioProcLowLevel init/full_test")
+
     init_result = ll.init()
     if not init_result:
         ll.logger.error("Could not initialize. Aborting full_test.")
         ll.deinit()
         return False
 
-    # prefer the packaged TEST_WAV_PATH unless overridden via argv (not parsed here)
-    if TEST_WAV_PATH:
-        ll.test_wav_path = TEST_WAV_PATH
+    # default packaged test wav
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    default_test_wav = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "recordings",
+        "test_recordings",
+        "20180824_8105_20m_daspre_cap_2.wav",
+    )
+
+    if os.path.exists(default_test_wav):
+        ll.test_wav_path = default_test_wav
+        ll.logger.info(f"Using test WAV: {ll.test_wav_path}")
     else:
-        ll.logger.warning("No test WAV file available (TEST_WAV_PATH is None). full_test will likely fail.")
+        ll.logger.warning(
+            f"No test WAV file available at expected path: {default_test_wav}. "
+            "full_test will likely fail."
+        )
 
     ll.logger.info("Running full_test...")
     test_passed, details = ll.full_test()
@@ -785,6 +758,7 @@ def main(argv=None) -> bool:
         ll.logger.info(f"Full test: OK - {details}")
     else:
         ll.logger.error(f"Full test: ERROR - {details}")
+
     ll.deinit()
     return bool(test_passed)
 

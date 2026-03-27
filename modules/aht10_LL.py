@@ -24,7 +24,8 @@ from __future__ import annotations
 import time
 from typing import Optional, Tuple, TYPE_CHECKING, Any, Iterable, cast
 
-from modules.support.i2c_common import create_driver_logger, discover_i2c_buses
+from support.i2c_common import discover_i2c_buses
+from support.log_utils import get_logger
 
 if TYPE_CHECKING:
     from smbus2 import SMBus as SMBusType
@@ -77,11 +78,8 @@ class AHT10LowLevel:
             raise NotFound("smbus2 is required for AHT10 I2C operations. Install smbus2 package")
 
     def _create_logger(self, name: str):
-        return create_driver_logger(
-            logger_name=name,
-            tag="AHT10LowLevel",
-            logfile_name="AHT10LowLevel.log",
-        )
+        return get_logger(name)
+        
 
     def init(self, bus: Optional[int] = None, address: int = DEFAULT_ADDRESS) -> None:
         """Initialize the I2C bus and locate the AHT10 device.
