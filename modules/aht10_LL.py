@@ -1,28 +1,27 @@
-"""AHT10 low-level driver
 
-Provides a minimal, synchronous low-level driver for the AHT10 sensor.
+"""AHT10 low-level driver (refactored, I2C-uniformized).
 
-API (methods implemented):
-- init(bus: int|None = None, address: int = 0x38)
-- deinit()
-- probe() -> bool
-- reset()
-- read_status() -> int
-- is_busy(status: int|None = None) -> bool
-- is_calibrated(status: int|None = None) -> bool
-- trigger_measurement()
-- read_measurement_raw() -> bytes
-- parse(raw: bytes) -> (temp_c: float, rh: float)
+This version follows the agreed stage-1 low-level conventions:
+- init() prepares configuration only
+- open() opens the real I2C bus
+- test() performs a basic presence/communication check
+- full_test() performs a richer diagnosis and scans buses before concluding
+  that the device is not present
+- close() closes the I2C bus
+- deinit() leaves the driver in a neutral state
 
 Notes:
-- Uses `smbus2` for I2C. If not installed a NotFound exception is raised.
-- Performs bus discovery: tries bus 1 first, then scans available /dev/i2c-* devices.
+- The module keeps a permissive/compatible detection strategy because some
+  embedded I2C adapters do not support every smbus2 transaction style.
+- Presence detection scans candidate buses before returning device_present=False.
 """
 
 from __future__ import annotations
 
+import argparse
+import logging
 import time
-from typing import Optional, Tuple, TYPE_CHECKING, Any, Iterable, cast
+from typing import Any, Iterable, Optional, Tuple, TYPE_CHECKING, cast
 
 from support.i2c_common import discover_i2c_buses
 from support.log_utils import get_logger
@@ -40,169 +39,236 @@ except Exception:  # pragma: no cover
 
 
 class AHT10Error(Exception):
-    pass
+    """Base exception for the AHT10 driver."""
 
 
 class NotFound(AHT10Error):
-    pass
+    """Raised when a required dependency is missing."""
 
 
 class I2CError(AHT10Error):
-    pass
+    """Raised on low-level I2C communication errors."""
 
 
 class BusyTimeout(AHT10Error):
-    pass
+    """Raised when the sensor remains busy beyond the timeout."""
 
 
 class ProtocolError(AHT10Error):
-    pass
+    """Raised when the sensor response does not match expectations."""
 
 
 class CRCError(AHT10Error):
-    pass
+    """Reserved for future CRC-aware variants of the protocol."""
 
 
 class AHT10LowLevel:
     DEFAULT_ADDRESS = 0x38
     DEFAULT_BUS = 1
+    INIT_CMD = bytes([0xE1, 0x08, 0x00])
+    SOFT_RESET_CMD = bytes([0xBA])
+    TRIGGER_CMD = bytes([0xAC, 0x33, 0x00])
 
-    def __init__(self, logger_name: str = "AHT10LowLevel"):
-        self.logger = self._create_logger(logger_name)
+    def __init__(self, logger_name: str = "aht10_LL") -> None:
+        self.logger = get_logger(logger_name)
         self.bus_num: Optional[int] = None
         self.bus: Optional[SMBusType] = None
-        self.address = self.DEFAULT_ADDRESS
+        self.address: int = self.DEFAULT_ADDRESS
+        self.bus_candidates: list[int] = []
+        self.is_initialized: bool = False
+        self.is_open: bool = False
+        self.last_error: Optional[str] = None
 
     def _require_i2c(self) -> None:
         if SMBus is None or i2c_msg is None:
-            raise NotFound("smbus2 is required for AHT10 I2C operations. Install smbus2 package")
+            raise NotFound("smbus2 is required for AHT10 I2C operations")
 
-    def _create_logger(self, name: str):
-        return get_logger(name)
-        
+    def _set_error(self, msg: str) -> None:
+        self.last_error = msg
 
-    def init(self, bus: Optional[int] = None, address: int = DEFAULT_ADDRESS) -> None:
-        """Initialize the I2C bus and locate the AHT10 device.
+    def _clear_error(self) -> None:
+        self.last_error = None
 
-        If `bus` is None the driver will try discovery: try DEFAULT_BUS first,
-        then scan /dev for i2c-* devices and attempt to probe each one.
-        """
-        if SMBus is None:
-            raise NotFound("smbus2 is required for AHT10 I2C operations. Install smbus2 package")
+    def init(self, bus: Optional[int] = None, address: int = DEFAULT_ADDRESS) -> bool:
+        """Prepare configuration only. Does not open the I2C bus."""
+        self.logger.info("Initializing module")
+        self._clear_error()
 
-        self.address = address
-        candidates = discover_i2c_buses(bus if bus is not None else self.DEFAULT_BUS)
+        try:
+            self._require_i2c()
+            self.close()
 
-        last_exc = None
+            self.address = int(address)
+            candidates = discover_i2c_buses(bus if bus is not None else self.DEFAULT_BUS)
+            self.bus_candidates = list(candidates)
+            self.bus_num = int(bus) if bus is not None else None
+            self.is_initialized = True
+
+            self.logger.info(
+                "Module initialized: address=0x%02X bus_candidates=%s",
+                self.address,
+                self.bus_candidates,
+            )
+            return True
+        except Exception as exc:
+            self.is_initialized = False
+            self._set_error(f"Initialization failed: {exc}")
+            self.logger.exception("Initialization failed: %s", exc)
+            return False
+
+    def open(self) -> bool:
+        """Open the preferred/current I2C bus only."""
+        self.logger.info("Opening I2C bus")
+        self._clear_error()
+
+        if not self.is_initialized:
+            self._set_error("Module is not initialized")
+            self.logger.error(self.last_error)
+            return False
+
+        if self.is_open and self.bus is not None:
+            self.logger.info("I2C bus already open on bus %s", self.bus_num)
+            return True
+
+        candidates: list[int]
+        if self.bus_num is not None:
+            candidates = [self.bus_num]
+        else:
+            candidates = list(self.bus_candidates)
+
+        last_exc: Optional[Exception] = None
         for busnum in candidates:
             try:
-                self.logger.info(f"Trying I2C bus {busnum} for AHT10@0x{self.address:02x}")
-                b = SMBus(busnum)
-                try:
-                    # igual que el original: quick probe blando
-                    b.read_byte(self.address)
-                except OSError:
-                    # no falla por eso; la presencia real la decide probe()
-                    pass
-                self.bus = b
+                self.logger.info("Trying I2C bus %s for AHT10@0x%02X", busnum, self.address)
+                self.bus = SMBus(busnum)
                 self.bus_num = busnum
-                self.logger.info(f"Opened I2C bus {busnum}")
-                return
-            except Exception as e:
-                last_exc = e
-                self.logger.debug(f"Could not open bus {busnum}: {e}")
+                self.is_open = True
+                self.logger.info("Opened I2C bus %s", busnum)
+                return True
+            except Exception as exc:
+                last_exc = exc
+                self.logger.debug("Could not open I2C bus %s: %s", busnum, exc)
 
-        raise I2CError(f"Could not open any I2C bus for AHT10 (tried {candidates}) - last error: {last_exc}")
-
-    def deinit(self) -> None:
-        if self.bus is not None:
-            try:
-                self.bus.close()
-            except Exception:
-                pass
         self.bus = None
-        self.bus_num = None
+        self.is_open = False
+        self._set_error(
+            f"Could not open any I2C bus for AHT10 (tried {candidates}) - last error: {last_exc}"
+        )
+        self.logger.error(self.last_error)
+        return False
 
-    def probe(self) -> bool:
-        """Keep original permissive probe behavior."""
-        if self.bus is None:
-            raise I2CError("Bus is not initialized. Call init() first.")
+    def close(self) -> bool:
+        """Close the current I2C bus."""
+        self.logger.info("Closing I2C bus")
         try:
-            self.trigger_measurement()
-            time.sleep(0.01)
-            _ = self._read_raw(1)
+            if self.bus is not None:
+                try:
+                    self.bus.close()
+                except Exception as exc:
+                    self._set_error(f"Error while closing I2C bus: {exc}")
+                    self.logger.debug("Ignoring close error: %s", exc)
+                finally:
+                    self.bus = None
+            self.is_open = False
             return True
-        except AHT10Error:
-            return False
-        except OSError:
+        except Exception as exc:
+            self._set_error(f"Unexpected close failure: {exc}")
+            self.logger.exception("Unexpected close failure: %s", exc)
             return False
 
-    def reset(self) -> None:
-        """Attempt a soft reset. If not supported this will try a no-op sequence."""
+    def deinit(self) -> bool:
+        """Release resources and reset lifecycle state."""
+        self.logger.info("Deinitializing module")
+        ok = self.close()
+        self.is_initialized = False
+        self.bus_num = None
+        self.bus_candidates = []
+        return ok
+
+    def _require_open_bus(self) -> SMBusType:
         self._require_i2c()
-        if self.bus is None:
-            raise I2CError("Bus is not initialized. Call init() first.")
+        if not self.is_open or self.bus is None:
+            raise I2CError("I2C bus is not open. Call open() first.")
+        return cast(SMBusType, self.bus)
 
-        cmd = bytes([0xBA])
-        assert i2c_msg is not None, "smbus2 i2c_msg missing"
+    def _write_bytes(self, payload: bytes) -> None:
+        bus = self._require_open_bus()
+        assert i2c_msg is not None
         try:
-            write = i2c_msg.write(self.address, cmd)
-            self.bus.i2c_rdwr(write)
-            time.sleep(0.05)
-            self.logger.info("Sent soft reset to AHT10")
-        except OSError as e:
-            raise I2CError(f"I2C error during reset: {e}")
+            write = i2c_msg.write(self.address, payload)
+            bus.i2c_rdwr(write)
+        except OSError as exc:
+            raise I2CError(f"I2C error during write({payload!r}): {exc}") from exc
 
     def _read_raw(self, n: int) -> bytes:
-        self._require_i2c()
-        if self.bus is None:
-            raise I2CError("Bus is not initialized. Call init() first.")
-
-        assert i2c_msg is not None, "smbus2 i2c_msg missing"
+        bus = self._require_open_bus()
+        assert i2c_msg is not None
         try:
             r = i2c_msg.read(self.address, n)
-            self.bus.i2c_rdwr(r)
+            bus.i2c_rdwr(r)
             return bytes(list(cast(Iterable[int], r)))
-        except OSError as e:
-            raise I2CError(f"I2C error during raw read({n}): {e}")
+        except OSError as exc:
+            raise I2CError(f"I2C error during raw read({n}): {exc}") from exc
+
+    def initialize_sensor(self) -> bool:
+        """Try the standard AHT10 initialization/calibration command."""
+        try:
+            self._write_bytes(self.INIT_CMD)
+            time.sleep(0.04)
+            return True
+        except AHT10Error as exc:
+            self.logger.debug("AHT10 initialize command failed on bus %s: %s", self.bus_num, exc)
+            return False
+
+    def reset(self) -> bool:
+        """Attempt a soft reset."""
+        try:
+            self._write_bytes(self.SOFT_RESET_CMD)
+            time.sleep(0.03)
+            return True
+        except AHT10Error as exc:
+            self._set_error(str(exc))
+            self.logger.error("Soft reset failed: %s", exc)
+            return False
+
+    def trigger_measurement(self) -> None:
+        """Send the standard AHT10 measurement trigger command."""
+        self._write_bytes(self.TRIGGER_CMD)
 
     def read_status(self) -> int:
-        data = self._read_raw(1)
-        if not data:
-            raise ProtocolError("Empty status read")
-        return data[0]
+        """Read a status byte using progressively more compatible fallbacks."""
+        bus = self._require_open_bus()
 
-    def read_measurement_raw(self, timeout: float = 1.0, retry_on_null: bool = True) -> bytes:
-        """Read one measurement from AHT10.
+        # Fallback 1: simple SMBus byte read
+        try:
+            return int(bus.read_byte(self.address))
+        except Exception as exc1:
+            self.logger.debug("read_status: read_byte failed on bus %s: %s", self.bus_num, exc1)
 
-        For robustness with USB-I2C adapters, use a fixed post-trigger delay
-        before reading the 6-byte payload.
+        # Fallback 2: raw read(1)
+        try:
+            data = self._read_raw(1)
+            if data:
+                return data[0]
+        except Exception as exc2:
+            self.logger.debug("read_status: raw read(1) failed on bus %s: %s", self.bus_num, exc2)
 
-        If `retry_on_null` is True and the payload appears null/empty, retry once.
-        """
-        time.sleep(0.10)
+        # Fallback 3: trigger + 6-byte payload, first byte is status
+        try:
+            self.trigger_measurement()
+            time.sleep(0.10)
+            data6 = self._read_raw(6)
+            if len(data6) >= 1:
+                return data6[0]
+        except Exception as exc3:
+            self.logger.debug(
+                "read_status: trigger+read6 fallback failed on bus %s: %s",
+                self.bus_num,
+                exc3,
+            )
 
-        data = self._read_raw(6)
-        if len(data) < 6:
-            raise ProtocolError(f"Expected 6 bytes, got {data!r}")
+        raise ProtocolError("Could not read AHT10 status using any supported method")
 
-        payload_is_null = (
-            data[1] == 0x00 and
-            data[2] == 0x00 and
-            data[3] == 0x00 and
-            data[4] == 0x00 and
-            data[5] == 0x00
-        )
-
-        if payload_is_null and retry_on_null:
-            self.logger.debug(f"Null AHT10 payload detected, retrying once: {data!r}")
-            time.sleep(0.05)
-            data = self._read_raw(6)
-            if len(data) < 6:
-                raise ProtocolError(f"Expected 6 bytes on retry, got {data!r}")
-
-        return data
-    
     def is_busy(self, status: Optional[int] = None) -> bool:
         if status is None:
             status = self.read_status()
@@ -213,33 +279,41 @@ class AHT10LowLevel:
             status = self.read_status()
         return bool(status & 0x08)
 
-    def trigger_measurement(self) -> None:
-        """Send measurement command to AHT10: 0xAC 0x33 0x00"""
-        self._require_i2c()
-        if self.bus is None:
-            raise I2CError("Bus is not initialized. Call init() first.")
+    def read_measurement_raw(self, timeout: float = 1.0, retry_on_null: bool = True) -> bytes:
+        """Trigger and read a standard 6-byte AHT10 measurement."""
+        self.trigger_measurement()
+        start = time.time()
 
-        cmd = bytes([0xAC, 0x33, 0x00])
-        assert i2c_msg is not None, "smbus2 i2c_msg missing"
-        try:
-            write = i2c_msg.write(self.address, cmd)
-            self.bus.i2c_rdwr(write)
-        except OSError:
-            try:
-                time.sleep(0.01)
-                write = i2c_msg.write(self.address, cmd)
-                self.bus.i2c_rdwr(write)
-            except OSError as e2:
-                raise I2CError(f"I2C error during trigger_measurement: {e2}")
+        while True:
+            time.sleep(0.10)
+            data = self._read_raw(6)
+            if len(data) < 6:
+                if time.time() - start > timeout:
+                    raise BusyTimeout(f"Expected 6 bytes from AHT10, got {data!r}")
+                time.sleep(0.02)
+                continue
+
+            status = data[0]
+            if not self.is_busy(status):
+                break
+
+            if (time.time() - start) > timeout:
+                raise BusyTimeout("Timeout waiting for AHT10 measurement readiness")
+
+            time.sleep(0.02)
+
+        payload_is_null = all(x == 0x00 for x in data[1:6])
+        if payload_is_null and retry_on_null:
+            self.logger.debug("Null AHT10 payload detected, retrying once: %r", data)
+            time.sleep(0.05)
+            data = self._read_raw(6)
+            if len(data) < 6:
+                raise ProtocolError(f"Expected 6 bytes on retry, got {data!r}")
+
+        return data
 
     def parse(self, raw: bytes) -> Tuple[float, float]:
-        """Parse 6-byte raw measurement from AHT10 into (temp_C, rh_pct).
-
-        Format (standard):
-        - raw[0] : status
-        - bits 4..23 of next three bytes -> humidity (20-bit)
-        - remaining 20 bits -> temperature (20-bit)
-        """
+        """Parse a standard 6-byte AHT10 measurement into (temp_C, rh_pct)."""
         if not raw or len(raw) < 6:
             raise ProtocolError("Raw measurement must be at least 6 bytes")
 
@@ -250,6 +324,202 @@ class AHT10LowLevel:
         rh = (hum_raw * 100.0) / float(1 << 20)
         temp_c = (temp_raw * 200.0) / float(1 << 20) - 50.0
         return temp_c, rh
+
+    def _probe_current_bus(self) -> tuple[bool, list[str], dict]:
+        """Try several compatibility checks on the currently-open bus."""
+        errors: list[str] = []
+        details: dict[str, Any] = {
+            "bus": self.bus_num,
+            "address": f"0x{self.address:02X}",
+            "checks": [],
+        }
+
+        # Check 1: simple read_byte
+        try:
+            bus = self._require_open_bus()
+            value = int(bus.read_byte(self.address))
+            details["checks"].append({"name": "read_byte", "ok": True, "value": value})
+            return True, errors, details
+        except Exception as exc:
+            msg = f"read_byte failed: {exc}"
+            errors.append(msg)
+            details["checks"].append({"name": "read_byte", "ok": False, "error": str(exc)})
+
+        # Check 2: init/calibration command, then read status
+        init_ok = self.initialize_sensor()
+        details["checks"].append({"name": "initialize_sensor", "ok": init_ok})
+        try:
+            status = self.read_status()
+            details["checks"].append({"name": "read_status", "ok": True, "status": status})
+            return True, errors, details
+        except Exception as exc:
+            msg = f"read_status failed: {exc}"
+            errors.append(msg)
+            details["checks"].append({"name": "read_status", "ok": False, "error": str(exc)})
+
+        # Check 3: full trigger+read(6)+parse
+        try:
+            raw = self.read_measurement_raw(timeout=1.5, retry_on_null=True)
+            temp_c, rh = self.parse(raw)
+            details["checks"].append(
+                {
+                    "name": "trigger_read_parse",
+                    "ok": True,
+                    "raw": [int(x) for x in raw],
+                    "temperature_c": temp_c,
+                    "humidity_rh": rh,
+                }
+            )
+            return True, errors, details
+        except Exception as exc:
+            msg = f"trigger_read_parse failed: {exc}"
+            errors.append(msg)
+            details["checks"].append(
+                {"name": "trigger_read_parse", "ok": False, "error": str(exc)}
+            )
+
+        return False, errors, details
+
+    def _scan_for_device(self) -> tuple[bool, list[str], dict]:
+        """Scan candidate buses before concluding the device is absent."""
+        scan_details: dict[str, Any] = {
+            "address": f"0x{self.address:02X}",
+            "scanned_buses": [],
+            "selected_bus": None,
+        }
+        errors: list[str] = []
+
+        candidates = list(self.bus_candidates) if self.bus_candidates else discover_i2c_buses(self.DEFAULT_BUS)
+        if self.bus_num is not None and self.bus_num not in candidates:
+            candidates = [self.bus_num] + candidates
+
+        original_bus_num = self.bus_num
+        original_was_open = self.is_open
+
+        if original_was_open:
+            self.close()
+
+        for busnum in candidates:
+            bus_entry: dict[str, Any] = {"bus": busnum}
+            scan_details["scanned_buses"].append(bus_entry)
+
+            self.bus_num = busnum
+            if not self.open():
+                bus_entry["open_ok"] = False
+                bus_entry["error"] = self.last_error
+                errors.append(f"bus {busnum}: open failed: {self.last_error}")
+                continue
+
+            bus_entry["open_ok"] = True
+            present, probe_errors, probe_details = self._probe_current_bus()
+            bus_entry["probe"] = probe_details
+            errors.extend([f"bus {busnum}: {e}" for e in probe_errors])
+
+            if present:
+                scan_details["selected_bus"] = busnum
+                return True, errors, scan_details
+
+            self.close()
+
+        self.bus_num = original_bus_num
+        if original_was_open and original_bus_num is not None:
+            self.open()
+
+        return False, errors, scan_details
+
+    def probe(self) -> bool:
+        """Public probe against the currently-open bus only."""
+        try:
+            present, _, _ = self._probe_current_bus()
+            return present
+        except Exception as exc:
+            self.logger.debug("Probe failed on bus %s: %s", self.bus_num, exc)
+            return False
+
+    def test(self) -> bool:
+        """Run a basic presence test; scans buses before returning False."""
+        self.logger.info("Running basic test")
+        self._clear_error()
+
+        if not self.is_initialized:
+            self._set_error("Module is not initialized")
+            self.logger.error(self.last_error)
+            return False
+
+        present, errors, _ = self._scan_for_device()
+        if not present and errors:
+            self._set_error("; ".join(errors[-3:]))
+        return present
+
+    def full_test(self) -> tuple[bool, dict]:
+        """Run a full diagnostic and scan buses before declaring absence."""
+        self.logger.info("Running full test")
+        self._clear_error()
+
+        details: dict[str, Any] = {
+            "initialized": self.is_initialized,
+            "opened": self.is_open,
+            "device_present": False,
+            "errors": [],
+            "details": {},
+        }
+
+        if not self.is_initialized:
+            msg = "Module is not initialized"
+            details["errors"].append(msg)
+            self._set_error(msg)
+            self.logger.error(msg)
+            return False, details
+
+        present, scan_errors, scan_details = self._scan_for_device()
+        details["opened"] = self.is_open
+        details["device_present"] = present
+        details["details"]["scan"] = scan_details
+        details["errors"].extend(scan_errors)
+
+        if not present:
+            msg = "Basic probe failed after scanning all candidate I2C buses"
+            details["errors"].append(msg)
+            self._set_error(msg)
+            self.logger.error("AHT10 full_test failed: %s", details)
+            return False, details
+
+        # At this point a bus is selected and open.
+        try:
+            status = self.read_status()
+            details["details"]["status"] = {
+                "value": status,
+                "busy": self.is_busy(status),
+                "calibrated": self.is_calibrated(status),
+            }
+
+            raw = self.read_measurement_raw(timeout=2.0, retry_on_null=True)
+            temp_c, rh = self.parse(raw)
+            details["details"]["measurement"] = {
+                "raw": [int(x) for x in raw],
+                "temperature_c": temp_c,
+                "humidity_rh": rh,
+            }
+
+            plausible = (-40.0 <= temp_c <= 85.0) and (0.0 <= rh <= 100.0)
+            details["details"]["measurement"]["plausible"] = plausible
+            if not plausible:
+                details["errors"].append("Measurement values are outside plausible AHT10 range")
+                self.logger.error("AHT10 measurement outside plausible range: %s", details["details"]["measurement"])
+                return False, details
+
+            return True, details
+        except Exception as exc:
+            details["errors"].append(str(exc))
+            self._set_error(str(exc))
+            self.logger.exception("AHT10 full_test measurement stage failed: %s", exc)
+            return False, details
+
+    def __repr__(self) -> str:
+        return (
+            f"AHT10LowLevel(address=0x{self.address:02X}, bus_num={self.bus_num}, "
+            f"is_initialized={self.is_initialized}, is_open={self.is_open})"
+        )
 
 
 __all__ = [
@@ -263,70 +533,28 @@ __all__ = [
 ]
 
 
-def _run_self_test(bus: Optional[int] = None) -> int:
-    """Run a quick self-test when module executed as a script.
-
-    - Initializes the sensor (with optional bus override)
-    - Probes for presence
-    - Reads status and logs busy/calibrated flags
-    - Triggers a measurement and reads one sample
-    - Parses and logs temperature (C) and humidity (%RH)
-    - Deinitializes and returns exit code
-    """
-    import logging
-
-    logger = logging.getLogger("AHT10LowLevel")
+def _run_self_test(bus: Optional[int] = None, address: int = AHT10LowLevel.DEFAULT_ADDRESS) -> int:
+    logger = logging.getLogger("aht10_LL")
     drv = AHT10LowLevel()
+
     try:
         logger.info("Starting AHT10 self-test")
-        drv.init(bus=bus)
-        present = drv.probe()
+        if not drv.init(bus=bus, address=address):
+            logger.error("AHT10 init failed: %s", drv.last_error)
+            return 1
 
-        # replica del comportamiento original: si no aparece y no forzaste bus, prueba otros
-        if not present and bus is None:
-            logger.warning(
-                f"AHT10 not present at address 0x{drv.address:02x} on initial bus {drv.bus_num}; scanning other I2C buses"
-            )
-            found = False
-            for n in discover_i2c_buses():
-                if n == drv.bus_num:
-                    continue
-                try:
-                    drv.deinit()
-                    logger.info(f"Trying alternative I2C bus {n}")
-                    drv.init(bus=n)
-                    if drv.probe():
-                        logger.info(f"Found AHT10 at address 0x{drv.address:02x} on bus {n}")
-                        found = True
-                        break
-                except Exception as e:
-                    logger.debug(f"Could not open/probe bus {n}: {e}")
-                    continue
-            if not found:
-                logger.error(f"AHT10 not present at address 0x{drv.address:02x} on any scanned bus")
-                return 2
-        elif not present:
-            logger.error(f"AHT10 not present at address 0x{drv.address:02x} on bus {drv.bus_num}")
+        result, details = drv.full_test()
+        if not result:
+            logger.error("AHT10 self-test failed: %s", details)
             return 2
 
-        status = drv.read_status()
-        logger.info(f"Status: 0x{status:02x} busy={drv.is_busy(status)} calibrated={drv.is_calibrated(status)}")
-
-        drv.trigger_measurement()
-        raw = drv.read_measurement_raw(timeout=2.0, retry_on_null=True)
-        logger.debug(f"Raw measurement bytes: {[f'0x{x:02x}' for x in raw]}")
-        temp_c, rh = drv.parse(raw)
-        logger.info(f"Measurement: temp={temp_c:.2f} C, rh={rh:.2f} %")
+        logger.info("AHT10 self-test passed: %s", details)
         return 0
-
-    except NotFound as e:
-        logger.error("Missing dependency: smbus2 is required for I2C operations.\n" + str(e))
+    except NotFound as exc:
+        logger.error("Missing dependency: %s", exc)
         return 3
-    except AHT10Error as e:
-        logger.exception("AHT10 self-test failed: %s", e)
-        return 4
-    except Exception as e:  # pragma: no cover
-        logger.exception("Unexpected error during AHT10 self-test: %s", e)
+    except Exception as exc:  # pragma: no cover
+        logger.exception("Unexpected error during AHT10 self-test: %s", exc)
         return 5
     finally:
         try:
@@ -335,27 +563,28 @@ def _run_self_test(bus: Optional[int] = None) -> int:
             pass
 
 
-def main(argv=None) -> bool:
-    """Run self-test as a script and return True on success, False on failure."""
-    import argparse
-    import logging
-
+def main(argv: Optional[list[str]] = None) -> bool:
     parser = argparse.ArgumentParser(description="AHT10 low-level driver self-test")
-    parser.add_argument("--bus", "-b", type=int, default=None, help="I2C bus number override (optional)")
+    parser.add_argument("--bus", "-b", type=int, default=None, help="Preferred I2C bus number")
+    parser.add_argument(
+        "--address",
+        "-a",
+        type=lambda x: int(x, 0),
+        default=AHT10LowLevel.DEFAULT_ADDRESS,
+        help="I2C device address (default: 0x38)",
+    )
     args = parser.parse_args(argv)
 
-    logger = logging.getLogger("AHT10LowLevel")
-    rc = _run_self_test(bus=args.bus)
+    logger = logging.getLogger("aht10_LL")
+    rc = _run_self_test(bus=args.bus, address=args.address)
     success = rc == 0
     if success:
         logger.info("AHT10 self-test: OK")
     else:
-        logger.error(f"AHT10 self-test: FAILED (rc={rc})")
+        logger.error("AHT10 self-test: FAILED (rc=%s)", rc)
     return success
 
 
 if __name__ == "__main__":
     import sys
-
-    ok = main(sys.argv[1:])
-    raise SystemExit(0 if ok else 1)
+    raise SystemExit(0 if main(sys.argv[1:]) else 1)
