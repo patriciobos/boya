@@ -23,7 +23,7 @@ import json
 import os
 import sys
 import wave
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -644,25 +644,25 @@ class AudioProcLowLevel:
         daq_file = os.path.join(support_dir, f"{config['daq']}.csv")
         daq_df = pd.read_csv(daq_file)
         daq_resp_func = interp1d(daq_df['freq'], daq_df['resp'], 
-                                kind='linear', bounds_error=False, fill_value='extrapolate')
+                                kind='linear', bounds_error=False, fill_value=cast(Any, "extrapolate"))
         
         # Load preamplifier response
         preamp_file = os.path.join(support_dir, f"{config['preamp']}.csv")
         preamp_df = pd.read_csv(preamp_file)
         preamp_resp_func = interp1d(preamp_df['freq'], preamp_df['resp'],
-                                    kind='linear', bounds_error=False, fill_value='extrapolate')
+                                    kind='linear', bounds_error=False, fill_value=cast(Any, "extrapolate"))
         
         # Load hydrophone responses (one per channel)
         hid_ch1_file = os.path.join(support_dir, f"{config['hid_ch1']}.csv")
         hid_ch1_df = pd.read_csv(hid_ch1_file)
         hid_ch1_resp_func = interp1d(hid_ch1_df['freq'], hid_ch1_df['resp'],
-                                     kind='linear', bounds_error=False, fill_value='extrapolate')
+                                     kind='linear', bounds_error=False, fill_value=cast(Any, "extrapolate"))
         
         if n_channels == 2:
             hid_ch2_file = os.path.join(support_dir, f"{config['hid_ch2']}.csv")
             hid_ch2_df = pd.read_csv(hid_ch2_file)
             hid_ch2_resp_func = interp1d(hid_ch2_df['freq'], hid_ch2_df['resp'],
-                                         kind='linear', bounds_error=False, fill_value='extrapolate')
+                                         kind='linear', bounds_error=False, fill_value=cast(Any, "extrapolate"))
         
         # Load third-octave bands from CSV
         csv_path = os.path.join(base_dir, "support", "third_octave_bands.csv")
@@ -704,11 +704,15 @@ class AudioProcLowLevel:
             daq_resp = daq_resp_func(freqs)
             preamp_resp = preamp_resp_func(freqs)
             
-            # Select hydrophone response according to channel
+            hid_ch2_resp_func = None
             if n_channels == 1 or ch == 0:
-                hid_resp = hid_ch1_resp_func(freqs)
-            else:  # n_channels == 2 and ch == 1
-                hid_resp = hid_ch2_resp_func(freqs)
+                hid_func = hid_ch1_resp_func
+            else:
+                if hid_ch2_resp_func is None:
+                    raise RuntimeError("hid_ch2 response function is not initialized")
+                hid_func = hid_ch2_resp_func
+
+            hid_resp = hid_func(freqs)
             
             # Square each response (magnitude -> power)
             daq_resp_power = daq_resp ** 2
@@ -830,7 +834,7 @@ class AudioProcLowLevel:
 
         # Create interpolator for PSD (power per Hz)
         try:
-            psd_interp = interp1d(ref_freq, ref_psd, kind='linear', bounds_error=False, fill_value='extrapolate')
+            psd_interp = interp1d(ref_freq, ref_psd, kind='linear', bounds_error=False, fill_value=cast(Any, "extrapolate"))
         except Exception as e:
             raise RuntimeError(f"Failed to create PSD interpolator: {e}")
 
@@ -1063,7 +1067,7 @@ class AudioProcLowLevel:
                 "csv_output_enabled": True,
             }
 
-            if env_ok and test_input.get("exists"):
+            if env_ok and test_input.get("exists") and self.test_wav_path is not None:
                 comparison = self._external_reference_comparison(self.test_wav_path)
                 if comparison.get("enabled") and comparison.get("ok") is False:
                     report["errors"].append(comparison.get("error") or "External reference comparison failed")
