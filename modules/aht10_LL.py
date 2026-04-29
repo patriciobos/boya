@@ -21,10 +21,13 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+import os
+import sys
 from typing import Any, Iterable, Optional, Tuple, TYPE_CHECKING, cast
 
-from support.i2c_common import discover_i2c_buses
-from support.log_utils import get_logger
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from modules.support.i2c_common import discover_i2c_buses
+from modules.support.log_utils import get_logger
 
 if TYPE_CHECKING:
     from smbus2 import SMBus as SMBusType
@@ -75,6 +78,7 @@ class AHT10LowLevel:
         self.bus: Optional[SMBusType] = None
         self.address: int = self.DEFAULT_ADDRESS
         self.bus_candidates: list[int] = []
+        self.bus_forced: bool = False
         self.is_initialized: bool = False
         self.is_open: bool = False
         self.last_error: Optional[str] = None
@@ -102,6 +106,7 @@ class AHT10LowLevel:
             candidates = discover_i2c_buses(bus if bus is not None else self.DEFAULT_BUS)
             self.bus_candidates = list(candidates)
             self.bus_num = int(bus) if bus is not None else None
+            self.bus_forced = bus is not None
             self.is_initialized = True
 
             self.logger.info(
@@ -140,6 +145,8 @@ class AHT10LowLevel:
         for busnum in candidates:
             try:
                 self.logger.info("Trying I2C bus %s for AHT10@0x%02X", busnum, self.address)
+                if SMBus is None:
+                    raise NotFound("smbus2.SMBus is not available. Did the import fail?")
                 self.bus = SMBus(busnum)
                 self.bus_num = busnum
                 self.is_open = True
@@ -182,6 +189,7 @@ class AHT10LowLevel:
         ok = self.close()
         self.is_initialized = False
         self.bus_num = None
+        self.bus_forced = False
         self.bus_candidates = []
         return ok
 

@@ -16,8 +16,13 @@ import math
 import time
 from typing import Any, Optional, Tuple, TYPE_CHECKING
 
-from support.i2c_common import discover_i2c_buses
-from support.log_utils import get_logger
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from modules.support.i2c_common import discover_i2c_buses
+from modules.support.log_utils import get_logger
+
 
 if TYPE_CHECKING:
     from smbus2 import SMBus as SMBusType
