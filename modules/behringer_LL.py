@@ -1,498 +1,734 @@
+"""modules/behringer_LL.py
+
+Low-level driver for the Behringer USB audio interface.
+
+Public lifecycle:
+- init() -> bool
+- open() -> bool
+- close() -> bool
+- test() -> bool
+- full_test() -> tuple[bool, dict]
+- deinit() -> bool
+
+Functional helpers:
+- record(duration) -> bool
+- stop_recording() -> bool
+- is_recording_done() -> tuple[bool, bool]
+- list_recordings() -> list[str]
+- delete_old_recordings(days) -> int
 """
-behringer_LL.py
 
-This module provides low-level logic for handling Behringer device audio recording and file management.
+from __future__ import annotations
 
-Classes:
-    BehringerLowLevel: Manages initialization, recording, and storage of audio data from the Behringer device.
-"""
-
-import os
 import glob
-import wave
+import json
+import os
+import queue
 import threading
 import time
-import queue
+import wave
 from datetime import datetime
-
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from typing import Any, Dict, List, Optional, Tuple
 
 import pyaudio
+
+import os
+import sys
+
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.support.log_utils import get_logger
 
-
-
-# Suppress warnings and prevent JACK server from starting
+# Suppress common ALSA/JACK warnings and prevent JACK server autostart.
 os.environ["PYTHONWARNINGS"] = "ignore"
 os.environ["JACK_NO_START_SERVER"] = "1"
 
+
+class BehringerError(Exception):
+    """Base exception for Behringer low-level errors."""
+
+
+class NotFound(BehringerError):
+    """Raised when PyAudio or a compatible device is not available."""
+
+
+class AudioError(BehringerError):
+    """Raised on audio interface or stream errors."""
+
+
 class BehringerLowLevel:
-    """
-    Low-level controller for the Behringer USB audio interface.
-    """
+    """Low-level controller for the Behringer USB audio interface."""
 
-    def __init__(self):
-        """
-        Initialize the BehringerLowLevel instance.
+    DEFAULT_SAMPLE_RATE = 192000
+    DEFAULT_CHANNELS = 2
+    DEFAULT_OUTPUT_CHANNELS = 1
+    DEFAULT_FORMAT = pyaudio.paInt24
+    DEFAULT_FRAMES_PER_BUFFER = 8192
+    DEFAULT_DEVICE_NAME_FILTERS = ("Behringer", "USB")
+    DEFAULT_RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
 
-        Sets up internal state and logger.
-        """
-        self.audio_interface = None
-        self.device_index = None
-        self.stream = None
+    def __init__(
+        self,
+        logger_name: str = "behringer_LL",
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        channels: int = DEFAULT_CHANNELS,
+        output_channels: int = DEFAULT_OUTPUT_CHANNELS,
+        audio_format: int = DEFAULT_FORMAT,
+        frames_per_buffer: int = DEFAULT_FRAMES_PER_BUFFER,
+        device_name_filters: Optional[Tuple[str, ...]] = None,
+        recordings_dir: Optional[str] = None,
+    ) -> None:
+        self.logger = get_logger(logger_name)
+
+        self.is_initialized: bool = False
+        self.is_open: bool = False
+        self.last_error: Optional[str] = None
+
+        self.bus = None
+        self.bus_num = None
+        self.address = None
+        self.bus_candidates: List[int] = []
+        self.bus_forced: bool = False
+
+        self.sample_rate: int = int(sample_rate)
+        self.channels: int = int(channels)
+        self.output_channels: int = int(output_channels)
+        self.audio_format: int = int(audio_format)
+        self.frames_per_buffer: int = int(frames_per_buffer)
+        self.device_name_filters: Tuple[str, ...] = tuple(
+            device_name_filters or self.DEFAULT_DEVICE_NAME_FILTERS
+        )
+        self.recordings_dir: str = recordings_dir or self.DEFAULT_RECORDINGS_DIR
+
+        self.audio_interface: Optional[pyaudio.PyAudio] = None
+        self.device_index: Optional[int] = None
+        self.device_info: Optional[Dict[str, Any]] = None
+        self.stream: Optional[pyaudio.Stream] = None
+
         self.is_recording_event = threading.Event()
-        self.recording_thread = None
-        self.last_record_ok = False
-        self.start_time = None
-        self.duration = None
-        self.frames_queue = queue.Queue()
+        self.recording_thread: Optional[threading.Thread] = None
+        self.last_record_ok: bool = False
+        self.start_time: Optional[float] = None
+        self.duration: Optional[float] = None
+        self.frames_queue: "queue.Queue[bytes]" = queue.Queue()
+        self.output_path: Optional[str] = None
 
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        #self.log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", "behringer_LL.log")
-        self.output_path = None
+    def _set_error(self, msg: str) -> None:
+        self.last_error = msg
 
-        self.logger = get_logger("behringer_LL")
+    def _clear_error(self) -> None:
+        self.last_error = None
 
-    def init(self) -> bool:
-        """
-        Initialize the Behringer audio interface and search for the device.
+    def _format_name(self) -> str:
+        if self.audio_format == pyaudio.paInt24:
+            return "paInt24"
+        if self.audio_format == pyaudio.paInt16:
+            return "paInt16"
+        if self.audio_format == pyaudio.paInt32:
+            return "paInt32"
+        if self.audio_format == pyaudio.paFloat32:
+            return "paFloat32"
+        return str(self.audio_format)
 
-        Returns:
-            bool: True if the device is found and initialized, False otherwise.
-        """
+    def _bytes_per_sample(self) -> int:
         if self.audio_interface is not None:
-            self.logger.info("Behringer ya está inicializado. Omite init().")
-            return True
+            return int(self.audio_interface.get_sample_size(self.audio_format))
+        if self.audio_format == pyaudio.paInt24:
+            return 3
+        if self.audio_format == pyaudio.paInt16:
+            return 2
+        if self.audio_format in (pyaudio.paInt32, pyaudio.paFloat32):
+            return 4
+        raise AudioError(f"Unsupported audio format: {self.audio_format}")
 
-        self.logger.info("Buscando dispositivo Behringer USB...")
-        p = None
-        try:
-            p = pyaudio.PyAudio()
-            num_devices = p.get_device_count()
+    def _build_full_test_report(self) -> dict:
+        return {
+            "initialized": self.is_initialized,
+            "opened": self.is_open,
+            "device_present": False,
+            "errors": [],
+            "details": {},
+        }
 
-            for i in range(num_devices):
-                try:
-                    device_info = p.get_device_info_by_index(i)
-                    device_name = device_info.get("name", "")
-                    max_input_channels = int(device_info.get("maxInputChannels", 0))
+    def _log_full_test_result(self, success: bool, report: dict) -> None:
+        self.logger.info(
+            "Full diagnostic test completed: success=%s device_present=%s device=%s audio=%s filesystem=%s",
+            success,
+            report.get("device_present"),
+            report.get("details", {}).get("device"),
+            report.get("details", {}).get("audio"),
+            report.get("details", {}).get("filesystem"),
+        )
 
-                    if ("Behringer" in str(device_name) or "USB" in str(device_name)) and max_input_channels > 0:
-                        self.device_index = i
-                        self.audio_interface = p
-                        self.logger.info("Dispositivo encontrado: %s (Index: %d)", device_name, i)
-                        return True
-                except OSError as e:
-                    self.logger.warning("Índice inválido %d: %s", i, e)
+    def _find_device(self, audio: pyaudio.PyAudio) -> Tuple[int, Dict[str, Any], List[Dict[str, Any]]]:
+        devices: List[Dict[str, Any]] = []
+        num_devices = audio.get_device_count()
 
-            self.logger.warning("No se encontró dispositivo Behringer USB.")
-            return False
-        except Exception as e:
-            self.logger.exception("Error durante init(): %s", e)
-            return False
-        finally:
-            if p is not None and self.audio_interface is None:
-                p.terminate()
+        for i in range(num_devices):
+            try:
+                info = audio.get_device_info_by_index(i)
+                name = str(info.get("name", ""))
+                max_input_channels = int(info.get("maxInputChannels", 0))
+                default_sample_rate = float(info.get("defaultSampleRate", 0.0))
+                entry = {
+                    "index": i,
+                    "name": name,
+                    "max_input_channels": max_input_channels,
+                    "default_sample_rate": default_sample_rate,
+                }
+                devices.append(entry)
 
-    def open(self) -> bool:
-        """
-        Open the audio stream for recording.
+                name_matches = any(token in name for token in self.device_name_filters)
+                if name_matches and max_input_channels > 0:
+                    return i, dict(info), devices
+            except Exception as exc:
+                devices.append({"index": i, "error": str(exc)})
 
-        Returns:
-            bool: True if the stream is opened successfully, False otherwise.
-        """
+        raise NotFound(
+            f"No compatible Behringer/USB input device found. filters={self.device_name_filters}"
+        )
+
+    def _open_stream(self) -> bool:
         if self.audio_interface is None or self.device_index is None:
-            self.logger.warning("No se puede abrir el stream: dispositivo no inicializado.")
+            self._set_error("Audio interface is not open")
+            self.logger.error(self.last_error)
             return False
+
+        if self.stream is not None:
+            try:
+                if self.stream.is_active():
+                    self.logger.info("Audio stream already active")
+                    return True
+            except Exception:
+                pass
+            self._close_stream()
+
         try:
             self.stream = self.audio_interface.open(
-                format=pyaudio.paInt24,
-                channels=2,
-                rate=192000,
+                format=self.audio_format,
+                channels=self.channels,
+                rate=self.sample_rate,
                 input=True,
-                frames_per_buffer=8192,
+                frames_per_buffer=self.frames_per_buffer,
                 input_device_index=self.device_index,
                 stream_callback=self._callback,
             )
-            self.logger.info("Stream de audio abierto (Index %d).", self.device_index)
+            self.logger.info(
+                "Audio stream opened: device_index=%s channels=%s rate=%s format=%s",
+                self.device_index,
+                self.channels,
+                self.sample_rate,
+                self._format_name(),
+            )
             return True
-        except Exception as e:
-            self.logger.exception("Error abriendo el stream: %s", e)
+        except Exception as exc:
             self.stream = None
+            self._set_error(f"Failed to open audio stream: {exc}")
+            self.logger.exception("Failed to open audio stream: %s", exc)
             return False
 
+    def _close_stream(self) -> bool:
+        try:
+            if self.stream is not None:
+                try:
+                    if self.stream.is_active():
+                        self.stream.stop_stream()
+                except Exception as exc:
+                    self.logger.debug("Ignoring stop_stream warning: %s", exc)
+                try:
+                    self.stream.close()
+                except Exception as exc:
+                    self.logger.debug("Ignoring stream close warning: %s", exc)
+            self.stream = None
+            return True
+        except Exception as exc:
+            self.stream = None
+            self._set_error(f"Failed to close audio stream: {exc}")
+            self.logger.exception("Failed to close audio stream: %s", exc)
+            return False
+
+    def _make_output_path(self) -> str:
+        date_str = datetime.now().strftime("%Y%m%d")
+        recordings_dir = os.path.join(self.recordings_dir, date_str)
+        os.makedirs(recordings_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return os.path.join(recordings_dir, f"recording_{timestamp}.wav")
+
+    def _clear_queue(self) -> None:
+        try:
+            while True:
+                self.frames_queue.get_nowait()
+        except queue.Empty:
+            pass
+
     def _callback(self, in_data, _frame_count, _time_info, status):
-        """
-        PyAudio stream callback for audio data.
-
-        Args:
-            in_data (bytes): Input audio data.
-            _frame_count (int): Number of frames.
-            _time_info (dict): Timing information.
-            status (int): Stream status code.
-
-        Returns:
-            tuple: (audio data, stream flag)
-        """
         if status:
-            self.logger.warning("Estado del stream: %s", status)
+            self.logger.warning("Audio stream status: %s", status)
         if not self.is_recording_event.is_set():
             return (b"", pyaudio.paComplete)
         self.frames_queue.put(in_data)
         return (in_data, pyaudio.paContinue)
 
-    def record(self, duration: int) -> bool:
-        """
-        Start recording audio for a given duration.
-
-        Args:
-            duration (int): Duration of the recording in seconds.
-
-        Returns:
-            bool: True if recording started successfully, False otherwise.
-        """
-        if self.audio_interface is None or self.device_index is None:
-            self.logger.warning("No se puede grabar: dispositivo no inicializado.")
-            return False
-
-        # Ruta relativa al proyecto: /modules/recordings/yyyymmdd
-        date_str = datetime.now().strftime("%Y%m%d")
-        recordings_dir = os.path.join(os.path.dirname(__file__), "recordings", date_str)
-        os.makedirs(recordings_dir, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.output_path = os.path.join(recordings_dir, f"recording_{timestamp}.wav")
-
-        self.logger.info("Iniciando grabación: %s por %d segundos.", self.output_path, duration)
-
-        self.is_recording_event.set()
-        self.start_time = time.time()
-        self.duration = duration
-        self.frames_queue.queue.clear()
-
-        if not self.open():
-            return False
-
-        self.recording_thread = threading.Thread(target=self._write_audio)
-        self.recording_thread.start()
-        return True
-
-    def _write_audio(self):
-        """
-        Internal thread function to write audio frames to a WAV file.
-
-        Handles the actual writing of audio data during recording.
-        """
-        if self.audio_interface is None:
-            self.logger.error("Interfaz no inicializada. Abortando _write_audio().")
-            self.last_record_ok = False
-            self.stop_recording()
-            return
+    def init(
+        self,
+        sample_rate: Optional[int] = None,
+        channels: Optional[int] = None,
+        output_channels: Optional[int] = None,
+        frames_per_buffer: Optional[int] = None,
+        recordings_dir: Optional[str] = None,
+    ) -> bool:
+        """Prepare configuration and internal state only. Does not access PyAudio hardware."""
+        self.logger.info("Initializing module")
+        self._clear_error()
         try:
-            if self.output_path is None:
-                self.logger.error("output_path no está definido. Abortando _write_audio().")
-                self.last_record_ok = False
-                self.stop_recording()
-                return
-
-            with wave.open(self.output_path, "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(self.audio_interface.get_sample_size(pyaudio.paInt24))
-                wf.setframerate(192000)
-
-                start = time.time()
-                if self.duration is None:
-                    self.logger.error("Duración de grabación no establecida. Abortando _write_audio().")
-                    self.last_record_ok = False
-                    self.stop_recording()
-                    return
-                while time.time() - start < self.duration:
-                    try:
-                        frame = self.frames_queue.get(timeout=0.5)
-                        wf.writeframes(frame)
-                    except queue.Empty:
-                        continue
-
-            self.logger.info("Grabación guardada en: %s", self.output_path)
-            self.last_record_ok = True
-        except Exception as e:
-            self.logger.exception("Error durante la escritura de audio: %s", e)
-            self.last_record_ok = False
-        finally:
             self.close()
-            self.stop_recording()  # 🔧 aseguramos que el evento y el thread se limpien
-
-
-
-    def stop_recording(self):
-        """
-        Stop the current recording and clean up the recording thread.
-        """
-        self.is_recording_event.clear()
-
-        # No intentar hacer join desde el mismo thread
-        if (
-            self.recording_thread is not None
-            and self.recording_thread.is_alive()
-            and threading.current_thread() != self.recording_thread
-        ):
-            self.recording_thread.join()
-
-        self.logger.info("Grabación finalizada.")
-        self.recording_thread = None
-
-
-    def test(self) -> bool:
-        """
-        Test if the Behringer device is initialized.
-
-        Returns:
-            bool: True if initialized, False otherwise.
-        """
-        self.logger.info("Ejecutando test de dispositivo...")
-        return self.audio_interface is not None
-
-    def deinit(self) -> bool:
-        """
-        Deinitialize and release the Behringer audio interface resources.
-
-        Returns:
-            bool: True if resources were released, False otherwise.
-        """
-        if self.audio_interface is None:
-            self.logger.info("No hay recursos que liberar.")
-            return True
-
-        try:
-            self.audio_interface.terminate()
-            self.logger.info("Interfaz de audio Behringer liberada.")
-            return True
-        except Exception as e:
-            self.logger.warning("Error al liberar recursos: %s", e)
-            return False
-        finally:
+            if sample_rate is not None:
+                self.sample_rate = int(sample_rate)
+            if channels is not None:
+                self.channels = int(channels)
+            if output_channels is not None:
+                self.output_channels = int(output_channels)
+            if frames_per_buffer is not None:
+                self.frames_per_buffer = int(frames_per_buffer)
+            if recordings_dir is not None:
+                self.recordings_dir = str(recordings_dir)
+            os.makedirs(self.recordings_dir, exist_ok=True)
             self.audio_interface = None
             self.device_index = None
+            self.device_info = None
+            self.stream = None
+            self.bus = None
+            self.bus_num = None
+            self.address = None
+            self.bus_candidates = []
+            self.bus_forced = False
+            self.is_open = False
+            self.is_initialized = True
+            self.last_record_ok = False
+            self.output_path = None
+            self._clear_queue()
+            self.logger.info(
+                "Module initialized: sample_rate=%s channels=%s output_channels=%s format=%s frames_per_buffer=%s recordings_dir=%s",
+                self.sample_rate,
+                self.channels,
+                self.output_channels,
+                self._format_name(),
+                self.frames_per_buffer,
+                self.recordings_dir,
+            )
+            return True
+        except Exception as exc:
+            self.is_initialized = False
+            self._set_error(f"Initialization failed: {exc}")
+            self.logger.exception("Initialization failed: %s", exc)
+            return False
 
-    def close(self):
-        """
-        Close the audio stream if it is open.
-        """
-        if self.stream is not None:
-            try:
-                self.stream.stop_stream()
-                self.stream.close()
-                self.logger.info("Stream de audio cerrado.")
-            except Exception as e:
-                self.logger.warning("Error cerrando el stream: %s", e)
-            finally:
-                self.stream = None
-        else:
-            self.logger.warning("No hay stream activo para cerrar.")
+    def open(self) -> bool:
+        """Open the audio transport by creating PyAudio and selecting the device. Does not start recording."""
+        self.logger.info("Opening audio transport")
+        self._clear_error()
+        if not self.is_initialized:
+            self._set_error("Module is not initialized")
+            self.logger.error(self.last_error)
+            return False
+        if self.is_open and self.audio_interface is not None and self.device_index is not None:
+            self.logger.info("Audio transport already open: device_index=%s", self.device_index)
+            return True
+        try:
+            audio = pyaudio.PyAudio()
+            device_index, device_info, devices = self._find_device(audio)
+            self.audio_interface = audio
+            self.device_index = device_index
+            self.device_info = device_info
+            self.bus = audio
+            self.bus_num = device_index
+            self.bus_candidates = [
+                int(d["index"])
+                for d in devices
+                if "index" in d and isinstance(d["index"], int)
+            ]
+            self.is_open = True
+            self.logger.info(
+                "Audio transport opened: device_index=%s name=%s max_input_channels=%s",
+                self.device_index,
+                self.device_info.get("name"),
+                self.device_info.get("maxInputChannels"),
+            )
+            return True
+        except Exception as exc:
+            self.audio_interface = None
+            self.device_index = None
+            self.device_info = None
+            self.bus = None
+            self.bus_num = None
+            self.is_open = False
+            self._set_error(f"Open failed: {exc}")
+            self.logger.exception("Open failed: %s", exc)
+            return False
 
+    def close(self) -> bool:
+        """Close stream and audio transport. Idempotent."""
+        self.logger.info("Closing audio transport")
+        self._clear_error()
+        try:
+            if self.is_recording_event.is_set():
+                self.stop_recording()
+            self._close_stream()
+            if self.audio_interface is not None:
+                try:
+                    self.audio_interface.terminate()
+                except Exception as exc:
+                    self.logger.debug("Ignoring PyAudio terminate warning: %s", exc)
+            self.audio_interface = None
+            self.device_index = None
+            self.device_info = None
+            self.bus = None
+            self.bus_num = None
+            self.stream = None
+            self.is_open = False
+            return True
+        except Exception as exc:
+            self.audio_interface = None
+            self.device_index = None
+            self.device_info = None
+            self.bus = None
+            self.bus_num = None
+            self.stream = None
+            self.is_open = False
+            self._set_error(f"Close failed: {exc}")
+            self.logger.exception("Close failed: %s", exc)
+            return False
 
-    def is_recording_done(self) -> tuple[bool, bool]:
-        """
-        Check if the recording has finished and if it was successful.
+    def deinit(self) -> bool:
+        """Total cleanup. Leaves module in a neutral state."""
+        self.logger.info("Deinitializing module")
+        self._clear_error()
+        try:
+            ok = self.close()
+            self.is_initialized = False
+            self.last_record_ok = False
+            self.start_time = None
+            self.duration = None
+            self.output_path = None
+            self.bus_candidates = []
+            self.bus_forced = False
+            self._clear_queue()
+            return bool(ok)
+        except Exception as exc:
+            self._set_error(f"Deinitialization failed: {exc}")
+            self.logger.exception("Deinitialization failed: %s", exc)
+            return False
 
-        Returns:
-            tuple: (finished: bool, success: bool)
-        """
-        finished = not self.is_recording_event.is_set() and self.recording_thread is None
-        return finished, self.last_record_ok
+    def probe(self) -> bool:
+        """Minimal device presence check on the currently open PyAudio transport."""
+        self.logger.info("Probing Behringer audio device")
+        self._clear_error()
+        try:
+            if self.audio_interface is None or self.device_index is None:
+                raise AudioError("Audio transport is not open")
+            info = self.audio_interface.get_device_info_by_index(self.device_index)
+            max_input_channels = int(info.get("maxInputChannels", 0))
+            name = str(info.get("name", ""))
+            name_matches = any(token in name for token in self.device_name_filters)
+            present = bool(name_matches and max_input_channels > 0)
+            self.logger.info(
+                "Probe result: present=%s device_index=%s name=%s max_input_channels=%s",
+                present,
+                self.device_index,
+                name,
+                max_input_channels,
+            )
+            return present
+        except Exception as exc:
+            self._set_error(f"Probe failed: {exc}")
+            self.logger.warning("Probe failed: %s", exc)
+            return False
+
+    def test(self) -> bool:
+        """Fast smoke test. May open temporarily and restores original state."""
+        self.logger.info("Running smoke test")
+        self._clear_error()
+        was_open = self.is_open and self.audio_interface is not None
+        temporarily_opened = False
+        try:
+            if not was_open:
+                if not self.open():
+                    return False
+                temporarily_opened = True
+            if not self.probe():
+                return False
+            if not self._open_stream():
+                return False
+            self._close_stream()
+            self.logger.info("Smoke test completed: success=True")
+            return True
+        except Exception as exc:
+            self._set_error(f"Test failed: {exc}")
+            self.logger.warning("Test failed: %s", exc)
+            return False
+        finally:
+            if temporarily_opened:
+                self.close()
 
     def full_test(self) -> tuple[bool, dict]:
-        """
-        Perform a full test of the Behringer device.
-
-        Returns:
-            tuple: (global_result: bool, details: dict)
-        """
-        detalles = {}
-        resultado_global = True
-
-        # 0. Verificar inicialización previa
-        if self.audio_interface is None or self.device_index is None:
-            msg = "[full_test] El dispositivo NO está inicializado. Abortando tests."
-            self.logger.error(msg)
-            detalles["inicializado"] = False
-            self.logger.info(f"[full_test] inicializado: False")
-            return False, detalles
-        detalles["inicializado"] = True
-        self.logger.info(f"[full_test] inicializado: True")
-
-        # 1. Verificación de dispositivo de audio (sin crear nueva instancia)
-        self.logger.info("[full_test] Verificando dispositivo de audio...")
+        """Full diagnostic test. Never propagates uncaught exceptions."""
+        self.logger.info("Running full diagnostic test")
+        self._clear_error()
+        report = self._build_full_test_report()
+        was_open = self.is_open and self.audio_interface is not None
+        temporarily_opened = False
         try:
-            p = self.audio_interface
-            num_devices = p.get_device_count()
-            dispositivos = []
-            for i in range(num_devices):
-                try:
-                    device_info = p.get_device_info_by_index(i)
-                    dispositivos.append(device_info)
-                except Exception:
-                    continue
-            detalles["dispositivos_detectados"] = [d.get("name", "?") for d in dispositivos]
-            behringer_ok = any(("Behringer" in d.get("name", "") or "USB" in d.get("name", "")) and int(d.get("maxInputChannels", 0)) > 0 for d in dispositivos)
-            detalles["behringer_detectado"] = behringer_ok
-            self.logger.info(f"[full_test] behringer_detectado: {behringer_ok}")
-            if not behringer_ok:
-                self.logger.error("[full_test] No se detectó dispositivo Behringer USB.")
-                resultado_global = False
-        except Exception as e:
-            self.logger.exception("[full_test] Error al buscar dispositivos: %s", e)
-            detalles["behringer_detectado"] = False
-            self.logger.info(f"[full_test] behringer_detectado: False")
-            resultado_global = False
-
-        # 2. Prueba de grabación corta
-        self.logger.info("[full_test] Prueba de grabación corta...")
-        test_record_ok = False
-        test_file = None
-        # Ruta relativa al proyecto: /modules/recordings/yyyymmdd
-        date_str = datetime.now().strftime("%Y%m%d")
-        recordings_dir = os.path.join(os.path.dirname(__file__), "recordings", date_str)
-        try:
-            test_duration = 2
-            os.makedirs(recordings_dir, exist_ok=True)
-            test_file = os.path.join(recordings_dir, f"test_recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
-            self.output_path = test_file
-            self.is_recording_event.set()
-            self.start_time = time.time()
-            self.duration = test_duration
-            self.frames_queue.queue.clear()
-            if self.open():
-                wf = wave.open(test_file, "wb")
-                wf.setnchannels(1)
-                if self.audio_interface is not None:
-                    wf.setsampwidth(self.audio_interface.get_sample_size(pyaudio.paInt24))
+            report["initialized"] = self.is_initialized
+            if not self.is_initialized:
+                msg = "Module is not initialized"
+                report["errors"].append(msg)
+                self._set_error(msg)
+                self._log_full_test_result(False, report)
+                return False, report
+            if not was_open:
+                if self.open():
+                    temporarily_opened = True
+                    report["opened"] = True
                 else:
-                    wf.setsampwidth(3)  # fallback
-                wf.setframerate(192000)
+                    report["opened"] = False
+                    if self.last_error:
+                        report["errors"].append(self.last_error)
+                    self._log_full_test_result(False, report)
+                    return False, report
+            else:
+                report["opened"] = True
+
+            device_present = self.probe()
+            report["device_present"] = bool(device_present)
+            device_details: Dict[str, Any] = {}
+            if self.audio_interface is not None and self.device_index is not None:
+                try:
+                    info = self.audio_interface.get_device_info_by_index(self.device_index)
+                    device_details = {
+                        "index": self.device_index,
+                        "name": info.get("name"),
+                        "max_input_channels": int(info.get("maxInputChannels", 0)),
+                        "default_sample_rate": float(info.get("defaultSampleRate", 0.0)),
+                    }
+                except Exception as exc:
+                    report["errors"].append(f"Device info read failed: {exc}")
+
+            stream_open_ok = False
+            try:
+                stream_open_ok = self._open_stream()
+                if not stream_open_ok and self.last_error:
+                    report["errors"].append(self.last_error)
+            finally:
+                self._close_stream()
+
+            fs_write_ok = False
+            free_bytes = 0
+            try:
+                os.makedirs(self.recordings_dir, exist_ok=True)
+                testfile = os.path.join(self.recordings_dir, "behringer_test_perm.tmp")
+                with open(testfile, "w", encoding="utf-8") as f:
+                    f.write("test")
+                os.remove(testfile)
+                fs_write_ok = True
+                statvfs = os.statvfs(self.recordings_dir)
+                free_bytes = int(statvfs.f_frsize * statvfs.f_bavail)
+            except Exception as exc:
+                report["errors"].append(f"Filesystem check failed: {exc}")
+
+            report["details"] = {
+                "device": device_details,
+                "audio": {
+                    "sample_rate": self.sample_rate,
+                    "channels": self.channels,
+                    "output_channels": self.output_channels,
+                    "format": self._format_name(),
+                    "frames_per_buffer": self.frames_per_buffer,
+                    "stream_open_ok": stream_open_ok,
+                },
+                "filesystem": {
+                    "recordings_dir": self.recordings_dir,
+                    "write_ok": fs_write_ok,
+                    "free_bytes": free_bytes,
+                },
+                "recording": {
+                    "is_recording": self.is_recording_event.is_set(),
+                    "last_record_ok": self.last_record_ok,
+                    "output_path": self.output_path,
+                },
+            }
+            success = bool(
+                report["initialized"]
+                and report["opened"]
+                and report["device_present"]
+                and stream_open_ok
+                and fs_write_ok
+            )
+            self._log_full_test_result(success, report)
+            return success, report
+        except Exception as exc:
+            report["errors"].append(f"Unexpected full_test failure: {exc}")
+            self._set_error(f"Full test failed: {exc}")
+            self.logger.exception("Full test failed: %s", exc)
+            self._log_full_test_result(False, report)
+            return False, report
+        finally:
+            if temporarily_opened:
+                self.close()
+
+    def record(self, duration: int | float) -> bool:
+        """Start recording audio for a bounded duration."""
+        self.logger.info("Starting recording request: duration=%s", duration)
+        self._clear_error()
+        try:
+            if not self.is_initialized:
+                self._set_error("Module is not initialized")
+                self.logger.error(self.last_error)
+                return False
+            if self.is_recording_event.is_set():
+                self._set_error("Recording is already active")
+                self.logger.warning(self.last_error)
+                return False
+            if not self.is_open:
+                if not self.open():
+                    return False
+            if self.audio_interface is None or self.device_index is None:
+                self._set_error("Audio transport is not open")
+                self.logger.error(self.last_error)
+                return False
+            self.output_path = self._make_output_path()
+            self.duration = float(duration)
+            self.start_time = time.time()
+            self.last_record_ok = False
+            self._clear_queue()
+            self.is_recording_event.set()
+            if not self._open_stream():
+                self.is_recording_event.clear()
+                return False
+            self.recording_thread = threading.Thread(target=self._write_audio, daemon=True)
+            self.recording_thread.start()
+            self.logger.info("Recording started: path=%s duration=%s", self.output_path, self.duration)
+            return True
+        except Exception as exc:
+            self.is_recording_event.clear()
+            self.last_record_ok = False
+            self._set_error(f"Record failed: {exc}")
+            self.logger.exception("Record failed: %s", exc)
+            self._close_stream()
+            return False
+
+    def _write_audio(self) -> None:
+        if self.audio_interface is None:
+            self.logger.error("Audio interface is not open. Aborting recording.")
+            self.last_record_ok = False
+            self.is_recording_event.clear()
+            self._close_stream()
+            return
+        if self.output_path is None:
+            self.logger.error("Output path is not defined. Aborting recording.")
+            self.last_record_ok = False
+            self.is_recording_event.clear()
+            self._close_stream()
+            return
+        frames_written = 0
+        try:
+            sample_width = self._bytes_per_sample()
+            with wave.open(self.output_path, "wb") as wf:
+                wf.setnchannels(self.output_channels)
+                wf.setsampwidth(sample_width)
+                wf.setframerate(self.sample_rate)
                 start = time.time()
-                while time.time() - start < test_duration:
+                while self.is_recording_event.is_set():
+                    if self.duration is not None and (time.time() - start) >= self.duration:
+                        break
                     try:
                         frame = self.frames_queue.get(timeout=0.5)
-                        wf.writeframes(frame)
                     except queue.Empty:
                         continue
-                wf.close()
-                self.close()
-                self.is_recording_event.clear()
-                test_record_ok = os.path.exists(test_file) and os.path.getsize(test_file) > 0
-                detalles["grabacion_corta"] = test_record_ok
-                detalles["archivo_test"] = test_file
-                self.logger.info(f"[full_test] grabacion_corta: {test_record_ok}")
-                if not test_record_ok:
-                    self.logger.error(f"[full_test] Grabación de test fallida o archivo vacío: {test_file}")
-                    resultado_global = False
+                    if self.output_channels == self.channels:
+                        wf.writeframes(frame)
+                    elif self.output_channels == 1 and self.channels >= 1:
+                        frame_width = self.channels * sample_width
+                        if len(frame) % frame_width == 0:
+                            mono = bytearray()
+                            for i in range(0, len(frame), frame_width):
+                                mono.extend(frame[i:i + sample_width])
+                            wf.writeframes(bytes(mono))
+                        else:
+                            wf.writeframes(frame)
+                    else:
+                        wf.writeframes(frame)
+                    frames_written += 1
+            self.last_record_ok = frames_written > 0
+            if self.last_record_ok:
+                self.logger.info("Recording completed successfully: %s frames written to %s", frames_written, self.output_path)
             else:
-                self.logger.error("[full_test] No se pudo abrir el stream para grabación de test.")
-                detalles["grabacion_corta"] = False
-                self.logger.info(f"[full_test] grabacion_corta: False")
-                resultado_global = False
-        except Exception as e:
-            self.logger.exception("[full_test] Error durante la grabación de test: %s", e)
-            detalles["grabacion_corta"] = False
-            self.logger.info(f"[full_test] grabacion_corta: False")
-            resultado_global = False
+                self.logger.error("Recording completed without frames: %s", self.output_path)
+        except Exception as exc:
+            self.last_record_ok = False
+            self._set_error(f"Recording writer failed: {exc}")
+            self.logger.exception("Recording writer failed: %s", exc)
         finally:
             self.is_recording_event.clear()
-            self.close()
-            if test_file and os.path.exists(test_file):
-                try:
-                    os.remove(test_file)
-                except Exception:
-                    pass
+            self._close_stream()
 
-        # 3. Verificación de permisos de acceso a hardware y archivos
-        self.logger.info("[full_test] Verificando permisos de acceso a hardware y archivos...")
+    def stop_recording(self) -> bool:
+        """Stop an active recording."""
+        self.logger.info("Stopping recording")
         try:
-            self.logger.info("[full_test] Verificando permisos de acceso a dispositivos de audio...")
-            pcm_devices = glob.glob("/dev/snd/pcmC*")
-            acceso_hw = any(os.access(dev, os.R_OK | os.W_OK) for dev in pcm_devices)
+            self.is_recording_event.clear()
+            if self.recording_thread is not None and self.recording_thread.is_alive():
+                self.recording_thread.join(timeout=5.0)
+            self._close_stream()
+            return True
+        except Exception as exc:
+            self._set_error(f"Stop recording failed: {exc}")
+            self.logger.exception("Stop recording failed: %s", exc)
+            return False
 
-            detalles["permiso_hw"] = acceso_hw
-            self.logger.info(f"[full_test] permiso_hw: {acceso_hw}")
-            if not acceso_hw:
-                self.logger.error("[full_test] No hay permisos de lectura/escritura a ningún dispositivo en /dev/snd/pcmC*.")
-                resultado_global = False
-        except Exception as e:
-            self.logger.exception("[full_test] Error verificando permisos de hardware: %s", e)
-            detalles["permiso_hw"] = False
-            self.logger.info(f"[full_test] permiso_hw: False")
-            resultado_global = False
-        try:
-            os.makedirs(recordings_dir, exist_ok=True)
-            testfile = os.path.join(recordings_dir, "test_perm.txt")
-            with open(testfile, "w") as f:
-                f.write("test")
-            os.remove(testfile)
-            detalles["permiso_fs"] = True
-            self.logger.info(f"[full_test] permiso_fs: True")
-        except Exception as e:
-            self.logger.error("[full_test] No hay permisos de escritura en recordings/: %s", e)
-            detalles["permiso_fs"] = False
-            self.logger.info(f"[full_test] permiso_fs: False")
-            resultado_global = False
+    def is_recording_done(self) -> tuple[bool, bool]:
+        done = (
+            not self.is_recording_event.is_set()
+            and (self.recording_thread is None or not self.recording_thread.is_alive())
+        )
+        return done, bool(self.last_record_ok)
 
-        # 4. Chequeo de dependencias
-        # self.logger.info("[full_test] Chequeando dependencias...")
-        # try:
-        #     import pyaudio
-        #     detalles["pyaudio"] = True
-        #     self.logger.info(f"[full_test] pyaudio: True")
-        # except ImportError:
-        #     self.logger.error("[full_test] PyAudio no está instalado.")
-        #     detalles["pyaudio"] = False
-        #     self.logger.info(f"[full_test] pyaudio: False")
-        #     resultado_global = False
+    def list_recordings(self, pattern: str = "*.wav") -> List[str]:
+        search_path = os.path.join(self.recordings_dir, "**", pattern)
+        return sorted(glob.glob(search_path, recursive=True))
 
-        # 5. Chequeo de espacio en disco
-        self.logger.info("[full_test] Chequeando espacio en disco...")
-        try:
-            statvfs = os.statvfs(recordings_dir)
-            espacio_libre = statvfs.f_frsize * statvfs.f_bavail
-            detalles["espacio_libre_bytes"] = espacio_libre
-            self.logger.info(f"[full_test] espacio_libre_bytes: {espacio_libre}")
-            if espacio_libre < 10 * 1024 * 1024:  # 10 MB
-                self.logger.error("[full_test] Espacio en disco insuficiente (<10MB).")
-                resultado_global = False
-        except Exception as e:
-            self.logger.exception("[full_test] Error verificando espacio en disco: %s", e)
-            detalles["espacio_libre_bytes"] = 0
-            self.logger.info(f"[full_test] espacio_libre_bytes: 0")
-            resultado_global = False
-        
-        # Resultado final        
-        self.logger.info(f"[full_test] Resultado global: {resultado_global}")
-        return resultado_global, detalles
+    def delete_old_recordings(self, days: int = 30) -> int:
+        cutoff = time.time() - (int(days) * 86400)
+        deleted = 0
+        for path in self.list_recordings():
+            try:
+                if os.path.getmtime(path) < cutoff:
+                    os.remove(path)
+                    deleted += 1
+            except Exception as exc:
+                self.logger.warning("Could not delete old recording %s: %s", path, exc)
+        self.logger.info("Deleted %s old recordings older than %s days", deleted, days)
+        return deleted
+
 
 def main(argv=None) -> bool:
-    """Run Behringer full test when executed as script; return True/False."""
-    import sys
-    import logging
-    b = BehringerLowLevel()
-    b.logger.info("Script start: running Behringer init and full_test")
-    if b.init():
-        b.logger.info("Dispositivo inicializado. Ejecutando test completo...")
-        resultado, detalles = b.full_test()
-        if resultado:
-            b.logger.info("Resultado del test: OK")
-        else:
-            b.logger.error("Resultado del test: ERROR")
-            b.logger.debug("Detalles del test: %s", detalles)
-        deinit_ok = b.deinit()
-        if not deinit_ok:
-            b.logger.warning("Error liberando recursos tras test.")
-        return bool(resultado)
-    else:
-        b.logger.error("No se pudo inicializar el dispositivo Behringer.")
+    ll = BehringerLowLevel()
+    if not ll.init():
+        report = {
+            "initialized": False,
+            "opened": False,
+            "device_present": False,
+            "errors": [ll.last_error] if ll.last_error else [],
+            "details": {},
+        }
+        ll.logger.error("Initialization report=%s", json.dumps(report, default=str))
+        print(json.dumps(report, indent=2, default=str))
         return False
+    ok, report = ll.full_test()
+    print(json.dumps(report, indent=2, default=str))
+    ll.deinit()
+    return bool(ok)
 
 
 if __name__ == "__main__":
-    import sys
-
-    ok = main(sys.argv[1:])
+    ok = main()
     raise SystemExit(0 if ok else 1)
