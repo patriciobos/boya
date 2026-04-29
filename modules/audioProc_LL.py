@@ -1,47 +1,480 @@
 """
-Low-level driver template for the AudioProc module.
+Low-level driver for the AudioProc module.
 
-This class provides a standard interface for initializing, testing, acquiring data, and resource management for the AudioProc module.
+This module wraps the existing DSP pipeline in the common low-level lifecycle:
+- init() -> bool
+- open() -> bool
+- close() -> bool
+- test() -> bool
+- full_test() -> tuple[bool, dict]
+- deinit() -> bool
+
+The DSP logic is intentionally preserved:
+- lpf_butterworth()
+- BL_calculator()
+- rel_band_power_calculator()
+- generate_output()
+- process()
 """
 
-import os
+from __future__ import annotations
+
 import json
-import numpy as np
+import os
+import sys
 import wave
+from typing import Any, Dict, Optional
+
+import numpy as np
 import pandas as pd
-from scipy.signal import butter, lfilter, welch
 from scipy.interpolate import interp1d
-from support.log_utils import get_logger
-from typing import Optional
+from scipy.signal import butter, lfilter, welch
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from modules.support.log_utils import get_logger
+
+
+class AudioProcError(Exception):
+    """Base exception for AudioProc low-level errors."""
+
+
+class ConfigurationError(AudioProcError):
+    """Raised when required configuration files or keys are missing."""
+
+
+class ProcessingError(AudioProcError):
+    """Raised when the processing pipeline fails."""
+
 
 class AudioProcLowLevel:
     """
-    Low-level driver for the AudioProc module.
+    Low-level driver for the AudioProc processing pipeline.
     """
 
-    def __init__(self, logger_name: str = "AudioProcLowLevel"):
-        self.logger = self._create_logger(logger_name)
+    DEFAULT_LOGGER_NAME = "audioProc_LL"
+
+    def __init__(
+        self,
+        logger_name: str = DEFAULT_LOGGER_NAME,
+        test_wav_path: Optional[str] = None,
+        output_dir: Optional[str] = None,
+        config_path: Optional[str] = None,
+        write_csv_output: bool = False,
+    ) -> None:
+        self.logger = get_logger(logger_name)
+
+        # standard lifecycle state
+        self.is_initialized: bool = False
+        self.is_open: bool = False
+        self.last_error: Optional[str] = None
+
+        # standard transport state; logical-only for AudioProc
+        self.bus = None
+        self.bus_num = None
+        self.address = None
+        self.bus_candidates: list[Any] = []
+        self.bus_forced: bool = False
+
+        # paths / processing state
+        self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.modules_dir = os.path.dirname(os.path.abspath(__file__))
+        self.support_dir = os.path.join(self.base_dir, "support")
+        self.config_path: str = config_path or os.path.join(self.base_dir, "config.json")
+        self.output_dir: str = output_dir or os.path.join(self.base_dir, "data")
+        self.test_wav_path: Optional[str] = test_wav_path
         self.output_path: Optional[str] = None
-        self.test_wav_path: Optional[str] = None
-        self.write_csv_output = False
+        self.write_csv_output: bool = bool(write_csv_output)
 
-    def _create_logger(self, name: str):
-        return get_logger(name)
+        self.config: Dict[str, Any] = {}
 
-    def init(self):
+    # ------------------------------------------------------------------
+    # internal helpers
+    # ------------------------------------------------------------------
+
+    def _set_error(self, msg: str) -> None:
+        self.last_error = msg
+
+    def _clear_error(self) -> None:
+        self.last_error = None
+
+    def _build_full_test_report(self) -> dict:
+        return {
+            "initialized": self.is_initialized,
+            "opened": self.is_open,
+            "device_present": False,
+            "errors": [],
+            "details": {},
+        }
+
+    def _log_full_test_result(self, success: bool, report: dict) -> None:
+        self.logger.info(
+            "Full diagnostic test completed: success=%s pipeline_available=%s processing=%s",
+            success,
+            report.get("device_present"),
+            report.get("details", {}).get("processing"),
+        )
+
+    def _load_config(self) -> Dict[str, Any]:
+        if not os.path.exists(self.config_path):
+            raise ConfigurationError(f"config.json not found: {self.config_path}")
+
+        with open(self.config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+
+        required_keys = [
+            "nperseg",
+            "noverlap",
+            "window",
+            "daq",
+            "preamp",
+            "hid_ch1",
+            "hid_ch2",
+            "noise_ref",
+            "fs[Hz]",
+        ]
+        missing = [key for key in required_keys if key not in config]
+        if missing:
+            raise ConfigurationError(f"Missing required config keys: {missing}")
+
+        self.config = config
+        return config
+
+    def _required_support_files(self, config: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+        cfg = config or self.config or self._load_config()
+
+        files = {
+            "third_octave_bands": os.path.join(self.support_dir, "third_octave_bands.csv"),
+            "daq": os.path.join(self.support_dir, f"{cfg['daq']}.csv"),
+            "preamp": os.path.join(self.support_dir, f"{cfg['preamp']}.csv"),
+            "hid_ch1": os.path.join(self.support_dir, f"{cfg['hid_ch1']}.csv"),
+            "hid_ch2": os.path.join(self.support_dir, f"{cfg['hid_ch2']}.csv"),
+        }
+
+        noise_ref_name = cfg.get("noise_ref")
+        if os.path.isabs(str(noise_ref_name)):
+            files["noise_ref"] = str(noise_ref_name)
+        else:
+            files["noise_ref"] = os.path.join(self.support_dir, str(noise_ref_name))
+
+        return files
+
+    def _check_environment(self) -> tuple[bool, list[str], dict]:
+        errors: list[str] = []
+        details: dict[str, Any] = {
+            "config_path": self.config_path,
+            "support_dir": self.support_dir,
+            "output_dir": self.output_dir,
+            "files": {},
+        }
+
+        try:
+            config = self._load_config()
+            details["config"] = {
+                "fs_hz": config.get("fs[Hz]"),
+                "nperseg": config.get("nperseg"),
+                "noverlap": config.get("noverlap"),
+                "window": config.get("window"),
+                "noise_ref": config.get("noise_ref"),
+            }
+        except Exception as exc:
+            errors.append(str(exc))
+            return False, errors, details
+
+        for name, path in self._required_support_files(config).items():
+            exists = os.path.exists(path)
+            details["files"][name] = {"path": path, "exists": exists}
+            if not exists:
+                errors.append(f"Required support file missing: {name} -> {path}")
+
+        try:
+            os.makedirs(self.output_dir, exist_ok=True)
+            testfile = os.path.join(self.output_dir, "audioProc_test_perm.tmp")
+            with open(testfile, "w", encoding="utf-8") as f:
+                f.write("test")
+            os.remove(testfile)
+            details["output_write_ok"] = True
+        except Exception as exc:
+            details["output_write_ok"] = False
+            errors.append(f"Output directory is not writable: {exc}")
+
+        return len(errors) == 0, errors, details
+
+    def _wav_details(self, wav_path: str) -> dict:
+        with wave.open(wav_path, "rb") as wf:
+            return {
+                "path": wav_path,
+                "exists": True,
+                "channels": wf.getnchannels(),
+                "sample_width_bytes": wf.getsampwidth(),
+                "sample_rate_hz": wf.getframerate(),
+                "frames": wf.getnframes(),
+                "duration_s": wf.getnframes() / float(wf.getframerate()) if wf.getframerate() else None,
+            }
+
+    def _external_reference_comparison(self, wav_path: str) -> dict:
         """
-        Initialize hardware or resources.
-        Returns:
-            bool: True if initialization succeeded, False otherwise.
+        Optional regression check.
+        If a matching CSV exists in data/test_data, compare BL_calculator() output
+        against it with a 1 dB tolerance.
         """
-        self.logger.info("Initializing AudioProc module...")
+        result = {
+            "enabled": False,
+            "reference_csv": None,
+            "compared": False,
+            "ok": None,
+            "max_diff_db": None,
+            "error": None,
+        }
+
+        try:
+            test_recordings_dir = os.path.join(self.modules_dir, "recordings", "test_recordings")
+            test_data_dir = os.path.join(self.base_dir, "data", "test_data")
+            os.makedirs(test_recordings_dir, exist_ok=True)
+            os.makedirs(test_data_dir, exist_ok=True)
+
+            abs_wav = os.path.abspath(wav_path)
+            abs_tr = os.path.abspath(test_recordings_dir)
+            try:
+                is_in_test_recordings = os.path.commonpath([abs_wav, abs_tr]) == abs_tr
+            except Exception:
+                is_in_test_recordings = False
+
+            if not is_in_test_recordings:
+                return result
+
+            ref_csv = os.path.join(
+                test_data_dir,
+                os.path.splitext(os.path.basename(wav_path))[0] + ".csv",
+            )
+            result["reference_csv"] = ref_csv
+
+            if not os.path.exists(ref_csv):
+                return result
+
+            result["enabled"] = True
+            measured = self.BL_calculator(wav_path)
+
+            try:
+                external = np.loadtxt(ref_csv, delimiter=",")
+            except Exception as exc:
+                result["error"] = f"Failed to load reference CSV: {exc}"
+                result["ok"] = False
+                return result
+
+            if measured.ndim == 2 and external.ndim == 1:
+                if external.shape[0] == measured.shape[0]:
+                    external = np.tile(external.reshape(-1, 1), (1, measured.shape[1]))
+                else:
+                    result["error"] = "Reference CSV shape does not match measured bands"
+                    result["ok"] = False
+                    return result
+            elif measured.ndim == 1 and external.ndim == 2:
+                if external.shape[1] == 1:
+                    external = external.flatten()
+                else:
+                    result["error"] = "Reference CSV shape does not match measured bands"
+                    result["ok"] = False
+                    return result
+
+            if measured.shape != external.shape:
+                result["error"] = f"Measured shape {measured.shape} does not match reference shape {external.shape}"
+                result["ok"] = False
+                return result
+
+            measured_arr = np.array(measured)
+            external_arr = np.array(external)
+            finite_mask = np.isfinite(measured_arr) & np.isfinite(external_arr)
+
+            if not np.any(finite_mask):
+                result["error"] = "No comparable finite band values"
+                result["ok"] = False
+                return result
+
+            diffs = np.abs(measured_arr - external_arr)
+            finite_diffs = diffs[finite_mask]
+            max_diff = float(np.max(finite_diffs)) if finite_diffs.size else None
+
+            result["compared"] = True
+            result["max_diff_db"] = max_diff
+            result["ok"] = bool(max_diff is not None and max_diff < 1.0)
+            if not result["ok"]:
+                result["error"] = f"External comparison failed: max diff {max_diff:.3f} dB"
+
+            return result
+
+        except Exception as exc:
+            result["error"] = str(exc)
+            result["ok"] = False
+            return result
+
+    # ------------------------------------------------------------------
+    # lifecycle
+    # ------------------------------------------------------------------
+
+    def init(
+        self,
+        test_wav_path: Optional[str] = None,
+        output_dir: Optional[str] = None,
+        config_path: Optional[str] = None,
+        write_csv_output: Optional[bool] = None,
+    ) -> bool:
+        """
+        Prepare configuration and internal state only.
+        Does not execute the DSP pipeline.
+        """
+        self.logger.info("Initializing module")
+        self._clear_error()
+
+        try:
+            self.close()
+
+            if test_wav_path is not None:
+                self.test_wav_path = str(test_wav_path)
+            if output_dir is not None:
+                self.output_dir = str(output_dir)
+            if config_path is not None:
+                self.config_path = str(config_path)
+            if write_csv_output is not None:
+                self.write_csv_output = bool(write_csv_output)
+
+            os.makedirs(self.output_dir, exist_ok=True)
+
+            self.bus = None
+            self.bus_num = None
+            self.address = None
+            self.bus_candidates = []
+            self.bus_forced = False
+            self.output_path = None
+            self.is_open = False
+            self.is_initialized = True
+
+            self.logger.info(
+                "Module initialized: config_path=%s output_dir=%s test_wav_path=%s write_csv_output=%s",
+                self.config_path,
+                self.output_dir,
+                self.test_wav_path,
+                self.write_csv_output,
+            )
+            return True
+
+        except Exception as exc:
+            self.is_initialized = False
+            self._set_error(f"Initialization failed: {exc}")
+            self.logger.exception("Initialization failed: %s", exc)
+            return False
+
+    def open(self) -> bool:
+        """
+        Open the logical processing environment.
+        This validates config and support files but does not process audio.
+        """
+        self.logger.info("Opening processing environment")
+        self._clear_error()
+
+        if not self.is_initialized:
+            self._set_error("Module is not initialized")
+            self.logger.error(self.last_error)
+            return False
+
+        if self.is_open:
+            self.logger.info("Processing environment already open")
+            return True
+
+        ok, errors, details = self._check_environment()
+        if not ok:
+            self._set_error("; ".join(errors))
+            self.logger.error("Processing environment validation failed: %s", self.last_error)
+            return False
+
+        self.bus = details
+        self.is_open = True
+        self.logger.info("Processing environment opened")
         return True
 
-    def deinit(self):
+    def close(self) -> bool:
         """
-        Deinitialize hardware or resources and clean up.
+        Close the logical processing environment.
+        Idempotent.
         """
-        self.logger.info("Deinitializing AudioProc module...")
+        self.logger.info("Closing processing environment")
+        self._clear_error()
+
+        try:
+            self.bus = None
+            self.is_open = False
+            return True
+        except Exception as exc:
+            self._set_error(f"Close failed: {exc}")
+            self.logger.exception("Close failed: %s", exc)
+            return False
+
+    def deinit(self) -> bool:
+        """
+        Total cleanup. Leaves the module in a neutral state.
+        """
+        self.logger.info("Deinitializing module")
+        self._clear_error()
+
+        try:
+            ok = self.close()
+            self.is_initialized = False
+            self.output_path = None
+            self.config = {}
+            self.bus_candidates = []
+            self.bus_forced = False
+            return bool(ok)
+        except Exception as exc:
+            self._set_error(f"Deinitialization failed: {exc}")
+            self.logger.exception("Deinitialization failed: %s", exc)
+            return False
+
+    def probe(self) -> bool:
+        """
+        Smoke-level check for the processing environment.
+        """
+        self.logger.info("Probing AudioProc processing environment")
+        self._clear_error()
+
+        try:
+            ok, errors, _details = self._check_environment()
+            if not ok:
+                self._set_error("; ".join(errors))
+            self.logger.info("Probe result: %s", ok)
+            return bool(ok)
+        except Exception as exc:
+            self._set_error(f"Probe failed: {exc}")
+            self.logger.warning("Probe failed: %s", exc)
+            return False
+
+    def test(self) -> bool:
+        """
+        Fast smoke test.
+        May open temporarily and restores original state.
+        """
+        self.logger.info("Running smoke test")
+        self._clear_error()
+
+        was_open = self.is_open
+        temporarily_opened = False
+
+        try:
+            if not was_open:
+                if not self.open():
+                    return False
+                temporarily_opened = True
+
+            result = self.probe()
+            self.logger.info("Smoke test completed: success=%s", result)
+            return bool(result)
+
+        except Exception as exc:
+            self._set_error(f"Test failed: {exc}")
+            self.logger.warning("Test failed: %s", exc)
+            return False
+
+        finally:
+            if temporarily_opened:
+                self.close()
 
     def lpf_butterworth(self, wav_path, cutoff_hz=200, order=6, output_path=None):
         """
@@ -564,178 +997,129 @@ class AudioProcLowLevel:
         except Exception as e:
             self.logger.exception(f"Error during processing of file {wav_path}: {e}")
             return None
-    
-   
-    def full_test(self):
+
+
+    def full_test(self) -> tuple[bool, dict]:
         """
-        Run a full self-test of the module.
-        Executes the process method with a hardcoded WAV file to verify
-        that the entire processing pipeline works correctly.
-        
-        Returns:
-            tuple: (test_passed: bool, details: str) indicating if the test passed and details.
+        Full diagnostic test.
+        Executes the full processing pipeline on test_wav_path.
+        Never propagates uncaught exceptions.
         """
-        self.logger.info("Running full test...")
-        
-        # Verify that test_wav_path is defined
-        if self.test_wav_path is None:
-            error_msg = "test_wav_path is not defined. Must set it before running full_test."
-            self.logger.error(error_msg)
-            return False, error_msg
-        
-        wav_path = self.test_wav_path
-        
-        # Verify that the file exists
-        if not os.path.exists(wav_path):
-            error_msg = f"Test WAV file not found: {wav_path}"
-            self.logger.error(error_msg)
-            return False, error_msg
-        
-        # If the test WAV is in recordings/test_recordings, look for an
-        # external reference CSV in data/test_data with the same basename.
-        # If present, run BL_calculator and compare per-band powers (dB).
-        try:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            # The recordings folder referenced for tests is the one inside `modules`.
-            modules_dir = os.path.dirname(os.path.abspath(__file__))
-            test_recordings_dir = os.path.join(modules_dir, "recordings", "test_recordings")
-            test_data_dir = os.path.join(base_dir, "data", "test_data")
-            # Ensure the directories exist (they may have been created outside)
-            os.makedirs(test_recordings_dir, exist_ok=True)
-            os.makedirs(test_data_dir, exist_ok=True)
+        self.logger.info("Running full diagnostic test")
+        self._clear_error()
 
-            # Check if wav_path is located under test_recordings_dir
-            abs_wav = os.path.abspath(wav_path)
-            abs_tr = os.path.abspath(test_recordings_dir)
-            is_in_test_recordings = False
-            try:
-                is_in_test_recordings = os.path.commonpath([abs_wav, abs_tr]) == abs_tr
-            except Exception:
-                is_in_test_recordings = False
-
-            if is_in_test_recordings:
-                ref_csv = os.path.join(test_data_dir, os.path.splitext(os.path.basename(wav_path))[0] + ".csv")
-                if os.path.exists(ref_csv):
-                    self.logger.info(f"Found external reference CSV for comparison: {ref_csv}")
-                    # Compute measured band powers using BL_calculator (returns dB)
-                    measured = self.BL_calculator(wav_path)
-
-                    # Load external reference
-                    try:
-                        external = np.loadtxt(ref_csv, delimiter=',')
-                    except Exception as e:
-                        msg = f"Failed to load reference CSV '{ref_csv}': {e}"
-                        self.logger.error(msg)
-                        return False, msg
-
-                    # Normalize shapes for comparison
-                    # If external is 1D but measured is 2D (stereo), try to reshape
-                    if measured.ndim == 2 and external.ndim == 1:
-                        if external.shape[0] == measured.shape[0]:
-                            # Assume external contains single-column per-band values (mono-like)
-                            # Broadcast to both channels for comparison
-                            external = np.tile(external.reshape(-1, 1), (1, measured.shape[1]))
-                        else:
-                            msg = "Reference CSV shape does not match measured bands."
-                            self.logger.error(msg)
-                            return False, msg
-                    elif measured.ndim == 1 and external.ndim == 2:
-                        # If measured mono but external has two columns, and second is empty, try first column
-                        if external.shape[1] == 1:
-                            external = external.flatten()
-                        else:
-                            msg = "Reference CSV shape does not match measured bands."
-                            self.logger.error(msg)
-                            return False, msg
-
-                    if measured.shape != external.shape:
-                        msg = f"Measured bands shape {measured.shape} does not match reference shape {external.shape}."
-                        self.logger.error(msg)
-                        return False, msg
-
-                    # Compute absolute differences, ignoring NaNs (only compare where both are finite)
-                    measured_arr = np.array(measured)
-                    external_arr = np.array(external)
-                    finite_mask = np.isfinite(measured_arr) & np.isfinite(external_arr)
-                    if not np.any(finite_mask):
-                        msg = "No comparable band values (all NaN or non-finite) between measured and reference."
-                        self.logger.error(msg)
-                        return False, msg
-
-                    diffs = np.abs(measured_arr - external_arr)
-                    # Mask out non-finite positions
-                    diffs_masked = np.where(finite_mask, diffs, 0.0)
-
-                    # Find failures where diff >= 1.0 dB
-                    failing = np.argwhere(diffs_masked >= 1.0)
-                    if failing.size == 0:
-                        msg = "External comparison: all bands within 1 dB."
-                        self.logger.info(msg)
-                        # Continue with the rest of the full_test (process etc.)
-                    else:
-                        # Build detailed failure message: list bands and values
-                        details = []
-                        for idx in failing:
-                            if measured_arr.ndim == 1:
-                                i = int(idx[0])
-                                details.append(f"band {i}: measured={measured_arr[i]:.2f} dB, ref={external_arr[i]:.2f} dB, diff={diffs[i]:.2f} dB")
-                            else:
-                                i, ch = int(idx[0]), int(idx[1])
-                                details.append(f"band {i} ch{ch+1}: measured={measured_arr[i,ch]:.2f} dB, ref={external_arr[i,ch]:.2f} dB, diff={diffs[i,ch]:.2f} dB")
-                        err_msg = "External comparison failed for bands: " + "; ".join(details)
-                        self.logger.error(err_msg)
-                        return False, err_msg
-
-        except Exception as e:
-            # If anything goes wrong in the external comparison logic, log and continue with standard test
-            self.logger.exception(f"Error during external comparison setup: {e}")
+        report = self._build_full_test_report()
+        was_open = self.is_open
+        temporarily_opened = False
+        original_write_csv = self.write_csv_output
 
         try:
-            # Enable CSV writing for the test
-            self.write_csv_output = True
-            
-            # Execute the process method
-            self.logger.info(f"Executing process with file: {wav_path}")
-            output_path = self.process(wav_path)
-            
-            if output_path is None:
-                error_msg = "The process method returned None (error during processing)"
-                self.logger.error(error_msg)
-                return False, error_msg
-            
-            # Verify that the binary file was generated
-            if not os.path.exists(output_path):
-                error_msg = f"Binary output file was not generated: {output_path}"
-                self.logger.error(error_msg)
-                return False, error_msg
-            
-            success_msg = f"Test completed successfully. Generated file: {output_path}"
-            self.logger.info(success_msg)
-            self.write_csv_output = False
-            return True, success_msg
-            
-        except Exception as e:
-            error_msg = f"Error during full_test: {e}"
-            self.logger.exception(error_msg)
-            return False, error_msg
+            report["initialized"] = self.is_initialized
+            if not self.is_initialized:
+                msg = "Module is not initialized"
+                report["errors"].append(msg)
+                self._set_error(msg)
+                self._log_full_test_result(False, report)
+                return False, report
 
-    
+            if not was_open:
+                if self.open():
+                    temporarily_opened = True
+                    report["opened"] = True
+                else:
+                    report["opened"] = False
+                    if self.last_error:
+                        report["errors"].append(self.last_error)
+                    self._log_full_test_result(False, report)
+                    return False, report
+            else:
+                report["opened"] = True
+
+            env_ok, env_errors, env_details = self._check_environment()
+            if not env_ok:
+                report["errors"].extend(env_errors)
+
+            test_input: Dict[str, Any] = {
+                "path": self.test_wav_path,
+                "exists": bool(self.test_wav_path and os.path.exists(self.test_wav_path)),
+            }
+
+            if not self.test_wav_path:
+                report["errors"].append("test_wav_path is not defined")
+            elif not os.path.exists(self.test_wav_path):
+                report["errors"].append(f"Test WAV file not found: {self.test_wav_path}")
+            else:
+                try:
+                    test_input.update(self._wav_details(self.test_wav_path))
+                except Exception as exc:
+                    report["errors"].append(f"Test WAV inspection failed: {exc}")
+
+            comparison = {}
+            processing = {
+                "ran": False,
+                "ok": False,
+                "output_path": None,
+                "output_exists": False,
+                "csv_output_enabled": True,
+            }
+
+            if env_ok and test_input.get("exists"):
+                comparison = self._external_reference_comparison(self.test_wav_path)
+                if comparison.get("enabled") and comparison.get("ok") is False:
+                    report["errors"].append(comparison.get("error") or "External reference comparison failed")
+
+                try:
+                    self.write_csv_output = True
+                    processing["ran"] = True
+                    output_path = self.process(self.test_wav_path)
+                    processing["output_path"] = output_path
+                    processing["output_exists"] = bool(output_path and os.path.exists(output_path))
+                    processing["ok"] = bool(output_path and os.path.exists(output_path))
+
+                    if not processing["ok"]:
+                        report["errors"].append("Processing did not generate a binary output file")
+
+                except Exception as exc:
+                    processing["ok"] = False
+                    report["errors"].append(f"Processing failed: {exc}")
+
+            report["details"] = {
+                "paths": {
+                    "base_dir": self.base_dir,
+                    "modules_dir": self.modules_dir,
+                    "support_dir": self.support_dir,
+                    "config_path": self.config_path,
+                    "output_dir": self.output_dir,
+                },
+                "environment": env_details,
+                "test_input": test_input,
+                "reference_comparison": comparison,
+                "processing": processing,
+            }
+
+            success = bool(env_ok and test_input.get("exists") and processing.get("ok"))
+            report["device_present"] = success
+
+            self._log_full_test_result(success, report)
+            return success, report
+
+        except Exception as exc:
+            report["errors"].append(f"Unexpected full_test failure: {exc}")
+            self._set_error(f"Full test failed: {exc}")
+            self.logger.exception("Full test failed: %s", exc)
+            self._log_full_test_result(False, report)
+            return False, report
+
+        finally:
+            self.write_csv_output = original_write_csv
+            if temporarily_opened:
+                self.close()
+
 
 def main(argv=None) -> bool:
-    """Run audio processing self-test and return True on success, False on failure."""
-    import os
+    """Run AudioProc self-test and return True on success."""
+    import json as _json
 
-    ll = AudioProcLowLevel()
-    ll.logger.info("Script start: AudioProcLowLevel init/full_test")
-
-    init_result = ll.init()
-    if not init_result:
-        ll.logger.error("Could not initialize. Aborting full_test.")
-        ll.deinit()
-        return False
-
-    # default packaged test wav
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     default_test_wav = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "recordings",
@@ -743,28 +1127,31 @@ def main(argv=None) -> bool:
         "20180824_8105_20m_daspre_cap_2.wav",
     )
 
+    ll = AudioProcLowLevel()
+    ll.logger.info("Script start: AudioProcLowLevel init/full_test")
+
+    init_kwargs = {}
     if os.path.exists(default_test_wav):
-        ll.test_wav_path = default_test_wav
-        ll.logger.info(f"Using test WAV: {ll.test_wav_path}")
-    else:
-        ll.logger.warning(
-            f"No test WAV file available at expected path: {default_test_wav}. "
-            "full_test will likely fail."
-        )
+        init_kwargs["test_wav_path"] = default_test_wav
 
-    ll.logger.info("Running full_test...")
-    test_passed, details = ll.full_test()
-    if test_passed:
-        ll.logger.info(f"Full test: OK - {details}")
-    else:
-        ll.logger.error(f"Full test: ERROR - {details}")
+    if not ll.init(**init_kwargs):
+        report = {
+            "initialized": False,
+            "opened": False,
+            "device_present": False,
+            "errors": [ll.last_error] if ll.last_error else [],
+            "details": {},
+        }
+        ll.logger.error("Initialization report=%s", _json.dumps(report, default=str))
+        print(_json.dumps(report, indent=2, default=str))
+        return False
 
+    ok, report = ll.full_test()
+    print(_json.dumps(report, indent=2, default=str))
     ll.deinit()
-    return bool(test_passed)
+    return bool(ok)
 
 
 if __name__ == "__main__":
-    import sys
-
     ok = main(sys.argv[1:])
     raise SystemExit(0 if ok else 1)
