@@ -14,7 +14,7 @@ low-level lifecycle with the agreed stage-1 contract:
 
 import math
 import time
-from typing import Any, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Optional, Tuple, TYPE_CHECKING, cast
 
 import os
 import sys
@@ -139,6 +139,13 @@ class MPU6050LowLevel:
     def _resolve_bus_candidates(self, bus: Optional[int]) -> list[int]:
         preferred = int(bus) if bus is not None else self.DEFAULT_BUS
         return list(discover_i2c_buses(preferred))
+    
+    def _open_bus(self, busnum: int) -> SMBusType:
+        self._require_i2c()
+        SMBusCls = SMBus
+        if SMBusCls is None:
+            raise NotFound("smbus2 is required for MPU6050 I2C operations")
+        return cast(SMBusType, SMBusCls(busnum))
 
     def _close_transport(self) -> None:
         if self.bus is not None:
@@ -213,7 +220,7 @@ class MPU6050LowLevel:
                 bus_entry["addresses"].append(address_entry)
 
                 try:
-                    self.bus = SMBus(busnum)
+                    self.bus = self._open_bus(busnum)
                     self.bus_num = busnum
                     self.address = address
                     self.is_open = True
@@ -296,7 +303,7 @@ class MPU6050LowLevel:
         for busnum in candidates:
             try:
                 self.logger.info("Trying I2C bus %s for MPU6050@0x%02X", busnum, self.address)
-                self.bus = SMBus(busnum)
+                self.bus = self._open_bus(busnum)
                 self.bus_num = busnum
                 self.is_open = True
                 self.logger.info("Opened I2C bus %s", busnum)
