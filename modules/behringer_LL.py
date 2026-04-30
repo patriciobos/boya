@@ -30,6 +30,7 @@ import wave
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from numpy import info
 import pyaudio
 
 import os
@@ -60,10 +61,10 @@ class BehringerLowLevel:
     """Low-level controller for the Behringer USB audio interface."""
 
     DEFAULT_SAMPLE_RATE = 192000
-    DEFAULT_CHANNELS = 2
+    DEFAULT_CHANNELS = 1
     DEFAULT_OUTPUT_CHANNELS = 1
-    DEFAULT_FORMAT = pyaudio.paInt24
-    DEFAULT_FRAMES_PER_BUFFER = 8192
+    DEFAULT_FORMAT = pyaudio.paInt32
+    DEFAULT_FRAMES_PER_BUFFER = 1024
     DEFAULT_DEVICE_NAME_FILTERS = ("Behringer", "USB")
     DEFAULT_RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
 
@@ -162,6 +163,8 @@ class BehringerLowLevel:
 
     def _find_device(self, audio: pyaudio.PyAudio) -> Tuple[int, Dict[str, Any], List[Dict[str, Any]]]:
         devices: List[Dict[str, Any]] = []
+        compatible_candidates: List[Tuple[int, Dict[str, Any]]] = []
+
         num_devices = audio.get_device_count()
 
         for i in range(num_devices):
@@ -170,22 +173,60 @@ class BehringerLowLevel:
                 name = str(info.get("name", ""))
                 max_input_channels = int(info.get("maxInputChannels", 0))
                 default_sample_rate = float(info.get("defaultSampleRate", 0.0))
+
+                name_matches = any(token.lower() in name.lower() for token in self.device_name_filters)
+                has_enough_channels = max_input_channels >= self.channels
+
+                format_supported = False
+                format_error = None
+
+                if name_matches and has_enough_channels:
+                    try:
+                        format_supported = bool(
+                            audio.is_format_supported(
+                                self.sample_rate,
+                                input_device=i,
+                                input_channels=self.channels,
+                                input_format=self.audio_format,
+                            )
+                        )
+                    except Exception as exc:
+                        format_error = str(exc)
+
                 entry = {
                     "index": i,
                     "name": name,
                     "max_input_channels": max_input_channels,
                     "default_sample_rate": default_sample_rate,
+                    "name_matches": name_matches,
+                    "has_enough_channels": has_enough_channels,
+                    "format_supported": format_supported,
+                    "format_error": format_error,
                 }
                 devices.append(entry)
 
-                name_matches = any(token in name for token in self.device_name_filters)
-                if name_matches and max_input_channels > 0:
-                    return i, dict(info), devices
+                self.logger.info("PyAudio device candidate: %s", entry)
+
+                if name_matches and has_enough_channels:
+                    compatible_candidates.append((i, dict(info)))
+
             except Exception as exc:
                 devices.append({"index": i, "error": str(exc)})
+                self.logger.warning("Could not inspect PyAudio device %s: %s", i, exc)
+
+        if compatible_candidates:
+            device_index, device_info = compatible_candidates[0]
+            self.logger.info(
+                "Selected PyAudio device: index=%s name=%s",
+                device_index,
+                device_info.get("name"),
+            )
+            return device_index, device_info, devices
 
         raise NotFound(
-            f"No compatible Behringer/USB input device found. filters={self.device_name_filters}"
+            "No compatible Behringer/USB input device found for "
+            f"rate={self.sample_rate}, channels={self.channels}, format={self._format_name()}. "
+            f"filters={self.device_name_filters}. Inspected devices={devices}"
         )
 
     def _open_stream(self) -> bool:
@@ -195,12 +236,6 @@ class BehringerLowLevel:
             return False
 
         if self.stream is not None:
-            try:
-                if self.stream.is_active():
-                    self.logger.info("Audio stream already active")
-                    return True
-            except Exception:
-                pass
             self._close_stream()
 
         try:
@@ -211,16 +246,18 @@ class BehringerLowLevel:
                 input=True,
                 frames_per_buffer=self.frames_per_buffer,
                 input_device_index=self.device_index,
-                stream_callback=self._callback,
             )
+
             self.logger.info(
-                "Audio stream opened: device_index=%s channels=%s rate=%s format=%s",
+                "Audio stream opened in blocking mode: device_index=%s channels=%s rate=%s format=%s frames_per_buffer=%s",
                 self.device_index,
                 self.channels,
                 self.sample_rate,
                 self._format_name(),
+                self.frames_per_buffer,
             )
             return True
+
         except Exception as exc:
             self.stream = None
             self._set_error(f"Failed to open audio stream: {exc}")
@@ -616,60 +653,7 @@ class BehringerLowLevel:
             self._close_stream()
             return False
 
-    def _write_audio(self) -> None:
-        if self.audio_interface is None:
-            self.logger.error("Audio interface is not open. Aborting recording.")
-            self.last_record_ok = False
-            self.is_recording_event.clear()
-            self._close_stream()
-            return
-        if self.output_path is None:
-            self.logger.error("Output path is not defined. Aborting recording.")
-            self.last_record_ok = False
-            self.is_recording_event.clear()
-            self._close_stream()
-            return
-        frames_written = 0
-        try:
-            sample_width = self._bytes_per_sample()
-            with wave.open(self.output_path, "wb") as wf:
-                wf.setnchannels(self.output_channels)
-                wf.setsampwidth(sample_width)
-                wf.setframerate(self.sample_rate)
-                start = time.time()
-                while self.is_recording_event.is_set():
-                    if self.duration is not None and (time.time() - start) >= self.duration:
-                        break
-                    try:
-                        frame = self.frames_queue.get(timeout=0.5)
-                    except queue.Empty:
-                        continue
-                    if self.output_channels == self.channels:
-                        wf.writeframes(frame)
-                    elif self.output_channels == 1 and self.channels >= 1:
-                        frame_width = self.channels * sample_width
-                        if len(frame) % frame_width == 0:
-                            mono = bytearray()
-                            for i in range(0, len(frame), frame_width):
-                                mono.extend(frame[i:i + sample_width])
-                            wf.writeframes(bytes(mono))
-                        else:
-                            wf.writeframes(frame)
-                    else:
-                        wf.writeframes(frame)
-                    frames_written += 1
-            self.last_record_ok = frames_written > 0
-            if self.last_record_ok:
-                self.logger.info("Recording completed successfully: %s frames written to %s", frames_written, self.output_path)
-            else:
-                self.logger.error("Recording completed without frames: %s", self.output_path)
-        except Exception as exc:
-            self.last_record_ok = False
-            self._set_error(f"Recording writer failed: {exc}")
-            self.logger.exception("Recording writer failed: %s", exc)
-        finally:
-            self.is_recording_event.clear()
-            self._close_stream()
+
 
     def stop_recording(self) -> bool:
         """Stop an active recording."""

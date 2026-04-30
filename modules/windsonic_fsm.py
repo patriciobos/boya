@@ -1,13 +1,36 @@
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
 from modules.windsonic_LL import WindsonicLowLevel
-import time
+
 
 class WindsonicHandlerFSM(BaseHandlerFSM):
     def __init__(self):
         super().__init__("Windsonic")
-        self.device = WindsonicLowLevel()
+        self.ll = WindsonicLowLevel()
         self._pending_params = {}
+        self.status_queue = None
         self.scheduler = None
+        self._acquire_count = 5
+
+    def _emit_state_result(self, result: ResultCode, details=None):
+        if self.status_queue:
+            self.status_queue.put((self.name, Message(MessageID.STATE_RESULT, {
+                "result": result.value,
+                "details": details or {},
+            })))
+
+    def _emit_action_result(self, action: str, result: ResultCode, data=None, error=None, details=None):
+        payload = {
+            "origin": self.name,
+            "state": self.state.name,
+            "action": action,
+            "result": result.value,
+            "data": data or {},
+            "details": details or {},
+        }
+        if error:
+            payload["error"] = error
+        if self.status_queue:
+            self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
     def start_scheduler(self, interval_sec=3600, num_samples=5):
         self._acquire_count = num_samples
@@ -15,7 +38,7 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
             name=self.name,
             queue=self.queue,
             get_state_fn=lambda: self.state,
-            interval_sec=interval_sec
+            interval_sec=interval_sec,
         )
         self.scheduler.start()
 
@@ -24,14 +47,16 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
             self.scheduler.stop()
             self.scheduler = None
 
-    def log_action_result(self, action: str, result: ResultCode):
-        if result == ResultCode.OK:
-            self.logger.info(f"{action} → OK")
-        else:
-            self.logger.error(f"{action} → ERROR")
+    def set_config(self, samples=None, spacing=None):
+        if samples is not None or spacing is not None:
+            self.ll.config(
+                samples=samples if samples is not None else self.ll.samples,
+                spacing=spacing if spacing is not None else self.ll.spacing,
+            )
+            self.logger.info("Windsonic config updated: samples=%s spacing=%s", self.ll.samples, self.ll.spacing)
 
-    
     def handle_message(self, message: Message):
+        params = getattr(message, "params", {}) or {}
         if self.state == State.DISABLE:
             if message.id == MessageID.SIG_INIT:
                 self.set_state(State.INIT, self.status_queue)
@@ -39,37 +64,14 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
 
         if message.id == MessageID.SIG_DEINIT:
             self.set_state(State.DISABLE, self.status_queue)
-
         elif message.id == MessageID.SIG_TEST:
             self.set_state(State.TEST, self.status_queue)
-
         elif message.id == MessageID.SIG_ACQUIRE:
-            self._pending_params = {"num": message.params.get("num", 5)}
+            self._pending_params = {"num": params.get("num", self._acquire_count)}
             self.set_state(State.ACQUIRE, self.status_queue)
-
         elif message.id == MessageID.SIG_TIMEOUT:
-            self._pending_params = {"num": getattr(self, '_acquire_count', 5)}
+            self._pending_params = {"num": self._acquire_count}
             self.set_state(State.ACQUIRE, self.status_queue)
-
-        elif message.id == MessageID.SIG_QUERY:
-            if self.status_queue:
-                self.status_queue.put((self.name, Message(
-                    MessageID.ACTION_RESULT,
-                    {
-                        "state": self.state.name,
-                        "action": "query",
-                        "result": ResultCode.OK.value
-                    }
-                )))
-
-    def set_config(self, samples=None, spacing=None):
-        """Configura los parámetros de Windsonic y los aplica al low-level."""
-        if samples is not None or spacing is not None:
-            self.device.config(
-                samples=samples if samples is not None else self.device.samples,
-                spacing=spacing if spacing is not None else self.device.spacing
-            )
-            self.logger.info(f"Configuración Windsonic actualizada: muestras={self.device.samples}, spacing={self.device.spacing}")
 
     def update(self):
         if self._last_state != self.state:
@@ -77,93 +79,51 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
             self._on_exit_flag = False
             self._last_state = self.state
 
-        ###############
-        # state INIT
-        ###############
         if self.state == State.INIT and self._on_entry_flag:
-            self.logger.info("Entrando a INIT")
-            time.sleep(5)  #FIXME: sin este spleep hay problemas de concurrencia con el módulo iridium
-            success = self.device.init()
+            self.logger.info("Entering INIT")
+            success = self.ll.init()
             result = ResultCode.OK if success else ResultCode.ERROR
-            if success:
-                # Ejecutar full_test tras init, pero sin afectar el estado
-                test_ok, detalles = self.device.full_test()
-                self.logger.info(f"[full_test] Resultado global: {test_ok}")
-            if self.status_queue:
-                self.status_queue.put((self.name, Message(MessageID.STATE_RESULT, {"result": result.value})))
+            self._emit_state_result(result)
             self.set_state(State.TEST if success else State.ERROR, self.status_queue)
             self._on_entry_flag = False
 
-        ###############
-        # state TEST
-        ###############
         elif self.state == State.TEST and self._on_entry_flag:
-            self.logger.info("Entrando a TEST")
-            success = self.device.test()
-            if self.status_queue:
-                self.status_queue.put((self.name, Message(
-                    MessageID.ACTION_RESULT,
-                    {
-                        "state": self.state.name,
-                        "action": "test",
-                        "result": ResultCode.OK.value if success else ResultCode.ERROR.value
-                    }
-                )))
-            self.set_state(State.IDLE if success else State.ERROR, self.status_queue)
+            self.logger.info("Entering TEST")
+            ok, details = self.ll.full_test()
+            result = ResultCode.OK if ok else ResultCode.ERROR
+            self._emit_action_result("test", result, details=details)
+            self.set_state(State.IDLE if ok else State.ERROR, self.status_queue)
             self._on_entry_flag = False
 
-        ###############
-        # state IDLE
-        ###############
         elif self.state == State.IDLE and self._on_entry_flag:
-            self.logger.info("Entrando a IDLE")
+            self.logger.info("Entering IDLE")
             if self.scheduler is None:
-                self.start_scheduler(interval_sec=60, num_samples=5)
+                self.start_scheduler(interval_sec=60, num_samples=self._acquire_count)
             self._on_entry_flag = False
 
-        ###############
-        # state ACQUIRE
-        ###############
         elif self.state == State.ACQUIRE:
             if self._on_entry_flag:
-                self.logger.info("Entrando a ACQUIRE")
-                # Usar SIEMPRE los valores configurados en el low-level
-                success = self.device.acquire()
-                result = ResultCode.OK if success else ResultCode.ERROR
-                if result == ResultCode.ERROR:
+                self.logger.info("Entering ACQUIRE")
+                success = self.ll.acquire(self._pending_params.get("num", self._acquire_count))
+                if not success:
+                    self._emit_action_result("acquire", ResultCode.ERROR, error=self.ll.last_error)
                     self.set_state(State.ERROR, self.status_queue)
                 self._on_entry_flag = False
 
-            done, success = self.device.is_acquisition_done()
+            done, success = self.ll.is_acquisition_done()
             if done:
                 result = ResultCode.OK if success else ResultCode.ERROR
-                if self.status_queue:
-                    self.status_queue.put((self.name, Message(
-                        MessageID.ACTION_RESULT,
-                        {
-                            "state": self.state.name,
-                            "action": "acquire",
-                            "result": result.value
-                        }
-                    )))
-                self.set_state(State.IDLE if result == ResultCode.OK else State.ERROR, self.status_queue)
+                self._emit_action_result("acquire", result)
+                self.set_state(State.IDLE if success else State.ERROR, self.status_queue)
 
-        ###############
-        # state DISABLE
-        ###############
         elif self.state == State.DISABLE and self._on_entry_flag:
-            self.logger.info("Entrando a DISABLE")
+            self.logger.info("Entering DISABLE")
             self.stop_scheduler()
-            self.device.deinit()
+            self.ll.deinit()
             self._on_entry_flag = False
 
-        ###############
-        # state ERROR
-        ###############
         elif self.state == State.ERROR and self._on_entry_flag:
-            self.logger.error("Entrando a ERROR")
+            self.logger.error("Entering ERROR")
             self.stop_scheduler()
-            self.device.deinit()
+            self.ll.deinit()
             self._on_entry_flag = False
-
-    

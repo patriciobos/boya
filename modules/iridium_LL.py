@@ -24,6 +24,7 @@ import sys
 import time
 from typing import Any, Dict, List, Optional
 
+from rich.syntax import code
 import serial
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -484,6 +485,402 @@ class IridiumLowLevel:
             self._set_error(f"Full test failed: {exc}")
             self.logger.exception("Full test failed: %s", exc)
             self._log_full_test_result(False, report)
+            return False, report
+
+        finally:
+            if temporarily_opened:
+                self.close()
+
+        # ------------------------------------------------------------------
+    # SBD send API
+    # ------------------------------------------------------------------
+
+    RECOVERABLE_MO_STATUS = {10, 17, 18, 19, 32, 35, 36, 38}
+    SUCCESS_MO_STATUS = {0, 1, 2}
+
+    @staticmethod
+    def _sbd_checksum(payload: bytes) -> bytes:
+        checksum = sum(payload) & 0xFFFF
+        return bytes([(checksum >> 8) & 0xFF, checksum & 0xFF])
+
+    @staticmethod
+    def _parse_sbdix_payload(payload: str) -> dict:
+        result = {
+            "raw": payload,
+            "parsed": False,
+            "mo_status": None,
+            "momsn": None,
+            "mt_status": None,
+            "mtmsn": None,
+            "mt_len": None,
+            "mt_queued": None,
+        }
+
+        try:
+            line = ""
+            for candidate in payload.splitlines():
+                candidate = candidate.strip()
+                if candidate.startswith("+SBDIX:"):
+                    line = candidate
+                    break
+
+            if not line:
+                return result
+
+            values = [v.strip() for v in line.split(":", 1)[1].split(",")]
+            if len(values) != 6:
+                return result
+
+            result.update(
+                {
+                    "parsed": True,
+                    "mo_status": int(values[0]),
+                    "momsn": int(values[1]),
+                    "mt_status": int(values[2]),
+                    "mtmsn": int(values[3]),
+                    "mt_len": int(values[4]),
+                    "mt_queued": int(values[5]),
+                }
+            )
+            return result
+
+        except Exception:
+            return result
+
+    @staticmethod
+    def _mo_status_text(code: Optional[int]) -> str:
+        mapping = {
+            0: "MO message transferred successfully",
+            1: "MO transferred, MT message too large",
+            2: "MO transferred, location update not accepted",
+            10: "GSS reported call did not complete in allowed time",
+            11: "MO queue at GSS is full",
+            12: "MO message has too many segments",
+            13: "GSS reported session did not complete",
+            14: "Invalid segment size",
+            15: "Access denied",
+            16: "ISU locked",
+            17: "Gateway not responding",
+            18: "Connection lost",
+            19: "Link failure",
+            32: "No network service",
+            33: "Antenna fault",
+            34: "Radio disabled",
+            35: "ISU busy",
+            36: "Try later, registration wait",
+            37: "SBD service temporarily disabled",
+            38: "Try later, traffic management",
+            64: "Band violation",
+            65: "PLL lock failure",
+        }
+        if code is None:
+            return "Unknown MO status"
+
+        return mapping.get(code, "Unknown MO status")
+
+    def _send_sbdix_once(self, timeout: float = 90.0) -> dict:
+        resp = self.send_command("AT+SBDIX", timeout=timeout)
+        if not resp:
+            return {
+                "ok": False,
+                "recoverable": True,
+                "error": "No response to AT+SBDIX",
+                "response": None,
+                "sbdix": None,
+            }
+
+        parsed = self._parse_sbdix_payload(resp.get("payload", ""))
+        mo_status = parsed.get("mo_status")
+        parsed["mo_status_text"] = self._mo_status_text(mo_status)
+
+        ok = bool(parsed.get("parsed") and mo_status in self.SUCCESS_MO_STATUS)
+        recoverable = bool(mo_status in self.RECOVERABLE_MO_STATUS or mo_status is None)
+
+        return {
+            "ok": ok,
+            "recoverable": recoverable,
+            "error": None if ok else parsed["mo_status_text"],
+            "response": resp,
+            "sbdix": parsed,
+        }
+
+    def _send_sbdix_with_retries(
+        self,
+        max_attempts: int = 3,
+        retry_delay_s: float = 10.0,
+        timeout: float = 90.0,
+    ) -> dict:
+        attempts = []
+
+        for attempt_no in range(1, max_attempts + 1):
+            self.logger.info("Starting SBDIX attempt %s/%s", attempt_no, max_attempts)
+
+            result = self._send_sbdix_once(timeout=timeout)
+            result["attempt"] = attempt_no
+            attempts.append(result)
+
+            if result.get("ok"):
+                return {
+                    "ok": True,
+                    "attempts": attempts,
+                    "final": result,
+                }
+
+            if not result.get("recoverable"):
+                return {
+                    "ok": False,
+                    "attempts": attempts,
+                    "final": result,
+                }
+
+            if attempt_no < max_attempts:
+                self.logger.info(
+                    "SBDIX attempt failed with recoverable error: %s. Retrying in %.1fs",
+                    result.get("error"),
+                    retry_delay_s,
+                )
+                time.sleep(retry_delay_s)
+
+        return {
+            "ok": False,
+            "attempts": attempts,
+            "final": attempts[-1] if attempts else None,
+        }
+
+    def _clear_mo_buffer(self) -> dict:
+        resp = self.send_command("AT+SBDD0", timeout=5.0)
+        ok = bool(resp and resp.get("status") == "OK")
+        return {
+            "ok": ok,
+            "response": resp,
+        }
+
+    def _read_until(self, needle: bytes, timeout: float) -> bytes:
+        if self.serial_port is None or not self.serial_port.is_open:
+            raise TransportError("Serial port is not open")
+
+        deadline = time.time() + timeout
+        data = b""
+
+        while time.time() < deadline:
+            chunk = self.serial_port.read(1)
+            if chunk:
+                data += chunk
+                if needle in data:
+                    return data
+            else:
+                time.sleep(0.01)
+
+        return data
+
+    def _ensure_open_for_operation(self) -> tuple[bool, bool]:
+        """
+        Returns (ok, temporarily_opened).
+        """
+        was_open = self.is_open and self.serial_port is not None and self.serial_port.is_open
+        if was_open:
+            return True, False
+
+        if not self.open():
+            return False, False
+
+        return True, True
+
+    def send_sbd_text(
+        self,
+        message: str,
+        clear_after_success: bool = True,
+        max_attempts: int = 3,
+        retry_delay_s: float = 10.0,
+        session_timeout: float = 90.0,
+    ) -> tuple[bool, dict]:
+        """
+        Send a Mobile-Originated SBD text message.
+
+        Intended for FSM use.
+        Retries are short technical retries only; long scheduling belongs to the FSM.
+        """
+        self.logger.info("Sending SBD text message")
+        self._clear_error()
+
+        report = {
+            "mode": "text",
+            "input_size_bytes": 0,
+            "buffer_write": None,
+            "session": None,
+            "clear_mo_buffer": None,
+            "errors": [],
+        }
+
+        ok_open, temporarily_opened = self._ensure_open_for_operation()
+        if not ok_open:
+            report["errors"].append(self.last_error or "Could not open modem")
+            return False, report
+
+        try:
+            payload = message.encode("utf-8")
+            report["input_size_bytes"] = len(payload)
+
+            if not payload:
+                report["errors"].append("Text payload is empty")
+                return False, report
+
+            if len(payload) > 120:
+                report["errors"].append(
+                    "Text payload exceeds 120 bytes for inline AT+SBDWT; use send_sbd_binary()"
+                )
+                return False, report
+
+            write_resp = self.send_command(f"AT+SBDWT={message}", timeout=10.0)
+            write_ok = bool(write_resp and write_resp.get("status") == "OK")
+            report["buffer_write"] = {
+                "ok": write_ok,
+                "response": write_resp,
+            }
+
+            if not write_ok:
+                report["errors"].append("AT+SBDWT failed")
+                return False, report
+
+            session = self._send_sbdix_with_retries(
+                max_attempts=max_attempts,
+                retry_delay_s=retry_delay_s,
+                timeout=session_timeout,
+            )
+            report["session"] = session
+
+            success = bool(session.get("ok"))
+            if not success:
+                final = session.get("final") or {}
+                report["errors"].append(final.get("error") or "AT+SBDIX failed")
+                return False, report
+
+            if clear_after_success:
+                report["clear_mo_buffer"] = self._clear_mo_buffer()
+
+            return True, report
+
+        except Exception as exc:
+            self._set_error(f"SBD text send failed: {exc}")
+            self.logger.exception("SBD text send failed: %s", exc)
+            report["errors"].append(str(exc))
+            return False, report
+
+        finally:
+            if temporarily_opened:
+                self.close()
+
+    def send_sbd_binary(
+        self,
+        payload: bytes,
+        clear_after_success: bool = True,
+        max_attempts: int = 3,
+        retry_delay_s: float = 10.0,
+        session_timeout: float = 90.0,
+        ready_timeout: float = 5.0,
+    ) -> tuple[bool, dict]:
+        """
+        Send a Mobile-Originated SBD binary message.
+
+        Intended for FSM use.
+        Retries are short technical retries only; long scheduling belongs to the FSM.
+        """
+        self.logger.info("Sending SBD binary message")
+        self._clear_error()
+
+        report = {
+            "mode": "binary",
+            "input_size_bytes": len(payload) if payload else 0,
+            "checksum": None,
+            "ready_response": None,
+            "buffer_write": None,
+            "session": None,
+            "clear_mo_buffer": None,
+            "errors": [],
+        }
+
+        ok_open, temporarily_opened = self._ensure_open_for_operation()
+        if not ok_open:
+            report["errors"].append(self.last_error or "Could not open modem")
+            return False, report
+
+        try:
+            if self.serial_port is None or not self.serial_port.is_open:
+                raise TransportError("Serial port is not open")
+
+            if not payload:
+                report["errors"].append("Binary payload is empty")
+                return False, report
+
+            if len(payload) > 340:
+                report["errors"].append("Binary payload exceeds 340 bytes")
+                return False, report
+
+            checksum = self._sbd_checksum(payload)
+            report["checksum"] = {
+                "hex": checksum.hex(),
+                "sum16": sum(payload) & 0xFFFF,
+            }
+
+            self.serial_port.reset_input_buffer()
+            self.serial_port.write(f"AT+SBDWB={len(payload)}\r".encode("ascii"))
+            self.serial_port.flush()
+
+            ready = self._read_until(b"READY", timeout=ready_timeout)
+            report["ready_response"] = ready.decode(errors="replace")
+
+            if b"READY" not in ready:
+                report["errors"].append("AT+SBDWB did not return READY")
+                return False, report
+
+            self.serial_port.write(payload + checksum)
+            self.serial_port.flush()
+
+            raw_resp = self._read_until(b"OK", timeout=10.0)
+            decoded_resp = raw_resp.decode(errors="replace")
+
+            write_ok = False
+            result_code = None
+
+            for line in decoded_resp.splitlines():
+                line = line.strip()
+                if line in ("0", "1", "2", "3"):
+                    result_code = int(line)
+                    write_ok = result_code == 0
+                    break
+
+            report["buffer_write"] = {
+                "ok": write_ok,
+                "result_code": result_code,
+                "response": decoded_resp,
+            }
+
+            if not write_ok:
+                report["errors"].append(f"AT+SBDWB failed with code {result_code}")
+                return False, report
+
+            session = self._send_sbdix_with_retries(
+                max_attempts=max_attempts,
+                retry_delay_s=retry_delay_s,
+                timeout=session_timeout,
+            )
+            report["session"] = session
+
+            success = bool(session.get("ok"))
+            if not success:
+                final = session.get("final") or {}
+                report["errors"].append(final.get("error") or "AT+SBDIX failed")
+                return False, report
+
+            if clear_after_success:
+                report["clear_mo_buffer"] = self._clear_mo_buffer()
+
+            return True, report
+
+        except Exception as exc:
+            self._set_error(f"SBD binary send failed: {exc}")
+            self.logger.exception("SBD binary send failed: %s", exc)
+            report["errors"].append(str(exc))
             return False, report
 
         finally:

@@ -1,95 +1,158 @@
 from enum import Enum, auto
 from dataclasses import dataclass, field
 from multiprocessing import Queue
-import logging
 import time
 from typing import Any, Dict, Optional
 import threading
 from datetime import datetime, timedelta
+import json
+
+
+from modules.support.log_utils import get_logger
+
+
+# ------------------------------------------------------------------
+# States
+# ------------------------------------------------------------------
 
 class State(Enum):
     DISABLE = auto()
     INIT = auto()
+    TEST = auto()
     IDLE = auto()
     ACQUIRE = auto()
     PROCESS = auto()
-    TEST = auto()
+    TRANSMIT = auto()
     ERROR = auto()
-    REPORT = auto()  # <--- Added explicit REPORT state
+
+
+# ------------------------------------------------------------------
+# Messages
+# ------------------------------------------------------------------
 
 class MessageID(Enum):
     SIG_INIT = "sig_init"
     SIG_DEINIT = "sig_deinit"
+    SIG_TEST = "sig_test"
     SIG_ACQUIRE = "sig_acquire"
     SIG_PROCESS = "sig_process"
-    SIG_TEST = "sig_test"
+    SIG_TRANSMIT = "sig_transmit"
     SIG_QUERY = "sig_query"
     SIG_TIMEOUT = "sig_timeout"
+
     STATE_CHANGED = "state_changed"
     STATE_RESULT = "state_result"
-    STATE_TEST_OK = "state_test_ok"
     ACTION_RESULT = "action_result"
+
+    # legacy / transitional
+    STATE_TEST_OK = "state_test_ok"
     RECORDING_DONE = "recording_done"
+
+
+# ------------------------------------------------------------------
+# Result codes
+# ------------------------------------------------------------------
 
 class ResultCode(Enum):
     OK = "ok"
     ERROR = "error"
+
+
+# ------------------------------------------------------------------
+# Message container
+# ------------------------------------------------------------------
 
 @dataclass
 class Message:
     id: MessageID
     params: Dict[str, Any] = field(default_factory=dict)
 
+
+# ------------------------------------------------------------------
+# Base FSM
+# ------------------------------------------------------------------
+
 class BaseHandlerFSM:
-    def __init__(self, name):
+    def __init__(self, name: str):
         self.name = name
         self.state = State.DISABLE
-        self.logger = self._create_logger()
+        self.logger = get_logger(self.name)
         self.running = True
 
         self._on_entry_flag = True
         self._on_exit_flag = False
         self._last_state = None
 
-    def _create_logger(self):
-        logger = logging.getLogger(self.name)
-        logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter(f"%(asctime)s [{self.name}] %(levelname)s: %(message)s")
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        return logger
+        self.queue: Optional[Queue] = None
+        self.status_queue: Optional[Queue] = None
+
+    # --------------------------------------------------------------
+    # Lifecycle hooks (override in child classes)
+    # --------------------------------------------------------------
 
     def update(self):
         pass
 
+    def handle_message(self, message: Message):
+        pass
+
+    # --------------------------------------------------------------
+    # Runtime loop
+    # --------------------------------------------------------------
+
     def run(self, queue: Queue, status_queue: Optional[Queue] = None):
-        self.logger.info("FSM iniciada.")
+        self.logger.info("FSM started")
         self.queue = queue
         self.status_queue = status_queue
+
         try:
             while self.running:
                 if not queue.empty():
                     msg = queue.get()
-                    self.logger.info(f"Recibido: {msg.id.value} | Params: {msg.params}")
+                    self.logger.info(
+                        "Received: %s | Params: %s",
+                        msg.id.value,
+                        msg.params,
+                    )
                     self.handle_message(msg)
                 else:
                     time.sleep(0.1)
+
                 self.update()
+
         except KeyboardInterrupt:
-            self.logger.info("FSM detenida por KeyboardInterrupt. Terminando de forma limpia.")
+            self.logger.info("FSM stopped by KeyboardInterrupt")
             self.running = False
 
-    def handle_message(self, message: Message):
-        pass
+    # --------------------------------------------------------------
+    # State management
+    # --------------------------------------------------------------
 
     def set_state(self, new_state: State, status_queue: Optional[Queue] = None):
         if self.state != new_state:
             self._on_exit_flag = True
-            self.logger.info(f"Cambio de estado: {self.state.name} → {new_state.name}")
+
+            self.logger.info(
+                "State change: %s -> %s",
+                self.state.name,
+                new_state.name,
+            )
+
             self.state = new_state
+
             if status_queue:
-                status_queue.put((self.name, Message(MessageID.STATE_CHANGED, {"state": self.state.name})))
+                status_queue.put((
+                    self.name,
+                    Message(
+                        MessageID.STATE_CHANGED,
+                        {"state": self.state.name},
+                    ),
+                ))
+
+
+# ------------------------------------------------------------------
+# Scheduler
+# ------------------------------------------------------------------
 
 class Scheduler:
     def __init__(self, name, queue, get_state_fn, interval_sec=3600):
@@ -98,24 +161,129 @@ class Scheduler:
         self.get_state = get_state_fn
         self.interval = interval_sec
         self.last_event = datetime.min
+
+        self.logger = get_logger(f"{name}_scheduler")
+
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.stop_event = threading.Event()
 
     def start(self):
+        self.logger.info("Scheduler started (interval=%ss)", self.interval)
         self.thread.start()
 
     def stop(self):
+        self.logger.info("Scheduler stopping")
         self.stop_event.set()
         self.thread.join()
+        self.logger.info("Scheduler stopped")
 
     def _run(self):
         while not self.stop_event.is_set():
             now = datetime.now()
+
             if (
                 self.get_state() == State.IDLE
                 and now - self.last_event >= timedelta(seconds=self.interval)
             ):
-                print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} [{self.name}] Timer cumplido. Enviando SIG_TIMEOUT.")
+                self.logger.info("Timer expired -> sending SIG_TIMEOUT")
+
                 self.queue.put(Message(MessageID.SIG_TIMEOUT))
                 self.last_event = now
-            time.sleep(5)
+
+            time.sleep(1)
+
+def run_fsm_self_test(
+    fsm,
+    timeout_s: float = 30.0,
+    init_timeout_s: float = 20.0,
+    extra_messages: Optional[list[Message]] = None,
+) -> tuple[bool, dict]:
+    """
+    Functional self-test for FSM modules.
+
+    It runs the FSM in-process, sends SIG_INIT, waits for a stable result,
+    optionally sends extra messages, and returns a standard report.
+    """
+    queue = Queue()
+    status_queue = Queue()
+
+    fsm.queue = queue
+    fsm.status_queue = status_queue
+
+    report = {
+        "fsm": fsm.name,
+        "success": False,
+        "final_state": None,
+        "messages": [],
+        "errors": [],
+    }
+
+    def drain_status():
+        while not status_queue.empty():
+            name, message = status_queue.get()
+            report["messages"].append({
+                "name": name,
+                "id": message.id.value,
+                "params": message.params,
+            })
+
+    try:
+        queue.put(Message(MessageID.SIG_INIT))
+
+        start = time.time()
+        while time.time() - start < init_timeout_s:
+            if not queue.empty():
+                msg = queue.get()
+                fsm.handle_message(msg)
+
+            fsm.update()
+            drain_status()
+
+            if fsm.state in (State.IDLE, State.ERROR):
+                break
+
+            time.sleep(0.1)
+
+        if extra_messages:
+            for msg in extra_messages:
+                queue.put(msg)
+
+            start = time.time()
+            while time.time() - start < timeout_s:
+                if not queue.empty():
+                    msg = queue.get()
+                    fsm.handle_message(msg)
+
+                fsm.update()
+                drain_status()
+
+                if fsm.state in (State.IDLE, State.ERROR):
+                    # allow one extra update cycle after returning to IDLE/ERROR
+                    fsm.update()
+                    drain_status()
+                    break
+
+                time.sleep(0.1)
+
+        report["final_state"] = fsm.state.name
+        report["success"] = fsm.state == State.IDLE
+
+        return bool(report["success"]), report
+
+    except Exception as exc:
+        report["errors"].append(str(exc))
+        report["final_state"] = getattr(fsm.state, "name", None)
+        return False, report
+
+    finally:
+        try:
+            if hasattr(fsm, "stop_scheduler"):
+                fsm.stop_scheduler()
+        except Exception:
+            pass
+
+        try:
+            if hasattr(fsm, "ll"):
+                fsm.ll.deinit()
+        except Exception:
+            pass
