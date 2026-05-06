@@ -61,10 +61,10 @@ class BehringerLowLevel:
     """Low-level controller for the Behringer USB audio interface."""
 
     DEFAULT_SAMPLE_RATE = 192000
-    DEFAULT_CHANNELS = 1
+    DEFAULT_CHANNELS = 2
     DEFAULT_OUTPUT_CHANNELS = 1
-    DEFAULT_FORMAT = pyaudio.paInt32
-    DEFAULT_FRAMES_PER_BUFFER = 1024
+    DEFAULT_FORMAT = pyaudio.paInt24
+    DEFAULT_FRAMES_PER_BUFFER = 8192
     DEFAULT_DEVICE_NAME_FILTERS = ("Behringer", "USB")
     DEFAULT_RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
 
@@ -229,7 +229,7 @@ class BehringerLowLevel:
             f"filters={self.device_name_filters}. Inspected devices={devices}"
         )
 
-    def _open_stream(self) -> bool:
+    def _open_stream(self, max_attempts: int = 3, retry_delay_s: float = 1.0) -> bool:
         if self.audio_interface is None or self.device_index is None:
             self._set_error("Audio interface is not open")
             self.logger.error(self.last_error)
@@ -238,46 +238,83 @@ class BehringerLowLevel:
         if self.stream is not None:
             self._close_stream()
 
-        try:
-            self.stream = self.audio_interface.open(
-                format=self.audio_format,
-                channels=self.channels,
-                rate=self.sample_rate,
-                input=True,
-                frames_per_buffer=self.frames_per_buffer,
-                input_device_index=self.device_index,
-            )
+        last_exc = None
 
-            self.logger.info(
-                "Audio stream opened in blocking mode: device_index=%s channels=%s rate=%s format=%s frames_per_buffer=%s",
-                self.device_index,
-                self.channels,
-                self.sample_rate,
-                self._format_name(),
-                self.frames_per_buffer,
-            )
-            return True
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.logger.info(
+                    "Opening audio stream attempt %s/%s: device_index=%s channels=%s rate=%s format=%s frames_per_buffer=%s",
+                    attempt,
+                    max_attempts,
+                    self.device_index,
+                    self.channels,
+                    self.sample_rate,
+                    self._format_name(),
+                    self.frames_per_buffer,
+                )
 
-        except Exception as exc:
-            self.stream = None
-            self._set_error(f"Failed to open audio stream: {exc}")
-            self.logger.exception("Failed to open audio stream: %s", exc)
-            return False
+                self.stream = self.audio_interface.open(
+                    format=self.audio_format,
+                    channels=self.channels,
+                    rate=self.sample_rate,
+                    input=True,
+                    frames_per_buffer=self.frames_per_buffer,
+                    input_device_index=self.device_index,
+                    start=False,
+                )
+
+                time.sleep(0.2)
+                self.stream.start_stream()
+
+                self.logger.info(
+                    "Audio stream opened successfully: attempt=%s device_index=%s channels=%s rate=%s format=%s frames_per_buffer=%s",
+                    attempt,
+                    self.device_index,
+                    self.channels,
+                    self.sample_rate,
+                    self._format_name(),
+                    self.frames_per_buffer,
+                )
+                self._clear_error()
+                return True
+
+            except Exception as exc:
+                last_exc = exc
+                self.logger.warning(
+                    "Audio stream open attempt %s/%s failed: %s",
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                self._close_stream()
+                time.sleep(retry_delay_s)
+
+        self.stream = None
+        self._set_error(f"Failed to open audio stream after {max_attempts} attempts: {last_exc}")
+        self.logger.error(self.last_error)
+        return False    
 
     def _close_stream(self) -> bool:
         try:
-            if self.stream is not None:
+            stream = self.stream
+            self.stream = None
+
+            if stream is not None:
                 try:
-                    if self.stream.is_active():
-                        self.stream.stop_stream()
+                    if stream.is_active():
+                        stream.stop_stream()
                 except Exception as exc:
                     self.logger.debug("Ignoring stop_stream warning: %s", exc)
+
                 try:
-                    self.stream.close()
+                    stream.close()
                 except Exception as exc:
                     self.logger.debug("Ignoring stream close warning: %s", exc)
-            self.stream = None
+
+                time.sleep(0.2)
+
             return True
+
         except Exception as exc:
             self.stream = None
             self._set_error(f"Failed to close audio stream: {exc}")
@@ -318,7 +355,22 @@ class BehringerLowLevel:
         self.logger.info("Initializing module")
         self._clear_error()
         try:
-            self.close()
+            self._close_stream()
+
+            if self.audio_interface is not None:
+                try:
+                    self.audio_interface.terminate()
+                except Exception as exc:
+                    self.logger.debug("Ignoring PyAudio terminate warning during init: %s", exc)
+
+            self.audio_interface = None
+            self.device_index = None
+            self.device_info = None
+            self.stream = None
+            self.bus = None
+            self.bus_num = None
+            self.is_open = False
+
             if sample_rate is not None:
                 self.sample_rate = int(sample_rate)
             if channels is not None:
@@ -416,6 +468,9 @@ class BehringerLowLevel:
                     self.audio_interface.terminate()
                 except Exception as exc:
                     self.logger.debug("Ignoring PyAudio terminate warning: %s", exc)
+            
+            time.sleep(1.0)
+
             self.audio_interface = None
             self.device_index = None
             self.device_info = None
@@ -552,7 +607,7 @@ class BehringerLowLevel:
 
             stream_open_ok = False
             try:
-                stream_open_ok = self._open_stream()
+                stream_open_ok = self._open_stream(max_attempts=3, retry_delay_s=1.0)
                 if not stream_open_ok and self.last_error:
                     report["errors"].append(self.last_error)
             finally:
@@ -638,7 +693,7 @@ class BehringerLowLevel:
             self.last_record_ok = False
             self._clear_queue()
             self.is_recording_event.set()
-            if not self._open_stream():
+            if not self._open_stream(max_attempts=3, retry_delay_s=1.0):
                 self.is_recording_event.clear()
                 return False
             self.recording_thread = threading.Thread(target=self._write_audio, daemon=True)
@@ -653,7 +708,96 @@ class BehringerLowLevel:
             self._close_stream()
             return False
 
+    def _write_audio(self) -> None:
+        if self.audio_interface is None:
+            self.logger.error("Audio interface is not open. Aborting recording.")
+            self.last_record_ok = False
+            self.is_recording_event.clear()
+            self._close_stream()
+            return
 
+        if self.stream is None:
+            self.logger.error("Audio stream is not open. Aborting recording.")
+            self.last_record_ok = False
+            self.is_recording_event.clear()
+            self._close_stream()
+            return
+
+        if self.output_path is None:
+            self.logger.error("Output path is not defined. Aborting recording.")
+            self.last_record_ok = False
+            self.is_recording_event.clear()
+            self._close_stream()
+            return
+
+        frames_written = 0
+
+        try:
+            sample_width = self._bytes_per_sample()
+
+            with wave.open(self.output_path, "wb") as wf:
+                wf.setnchannels(self.output_channels)
+                wf.setsampwidth(sample_width)
+                wf.setframerate(self.sample_rate)
+
+                start = time.time()
+
+                while self.is_recording_event.is_set():
+                    if self.duration is not None and (time.time() - start) >= self.duration:
+                        break
+
+                    try:
+                        frame = self.stream.read(
+                            self.frames_per_buffer,
+                            exception_on_overflow=False,
+                        )
+                    except Exception as exc:
+                        self.logger.warning("Audio stream read failed: %s", exc)
+                        continue
+
+                    if not frame:
+                        continue
+
+                    if self.output_channels == self.channels:
+                        wf.writeframes(frame)
+
+                    elif self.output_channels == 1 and self.channels >= 1:
+                        frame_width = self.channels * sample_width
+
+                        if len(frame) % frame_width == 0:
+                            mono = bytearray()
+
+                            for i in range(0, len(frame), frame_width):
+                                mono.extend(frame[i:i + sample_width])
+
+                            wf.writeframes(bytes(mono))
+                        else:
+                            wf.writeframes(frame)
+
+                    else:
+                        wf.writeframes(frame)
+
+                    frames_written += 1
+
+            self.last_record_ok = frames_written > 0
+
+            if self.last_record_ok:
+                self.logger.info(
+                    "Recording completed successfully: chunks=%s path=%s",
+                    frames_written,
+                    self.output_path,
+                )
+            else:
+                self.logger.error("Recording completed without frames: %s", self.output_path)
+
+        except Exception as exc:
+            self.last_record_ok = False
+            self._set_error(f"Recording writer failed: {exc}")
+            self.logger.exception("Recording writer failed: %s", exc)
+
+        finally:
+            self.is_recording_event.clear()
+            self._close_stream()
 
     def stop_recording(self) -> bool:
         """Stop an active recording."""
