@@ -4,12 +4,59 @@
       "script": "modules/aht10_LL.py",
       "module": "modules.aht10_LL",
       "name": "aht10_LL",
-      "returncode": 1,
-      "success": false,
+      "returncode": 0,
+      "success": true,
       "error": "",
-      "stdout": "",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"scan\": {\n      \"address\": \"0x38\",\n      \"scanned_buses\": [\n        {\n          \"bus\": 1,\n          \"open_ok\": true,\n          \"probe\": {\n            \"bus\": 1,\n            \"address\": \"0x38\",\n            \"checks\": [\n              {\n                \"name\": \"read_byte\",\n                \"ok\": true,\n                \"value\": 25\n              }\n            ]\n          }\n        }\n      ],\n      \"selected_bus\": 1\n    },\n    \"status\": {\n      \"value\": 25,\n      \"busy\": false,\n      \"calibrated\": true\n    },\n    \"measurement\": {\n      \"raw\": [\n        25,\n        93,\n        180,\n        53,\n        193,\n        39\n      ],\n      \"temperature_c\": 21.93126678466797,\n      \"humidity_rh\": 36.60306930541992,\n      \"plausible\": true\n    }\n  },\n  \"success\": true\n}",
       "stderr": "",
-      "parsed": null
+      "parsed": {
+        "initialized": true,
+        "opened": true,
+        "device_present": true,
+        "errors": [],
+        "details": {
+          "scan": {
+            "address": "0x38",
+            "scanned_buses": [
+              {
+                "bus": 1,
+                "open_ok": true,
+                "probe": {
+                  "bus": 1,
+                  "address": "0x38",
+                  "checks": [
+                    {
+                      "name": "read_byte",
+                      "ok": true,
+                      "value": 25
+                    }
+                  ]
+                }
+              }
+            ],
+            "selected_bus": 1
+          },
+          "status": {
+            "value": 25,
+            "busy": false,
+            "calibrated": true
+          },
+          "measurement": {
+            "raw": [
+              25,
+              93,
+              180,
+              53,
+              193,
+              39
+            ],
+            "temperature_c": 21.93126678466797,
+            "humidity_rh": 36.60306930541992,
+            "plausible": true
+          }
+        },
+        "success": true
+      }
     },
     {
       "script": "modules/ais_LL.py",
@@ -18,7 +65,7 @@
       "returncode": 0,
       "success": true,
       "error": "",
-      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"transport\": {\n      \"port\": \"/dev/ttyS3\",\n      \"baudrate\": 115200\n    },\n    \"traffic\": {\n      \"lines_collected\": 68,\n      \"valid_nmea_lines\": 22,\n      \"valid_ais_lines\": 19,\n      \"sentence_types\": [\n        \"AIVDO\",\n        \"GPGGA\",\n        \"GPGLL\",\n        \"GPGSA\",\n        \"GPGSV\",\n        \"GPRMC\",\n        \"PAMC\"\n      ]\n    },\n    \"navigation\": {\n      \"has_fix\": false,\n      \"lat\": null,\n      \"lon\": null,\n      \"timestamp\": null,\n      \"fix_quality\": 0,\n      \"num_sats\": 0,\n      \"hdop\": 99.99\n    }\n  }\n}",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"transport\": {\n      \"port\": \"/dev/ttyS3\",\n      \"baudrate\": 115200\n    },\n    \"traffic\": {\n      \"lines_collected\": 55,\n      \"valid_nmea_lines\": 23,\n      \"valid_ais_lines\": 20,\n      \"sentence_types\": [\n        \"AIVDO\",\n        \"ANALR\",\n        \"GPGGA\",\n        \"GPGLL\",\n        \"GPGSA\",\n        \"GPGSV\",\n        \"GPRMC\",\n        \"PAMC\"\n      ]\n    },\n    \"navigation\": {\n      \"has_fix\": false,\n      \"lat\": null,\n      \"lon\": null,\n      \"timestamp\": null,\n      \"fix_quality\": 0,\n      \"num_sats\": 0,\n      \"hdop\": 99.99\n    }\n  }\n}",
       "stderr": "--- Logging error ---\nTraceback (most recent call last):\n  File \"/usr/lib/python3.12/logging/__init__.py\", line 1160, in emit\n    msg = self.format(record)\n          ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/logging/__init__.py\", line 999, in format\n    return fmt.format(record)\n           ^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/logging/__init__.py\", line 703, in format\n    record.message = record.getMessage()\n                     ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/logging/__init__.py\", line 392, in getMessage\n    msg = msg % self.args\n          ~~~~^~~~~~~~~~~\nTypeError: not enough arguments for format string\nCall stack:\n  File \"/home/boya/boya/modules/ais_LL.py\", line 1102, in <module>\n    ok = main()\n  File \"/home/boya/boya/modules/ais_LL.py\", line 1096, in main\n    ok, report = ll.full_test()\n  File \"/home/boya/boya/modules/ais_LL.py\", line 857, in full_test\n    self.logger.info(\nMessage: 'Full diagnostic test completed: success=%s selected_port=%s transport_port=%s has_fix=%s lines=%s'\nArguments: (True, '/dev/ttyS3', None, None)",
       "parsed": {
         "initialized": true,
@@ -31,11 +78,12 @@
             "baudrate": 115200
           },
           "traffic": {
-            "lines_collected": 68,
-            "valid_nmea_lines": 22,
-            "valid_ais_lines": 19,
+            "lines_collected": 55,
+            "valid_nmea_lines": 23,
+            "valid_ais_lines": 20,
             "sentence_types": [
               "AIVDO",
+              "ANALR",
               "GPGGA",
               "GPGLL",
               "GPGSA",
@@ -153,7 +201,7 @@
       "returncode": 0,
       "success": true,
       "error": "",
-      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"device\": {\n      \"index\": 5,\n      \"name\": \"UMC202HD 192k: USB Audio (hw:1,0)\",\n      \"max_input_channels\": 2,\n      \"default_sample_rate\": 44100.0\n    },\n    \"audio\": {\n      \"sample_rate\": 192000,\n      \"channels\": 2,\n      \"output_channels\": 1,\n      \"format\": \"paInt24\",\n      \"frames_per_buffer\": 8192,\n      \"stream_open_ok\": true\n    },\n    \"filesystem\": {\n      \"recordings_dir\": \"/home/boya/boya/modules/recordings\",\n      \"write_ok\": true,\n      \"free_bytes\": 457145397248\n    },\n    \"recording\": {\n      \"is_recording\": false,\n      \"last_record_ok\": false,\n      \"output_path\": null\n    }\n  }\n}",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"device\": {\n      \"index\": 5,\n      \"name\": \"UMC202HD 192k: USB Audio (hw:1,0)\",\n      \"max_input_channels\": 2,\n      \"default_sample_rate\": 44100.0\n    },\n    \"audio\": {\n      \"sample_rate\": 192000,\n      \"channels\": 2,\n      \"output_channels\": 1,\n      \"format\": \"paInt24\",\n      \"frames_per_buffer\": 8192,\n      \"stream_open_ok\": true\n    },\n    \"filesystem\": {\n      \"recordings_dir\": \"/home/boya/boya/modules/recordings\",\n      \"write_ok\": true,\n      \"free_bytes\": 457144885248\n    },\n    \"recording\": {\n      \"is_recording\": false,\n      \"last_record_ok\": false,\n      \"output_path\": null\n    }\n  }\n}",
       "stderr": "ALSA lib pcm.c:2721:(snd_pcm_open_noupdate) Unknown PCM cards.pcm.rear\nALSA lib pcm.c:2721:(snd_pcm_open_noupdate) Unknown PCM cards.pcm.center_lfe\nALSA lib pcm.c:2721:(snd_pcm_open_noupdate) Unknown PCM cards.pcm.side\nALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map\nALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map\nALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map\nALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map\nCannot connect to server socket err = No such file or directory\nCannot connect to server request channel\njack server is not running or cannot be started\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock\nCannot connect to server socket err = No such file or directory\nCannot connect to server request channel\njack server is not running or cannot be started\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock\nALSA lib pcm_oss.c:397:(_snd_pcm_oss_open) Cannot open device /dev/dsp\nALSA lib pcm_oss.c:397:(_snd_pcm_oss_open) Cannot open device /dev/dsp\nALSA lib pcm_a52.c:1001:(_snd_pcm_a52_open) a52 is only for playback\nALSA lib confmisc.c:160:(snd_config_get_card) Invalid field card\nALSA lib pcm_usb_stream.c:482:(_snd_pcm_usb_stream_open) Invalid card 'card'\nALSA lib confmisc.c:160:(snd_config_get_card) Invalid field card\nALSA lib pcm_usb_stream.c:482:(_snd_pcm_usb_stream_open) Invalid card 'card'\nCannot connect to server socket err = No such file or directory\nCannot connect to server request channel\njack server is not running or cannot be started\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock",
       "parsed": {
         "initialized": true,
@@ -178,7 +226,7 @@
           "filesystem": {
             "recordings_dir": "/home/boya/boya/modules/recordings",
             "write_ok": true,
-            "free_bytes": 457145397248
+            "free_bytes": 457144885248
           },
           "recording": {
             "is_recording": false,
@@ -196,7 +244,7 @@
       "success": false,
       "error": "",
       "stdout": "",
-      "stderr": "2026-05-21 10:44:23,713 [HTU21LowLevel] INFO: Starting HTU21 self-test\n2026-05-21 10:44:23,714 [HTU21LowLevel] INFO: Trying I2C bus 1 for HTU21@0x40\n2026-05-21 10:44:23,714 [HTU21LowLevel] INFO: Opened I2C bus 1\n2026-05-21 10:44:23,715 [HTU21LowLevel] INFO: Detected MPU-6050 at 0x68\n2026-05-21 10:44:23,715 [HTU21LowLevel] WARNING: HTU21 not present at address 0x40 on initial bus 1; scanning other I2C buses\n2026-05-21 10:44:23,715 [HTU21LowLevel] INFO: Trying alternative I2C bus 0\n2026-05-21 10:44:23,715 [HTU21LowLevel] INFO: Trying I2C bus 0 for HTU21@0x40\n2026-05-21 10:44:23,727 [HTU21LowLevel] INFO: Opened I2C bus 0\n2026-05-21 10:44:23,728 [HTU21LowLevel] INFO: Trying alternative I2C bus 1\n2026-05-21 10:44:23,728 [HTU21LowLevel] INFO: Trying I2C bus 1 for HTU21@0x40\n2026-05-21 10:44:23,729 [HTU21LowLevel] INFO: Opened I2C bus 1\n2026-05-21 10:44:23,729 [HTU21LowLevel] INFO: Detected MPU-6050 at 0x68\n2026-05-21 10:44:23,730 [HTU21LowLevel] INFO: Trying alternative I2C bus 10\n2026-05-21 10:44:23,730 [HTU21LowLevel] INFO: Trying I2C bus 10 for HTU21@0x40\n2026-05-21 10:44:23,796 [HTU21LowLevel] INFO: Opened I2C bus 10\n2026-05-21 10:44:23,930 [HTU21LowLevel] INFO: Trying alternative I2C bus 11\n2026-05-21 10:44:23,930 [HTU21LowLevel] INFO: Trying I2C bus 11 for HTU21@0x40\n2026-05-21 10:44:23,997 [HTU21LowLevel] INFO: Opened I2C bus 11\n2026-05-21 10:44:24,131 [HTU21LowLevel] INFO: Trying alternative I2C bus 12\n2026-05-21 10:44:24,131 [HTU21LowLevel] INFO: Trying I2C bus 12 for HTU21@0x40\n2026-05-21 10:44:24,191 [HTU21LowLevel] INFO: Opened I2C bus 12\n2026-05-21 10:44:24,310 [HTU21LowLevel] INFO: Trying alternative I2C bus 2\n2026-05-21 10:44:24,310 [HTU21LowLevel] INFO: Trying I2C bus 2 for HTU21@0x40\n2026-05-21 10:44:24,311 [HTU21LowLevel] INFO: Opened I2C bus 2\n2026-05-21 10:44:24,311 [HTU21LowLevel] INFO: Trying alternative I2C bus 3\n2026-05-21 10:44:24,311 [HTU21LowLevel] INFO: Trying I2C bus 3 for HTU21@0x40\n2026-05-21 10:44:24,365 [HTU21LowLevel] INFO: Opened I2C bus 3\n2026-05-21 10:44:24,475 [HTU21LowLevel] INFO: Trying alternative I2C bus 4\n2026-05-21 10:44:24,475 [HTU21LowLevel] INFO: Trying I2C bus 4 for HTU21@0x40\n2026-05-21 10:44:24,477 [HTU21LowLevel] INFO: Opened I2C bus 4\n2026-05-21 10:44:24,480 [HTU21LowLevel] INFO: Trying alternative I2C bus 5\n2026-05-21 10:44:24,481 [HTU21LowLevel] INFO: Trying I2C bus 5 for HTU21@0x40\n2026-05-21 10:44:24,535 [HTU21LowLevel] INFO: Opened I2C bus 5\n2026-05-21 10:44:24,644 [HTU21LowLevel] INFO: Trying alternative I2C bus 6\n2026-05-21 10:44:24,644 [HTU21LowLevel] INFO: Trying I2C bus 6 for HTU21@0x40\n2026-05-21 10:44:24,645 [HTU21LowLevel] INFO: Opened I2C bus 6\n2026-05-21 10:44:24,649 [HTU21LowLevel] INFO: Trying alternative I2C bus 7\n2026-05-21 10:44:24,649 [HTU21LowLevel] INFO: Trying I2C bus 7 for HTU21@0x40\n2026-05-21 10:44:24,716 [HTU21LowLevel] INFO: Opened I2C bus 7\n2026-05-21 10:44:24,794 [HTU21LowLevel] INFO: Trying alternative I2C bus 8\n2026-05-21 10:44:24,795 [HTU21LowLevel] INFO: Trying I2C bus 8 for HTU21@0x40\n2026-05-21 10:44:24,806 [HTU21LowLevel] INFO: Opened I2C bus 8\n2026-05-21 10:44:24,940 [HTU21LowLevel] INFO: Trying alternative I2C bus 9\n2026-05-21 10:44:24,941 [HTU21LowLevel] INFO: Trying I2C bus 9 for HTU21@0x40\n2026-05-21 10:44:25,007 [HTU21LowLevel] INFO: Opened I2C bus 9\n2026-05-21 10:44:25,141 [HTU21LowLevel] ERROR: HTU21 not present at address 0x40 on any scanned bus\nHTU21 self-test: FAILED (rc=2)",
+      "stderr": "2026-05-21 11:37:54,711 [HTU21LowLevel] INFO: Starting HTU21 self-test\n2026-05-21 11:37:54,712 [HTU21LowLevel] INFO: Trying I2C bus 1 for HTU21@0x40\n2026-05-21 11:37:54,712 [HTU21LowLevel] INFO: Opened I2C bus 1\n2026-05-21 11:37:54,713 [HTU21LowLevel] INFO: Detected MPU-6050 at 0x68\n2026-05-21 11:37:54,713 [HTU21LowLevel] WARNING: HTU21 not present at address 0x40 on initial bus 1; scanning other I2C buses\n2026-05-21 11:37:54,713 [HTU21LowLevel] INFO: Trying alternative I2C bus 0\n2026-05-21 11:37:54,714 [HTU21LowLevel] INFO: Trying I2C bus 0 for HTU21@0x40\n2026-05-21 11:37:54,726 [HTU21LowLevel] INFO: Opened I2C bus 0\n2026-05-21 11:37:54,727 [HTU21LowLevel] INFO: Trying alternative I2C bus 1\n2026-05-21 11:37:54,727 [HTU21LowLevel] INFO: Trying I2C bus 1 for HTU21@0x40\n2026-05-21 11:37:54,728 [HTU21LowLevel] INFO: Opened I2C bus 1\n2026-05-21 11:37:54,728 [HTU21LowLevel] INFO: Detected MPU-6050 at 0x68\n2026-05-21 11:37:54,728 [HTU21LowLevel] INFO: Trying alternative I2C bus 10\n2026-05-21 11:37:54,729 [HTU21LowLevel] INFO: Trying I2C bus 10 for HTU21@0x40\n2026-05-21 11:37:54,795 [HTU21LowLevel] INFO: Opened I2C bus 10\n2026-05-21 11:37:54,929 [HTU21LowLevel] INFO: Trying alternative I2C bus 11\n2026-05-21 11:37:54,929 [HTU21LowLevel] INFO: Trying I2C bus 11 for HTU21@0x40\n2026-05-21 11:37:54,996 [HTU21LowLevel] INFO: Opened I2C bus 11\n2026-05-21 11:37:55,130 [HTU21LowLevel] INFO: Trying alternative I2C bus 12\n2026-05-21 11:37:55,130 [HTU21LowLevel] INFO: Trying I2C bus 12 for HTU21@0x40\n2026-05-21 11:37:55,191 [HTU21LowLevel] INFO: Opened I2C bus 12\n2026-05-21 11:37:55,310 [HTU21LowLevel] INFO: Trying alternative I2C bus 2\n2026-05-21 11:37:55,310 [HTU21LowLevel] INFO: Trying I2C bus 2 for HTU21@0x40\n2026-05-21 11:37:55,311 [HTU21LowLevel] INFO: Opened I2C bus 2\n2026-05-21 11:37:55,311 [HTU21LowLevel] INFO: Trying alternative I2C bus 3\n2026-05-21 11:37:55,311 [HTU21LowLevel] INFO: Trying I2C bus 3 for HTU21@0x40\n2026-05-21 11:37:55,365 [HTU21LowLevel] INFO: Opened I2C bus 3\n2026-05-21 11:37:55,475 [HTU21LowLevel] INFO: Trying alternative I2C bus 4\n2026-05-21 11:37:55,475 [HTU21LowLevel] INFO: Trying I2C bus 4 for HTU21@0x40\n2026-05-21 11:37:55,477 [HTU21LowLevel] INFO: Opened I2C bus 4\n2026-05-21 11:37:55,481 [HTU21LowLevel] INFO: Trying alternative I2C bus 5\n2026-05-21 11:37:55,481 [HTU21LowLevel] INFO: Trying I2C bus 5 for HTU21@0x40\n2026-05-21 11:37:55,536 [HTU21LowLevel] INFO: Opened I2C bus 5\n2026-05-21 11:37:55,645 [HTU21LowLevel] INFO: Trying alternative I2C bus 6\n2026-05-21 11:37:55,645 [HTU21LowLevel] INFO: Trying I2C bus 6 for HTU21@0x40\n2026-05-21 11:37:55,647 [HTU21LowLevel] INFO: Opened I2C bus 6\n2026-05-21 11:37:55,650 [HTU21LowLevel] INFO: Trying alternative I2C bus 7\n2026-05-21 11:37:55,651 [HTU21LowLevel] INFO: Trying I2C bus 7 for HTU21@0x40\n2026-05-21 11:37:55,718 [HTU21LowLevel] INFO: Opened I2C bus 7\n2026-05-21 11:37:55,796 [HTU21LowLevel] INFO: Trying alternative I2C bus 8\n2026-05-21 11:37:55,797 [HTU21LowLevel] INFO: Trying I2C bus 8 for HTU21@0x40\n2026-05-21 11:37:55,808 [HTU21LowLevel] INFO: Opened I2C bus 8\n2026-05-21 11:37:55,942 [HTU21LowLevel] INFO: Trying alternative I2C bus 9\n2026-05-21 11:37:55,942 [HTU21LowLevel] INFO: Trying I2C bus 9 for HTU21@0x40\n2026-05-21 11:37:56,009 [HTU21LowLevel] INFO: Opened I2C bus 9\n2026-05-21 11:37:56,143 [HTU21LowLevel] ERROR: HTU21 not present at address 0x40 on any scanned bus\nHTU21 self-test: FAILED (rc=2)",
       "parsed": null
     },
     {
@@ -206,7 +254,7 @@
       "returncode": 0,
       "success": true,
       "error": "",
-      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"probe\": {\n      \"command\": \"AT\",\n      \"response\": {\n        \"echo\": \"AT\",\n        \"payload\": \"\",\n        \"status\": \"OK\",\n        \"raw\": \"AT\\r\\n\\r\\nOK\\r\\n\",\n        \"elapsed_s\": 1.001262903213501\n      },\n      \"device_present\": true\n    },\n    \"identity\": {\n      \"model\": \"IRIDIUM 9600 Family SBD Transceiver\",\n      \"firmware\": \"Call Processor Version: TA21004\\nModem DSP Version: 1.7 svn: 2358\\nDBB Version: 0x0001 (ASIC)\\nRFA Version: 0x0007 (SRFA2)\\nNVM Version: KVS\\nHardware Version: BOOT07d4/9602NrvA-D/04/RAW0d\\nBOOT Version: 2004 TD2-BLB960X-27 R4710\"\n    },\n    \"status\": {\n      \"csq\": \"+CSQ:0\",\n      \"creg\": \"\",\n      \"antena\": \"\",\n      \"sbdix\": \"+SBDIX: 32, 8, 2, 0, 0, 0\"\n    },\n    \"transport\": {\n      \"port\": \"/dev/ttyS0\",\n      \"baudrate\": 19200,\n      \"timeout\": 1.0,\n      \"bus_forced\": false,\n      \"preferred_port\": \"/dev/ttyS0\",\n      \"candidates\": [\n        \"/dev/ttyS0\",\n        \"/dev/ttyS1\",\n        \"/dev/ttyS2\",\n        \"/dev/ttyS3\",\n        \"/dev/ttyS4\",\n        \"/dev/ttyS5\",\n        \"/dev/ttyS6\"\n      ]\n    },\n    \"filesystem\": {\n      \"write_ok\": true,\n      \"free_bytes\": 457145389056\n    }\n  }\n}",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"probe\": {\n      \"command\": \"AT\",\n      \"response\": {\n        \"echo\": \"AT\",\n        \"payload\": \"\",\n        \"status\": \"OK\",\n        \"raw\": \"AT\\r\\n\\r\\nOK\\r\\n\",\n        \"elapsed_s\": 1.0012893676757812\n      },\n      \"device_present\": true\n    },\n    \"identity\": {\n      \"model\": \"IRIDIUM 9600 Family SBD Transceiver\",\n      \"firmware\": \"Call Processor Version: TA21004\\nModem DSP Version: 1.7 svn: 2358\\nDBB Version: 0x0001 (ASIC)\\nRFA Version: 0x0007 (SRFA2)\\nNVM Version: KVS\\nHardware Version: BOOT07d4/9602NrvA-D/04/RAW0d\\nBOOT Version: 2004 TD2-BLB960X-27 R4710\"\n    },\n    \"status\": {\n      \"csq\": \"+CSQ:0\",\n      \"creg\": \"\",\n      \"antena\": \"\",\n      \"sbdix\": \"+SBDIX: 32, 8, 2, 0, 0, 0\"\n    },\n    \"transport\": {\n      \"port\": \"/dev/ttyS0\",\n      \"baudrate\": 19200,\n      \"timeout\": 1.0,\n      \"bus_forced\": false,\n      \"preferred_port\": \"/dev/ttyS0\",\n      \"candidates\": [\n        \"/dev/ttyS0\",\n        \"/dev/ttyS1\",\n        \"/dev/ttyS2\",\n        \"/dev/ttyS3\",\n        \"/dev/ttyS4\",\n        \"/dev/ttyS5\",\n        \"/dev/ttyS6\"\n      ]\n    },\n    \"filesystem\": {\n      \"write_ok\": true,\n      \"free_bytes\": 457144881152\n    }\n  }\n}",
       "stderr": "",
       "parsed": {
         "initialized": true,
@@ -221,7 +269,7 @@
               "payload": "",
               "status": "OK",
               "raw": "AT\r\n\r\nOK\r\n",
-              "elapsed_s": 1.001262903213501
+              "elapsed_s": 1.0012893676757812
             },
             "device_present": true
           },
@@ -253,7 +301,7 @@
           },
           "filesystem": {
             "write_ok": true,
-            "free_bytes": 457145389056
+            "free_bytes": 457144881152
           }
         }
       }
@@ -263,9 +311,9 @@
       "module": "modules.mpu6050_LL",
       "name": "mpu6050_LL",
       "returncode": 0,
-      "success": false,
-      "error": "\"plausible\": true",
-      "stdout": "{\n  \"initialized\": true,\n  \"opened\": false,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"bus_num\": 1,\n    \"address\": \"0x68\",\n    \"scan\": {\n      \"current_bus_probe\": {\n        \"bus\": 1,\n        \"address\": \"0x68\",\n        \"checks\": [\n          {\n            \"name\": \"whoami\",\n            \"ok\": true,\n            \"value\": \"0x68\"\n          }\n        ]\n      }\n    },\n    \"who_am_i\": \"0x68\",\n    \"configured\": true,\n    \"int_status\": \"0x05\",\n    \"data_ready\": true,\n    \"fifo_overflow\": false,\n    \"raw\": {\n      \"ax\": -16104,\n      \"ay\": -196,\n      \"az\": 900,\n      \"temp_raw\": -5296,\n      \"gx\": -7,\n      \"gy\": 129,\n      \"gz\": 38\n    },\n    \"parsed\": {\n      \"ax_g\": -0.98291015625,\n      \"ay_g\": -0.011962890625,\n      \"az_g\": 0.054931640625,\n      \"temp_c\": 20.953529411764706,\n      \"gx_dps\": -0.05343511450381679,\n      \"gy_dps\": 0.9847328244274809,\n      \"gz_dps\": 0.2900763358778626\n    },\n    \"corrected\": {\n      \"ax_g\": -0.98291015625,\n      \"ay_g\": -0.011962890625,\n      \"az_g\": 0.054931640625,\n      \"temp_c\": 20.953529411764706,\n      \"gx_dps\": -0.05343511450381679,\n      \"gy_dps\": 0.9847328244274809,\n      \"gz_dps\": 0.2900763358778626\n    },\n    \"tilt_deg\": {\n      \"roll\": -12.285916080996664,\n      \"pitch\": 86.72643948566477\n    },\n    \"offsets\": {\n      \"accel_g\": [\n        0.0,\n        0.0,\n        0.0\n      ],\n      \"gyro_dps\": [\n        0.0,\n        0.0,\n        0.0\n      ]\n    },\n    \"plausible\": true\n  }\n}",
+      "success": true,
+      "error": "",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": false,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"bus_num\": 1,\n    \"address\": \"0x68\",\n    \"scan\": {\n      \"current_bus_probe\": {\n        \"bus\": 1,\n        \"address\": \"0x68\",\n        \"checks\": [\n          {\n            \"name\": \"whoami\",\n            \"ok\": true,\n            \"value\": \"0x68\"\n          }\n        ]\n      }\n    },\n    \"who_am_i\": \"0x68\",\n    \"configured\": true,\n    \"int_status\": \"0x05\",\n    \"data_ready\": true,\n    \"fifo_overflow\": false,\n    \"raw\": {\n      \"ax\": -2006,\n      \"ay\": -22,\n      \"az\": 116,\n      \"temp_raw\": -4688,\n      \"gx\": -40,\n      \"gy\": 107,\n      \"gz\": 49\n    },\n    \"parsed\": {\n      \"ax_g\": -0.1224365234375,\n      \"ay_g\": -0.0013427734375,\n      \"az_g\": 0.007080078125,\n      \"temp_c\": 22.741764705882353,\n      \"gx_dps\": -0.3053435114503817,\n      \"gy_dps\": 0.8167938931297709,\n      \"gz_dps\": 0.37404580152671757\n    },\n    \"corrected\": {\n      \"ax_g\": -0.1224365234375,\n      \"ay_g\": -0.0013427734375,\n      \"az_g\": 0.007080078125,\n      \"temp_c\": 22.741764705882353,\n      \"gx_dps\": -0.3053435114503817,\n      \"gy_dps\": 0.8167938931297709,\n      \"gz_dps\": 0.37404580152671757\n    },\n    \"tilt_deg\": {\n      \"roll\": -10.738897100905442,\n      \"pitch\": 86.63161015119817\n    },\n    \"offsets\": {\n      \"accel_g\": [\n        0.0,\n        0.0,\n        0.0\n      ],\n      \"gyro_dps\": [\n        0.0,\n        0.0,\n        0.0\n      ]\n    },\n    \"plausible\": true\n  },\n  \"success\": true\n}",
       "stderr": "",
       "parsed": {
         "initialized": true,
@@ -294,35 +342,35 @@
           "data_ready": true,
           "fifo_overflow": false,
           "raw": {
-            "ax": -16104,
-            "ay": -196,
-            "az": 900,
-            "temp_raw": -5296,
-            "gx": -7,
-            "gy": 129,
-            "gz": 38
+            "ax": -2006,
+            "ay": -22,
+            "az": 116,
+            "temp_raw": -4688,
+            "gx": -40,
+            "gy": 107,
+            "gz": 49
           },
           "parsed": {
-            "ax_g": -0.98291015625,
-            "ay_g": -0.011962890625,
-            "az_g": 0.054931640625,
-            "temp_c": 20.953529411764706,
-            "gx_dps": -0.05343511450381679,
-            "gy_dps": 0.9847328244274809,
-            "gz_dps": 0.2900763358778626
+            "ax_g": -0.1224365234375,
+            "ay_g": -0.0013427734375,
+            "az_g": 0.007080078125,
+            "temp_c": 22.741764705882353,
+            "gx_dps": -0.3053435114503817,
+            "gy_dps": 0.8167938931297709,
+            "gz_dps": 0.37404580152671757
           },
           "corrected": {
-            "ax_g": -0.98291015625,
-            "ay_g": -0.011962890625,
-            "az_g": 0.054931640625,
-            "temp_c": 20.953529411764706,
-            "gx_dps": -0.05343511450381679,
-            "gy_dps": 0.9847328244274809,
-            "gz_dps": 0.2900763358778626
+            "ax_g": -0.1224365234375,
+            "ay_g": -0.0013427734375,
+            "az_g": 0.007080078125,
+            "temp_c": 22.741764705882353,
+            "gx_dps": -0.3053435114503817,
+            "gy_dps": 0.8167938931297709,
+            "gz_dps": 0.37404580152671757
           },
           "tilt_deg": {
-            "roll": -12.285916080996664,
-            "pitch": 86.72643948566477
+            "roll": -10.738897100905442,
+            "pitch": 86.63161015119817
           },
           "offsets": {
             "accel_g": [
@@ -337,7 +385,8 @@
             ]
           },
           "plausible": true
-        }
+        },
+        "success": true
       }
     },
     {
@@ -347,7 +396,7 @@
       "returncode": 0,
       "success": true,
       "error": "",
-      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"probe\": {\n      \"response\": \"\\u0002Q,193,000.06,M,00,\\u000313\",\n      \"checksum_ok\": true,\n      \"parsed\": \"Q,193,000.06,M,00,\",\n      \"fields\": [\n        \"Q\",\n        \"193\",\n        \"000.06\",\n        \"M\",\n        \"00\",\n        \"\"\n      ],\n      \"device_present\": true\n    },\n    \"sample\": {\n      \"raw\": \"\\u0002Q,193,000.06,M,00,\\u000313\",\n      \"parsed\": \"Q,193,000.06,M,00,\",\n      \"identification\": \"Q\",\n      \"direction_deg\": 193.0,\n      \"direction_valid\": true,\n      \"speed\": 0.06,\n      \"units\": \"M\",\n      \"status\": \"00\"\n    },\n    \"transport\": {\n      \"port\": \"/dev/ttyS2\",\n      \"baudrate\": 9600,\n      \"timeout\": 1.0,\n      \"bus_forced\": false,\n      \"preferred_port\": \"/dev/ttyS2\"\n    }\n  }\n}",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"probe\": {\n      \"response\": \"\\u0002Q,,000.02,M,00,\\u00032C\",\n      \"checksum_ok\": true,\n      \"parsed\": \"Q,,000.02,M,00,\",\n      \"fields\": [\n        \"Q\",\n        \"\",\n        \"000.02\",\n        \"M\",\n        \"00\",\n        \"\"\n      ],\n      \"device_present\": true\n    },\n    \"sample\": {\n      \"raw\": \"\\u0002Q,,000.02,M,00,\\u00032C\",\n      \"parsed\": \"Q,,000.02,M,00,\",\n      \"identification\": \"Q\",\n      \"direction_deg\": null,\n      \"direction_valid\": false,\n      \"speed\": 0.02,\n      \"units\": \"M\",\n      \"status\": \"00\"\n    },\n    \"transport\": {\n      \"port\": \"/dev/ttyS2\",\n      \"baudrate\": 9600,\n      \"timeout\": 1.0,\n      \"bus_forced\": false,\n      \"preferred_port\": \"/dev/ttyS2\"\n    }\n  }\n}",
       "stderr": "",
       "parsed": {
         "initialized": true,
@@ -356,13 +405,13 @@
         "errors": [],
         "details": {
           "probe": {
-            "response": "\u0002Q,193,000.06,M,00,\u000313",
+            "response": "\u0002Q,,000.02,M,00,\u00032C",
             "checksum_ok": true,
-            "parsed": "Q,193,000.06,M,00,",
+            "parsed": "Q,,000.02,M,00,",
             "fields": [
               "Q",
-              "193",
-              "000.06",
+              "",
+              "000.02",
               "M",
               "00",
               ""
@@ -370,12 +419,12 @@
             "device_present": true
           },
           "sample": {
-            "raw": "\u0002Q,193,000.06,M,00,\u000313",
-            "parsed": "Q,193,000.06,M,00,",
+            "raw": "\u0002Q,,000.02,M,00,\u00032C",
+            "parsed": "Q,,000.02,M,00,",
             "identification": "Q",
-            "direction_deg": 193.0,
-            "direction_valid": true,
-            "speed": 0.06,
+            "direction_deg": null,
+            "direction_valid": false,
+            "speed": 0.02,
             "units": "M",
             "status": "00"
           },

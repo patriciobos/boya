@@ -995,39 +995,48 @@ def _run_self_test(bus: Optional[int] = None, address: int = MPU6050LowLevel.DEF
             pass
 
 def main(argv=None) -> bool:
+    """
+    Ejecuta el self-test / full_test del MPU6050 y devuelve el reporte en JSON.
+    Compatible con el runner de scripts LL.
+    """
     import argparse
     import json
+    import sys
+    from mpu6050_LL import MPU6050LowLevel, get_logger
 
     parser = argparse.ArgumentParser(
         description="MPU6050 / GY-521 low-level driver self-test"
     )
-
     parser.parse_args(argv)
 
+    logger = get_logger("mpu6050_LL")
     ll = MPU6050LowLevel()
 
     if not ll.init():
         report = {
+            "success": False,
             "initialized": False,
             "opened": False,
             "device_present": False,
             "errors": [ll.last_error] if ll.last_error else [],
             "details": {},
         }
-
-        print(json.dumps(report, indent=2, default=str))
+        logger.info("MPU6050 self-test failed: initialization")
+        print(json.dumps(report, indent=2))
         return False
 
     ok, report = ll.full_test()
-
+    report["success"] = bool(ok)
+    logger.info("MPU6050 self-test %s", "succeeded" if ok else "failed")
     print(json.dumps(report, indent=2, default=str))
 
     ll.deinit()
 
     return bool(ok)
 
+
 if __name__ == "__main__":
     import sys
 
-    ok = main(sys.argv[1:])
-    raise SystemExit(0 if ok else 1)
+    success = main(sys.argv[1:])
+    raise SystemExit(0 if success else 1)

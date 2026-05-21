@@ -145,13 +145,16 @@ def _run_script(script: Path, timeout: int):
         entry["parsed"] = parsed
 
         if parsed is not None:
-            entry["success"] = bool(
-                proc.returncode == 0
-                and parsed.get("initialized") is True
-                and parsed.get("opened") is True
-                and parsed.get("device_present") is True
-                and not parsed.get("errors")
-            )
+            if parsed.get("success") is not None:
+                entry["success"] = bool(proc.returncode == 0 and parsed.get("success"))
+            else:
+                entry["success"] = bool(
+                    proc.returncode == 0
+                    and parsed.get("initialized") is True
+                    and parsed.get("opened") is True
+                    and parsed.get("device_present") is True
+                    and not parsed.get("errors")
+                )
 
             if entry["success"]:
                 entry["error"] = ""

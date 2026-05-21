@@ -572,6 +572,8 @@ def _run_self_test(bus: Optional[int] = None, address: int = AHT10LowLevel.DEFAU
 
 
 def main(argv: Optional[list[str]] = None) -> bool:
+    import json
+
     parser = argparse.ArgumentParser(description="AHT10 low-level driver self-test")
     parser.add_argument("--bus", "-b", type=int, default=None, help="Preferred I2C bus number")
     parser.add_argument(
@@ -583,14 +585,34 @@ def main(argv: Optional[list[str]] = None) -> bool:
     )
     args = parser.parse_args(argv)
 
-    logger = logging.getLogger("aht10_LL")
-    rc = _run_self_test(bus=args.bus, address=args.address)
-    success = rc == 0
-    if success:
-        logger.info("AHT10 self-test: OK")
+    logger = get_logger("aht10_LL")
+    logger.info("Starting AHT10 self-test")
+
+    ll = AHT10LowLevel()
+    if not ll.init(bus=args.bus, address=args.address):
+        report = {
+            "success": False,
+            "initialized": False,
+            "opened": False,
+            "device_present": False,
+            "errors": [ll.last_error] if ll.last_error else [],
+            "details": {},
+        }
+        logger.error("AHT10 self-test failed: initialization")
+        print(json.dumps(report, indent=2))
+        return False
+
+    ok, report = ll.full_test()
+    report["success"] = bool(ok)
+    if ok:
+        logger.info("AHT10 self-test succeeded")
     else:
-        logger.error("AHT10 self-test: FAILED (rc=%s)", rc)
-    return success
+        logger.error("AHT10 self-test failed")
+
+    print(json.dumps(report, indent=2, default=str))
+
+    ll.deinit()
+    return bool(ok)
 
 
 if __name__ == "__main__":
