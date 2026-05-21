@@ -812,45 +812,51 @@ class AISLowLevel:
                 report["device_present"] = False
                 report["errors"].append("No AIS/GPS traffic detected on candidate ports")
 
-            report["details"]["scan"] = {
-                "scanned_ports": scan_details,
-                "selected_port": selected_port,
-            }
-
-            report["details"]["transport"] = {
-                "port": self.port,
-                "baudrate": self.baud,
-                "bus_forced": self.bus_forced,
-                "candidates": list(self.port_candidates),
-            }
-
             if fix_probe is not None:
-                report["details"]["navigation"] = fix_probe.get("navigation", {})
-                report["details"]["has_fix"] = bool(fix_probe.get("has_fix", False))
-                report["details"]["lines_collected"] = int(
+                source_probe = fix_probe
+                navigation = fix_probe.get("navigation", {})
+                has_fix = bool(fix_probe.get("has_fix", False))
+                lines_collected = int(
                     selected_probe.get("lines_seen", 0) + fix_probe.get("lines_seen", 0)
                 )
-                report["details"]["wait_for_fix_s"] = self.wait_for_fix
-                report["details"]["presence_probe"] = selected_probe
-                report["details"]["fix_probe"] = fix_probe
             elif selected_probe is not None:
-                report["details"]["navigation"] = selected_probe.get("navigation", {})
-                report["details"]["has_fix"] = bool(selected_probe.get("has_fix", False))
-                report["details"]["lines_collected"] = int(selected_probe.get("lines_seen", 0))
-                report["details"]["wait_for_fix_s"] = self.wait_for_fix
-                report["details"]["presence_probe"] = selected_probe
+                source_probe = selected_probe
+                navigation = selected_probe.get("navigation", {})
+                has_fix = bool(selected_probe.get("has_fix", False))
+                lines_collected = int(selected_probe.get("lines_seen", 0))
             else:
-                report["details"]["navigation"] = self.get_navigation()
-                report["details"]["has_fix"] = self.has_fix()
-                report["details"]["lines_collected"] = 0
-                report["details"]["wait_for_fix_s"] = self.wait_for_fix
+                source_probe = {}
+                navigation = self.get_navigation()
+                has_fix = self.has_fix()
+                lines_collected = 0
+
+            report["details"] = {
+                "transport": {
+                    "port": self.port,
+                    "baudrate": self.baud,
+                },
+                "traffic": {
+                    "lines_collected": lines_collected,
+                    "valid_nmea_lines": source_probe.get("valid_nmea_lines", 0),
+                    "valid_ais_lines": source_probe.get("valid_ais_lines", 0),
+                    "sentence_types": source_probe.get("sentence_types", []),
+                },
+                "navigation": {
+                    "has_fix": has_fix,
+                    "lat": navigation.get("lat"),
+                    "lon": navigation.get("lon"),
+                    "timestamp": navigation.get("timestamp"),
+                    "fix_quality": navigation.get("fix_quality"),
+                    "num_sats": navigation.get("num_sats"),
+                    "hdop": navigation.get("hdop"),
+                },
+            }
 
             success = bool(report["device_present"])
 
             self.logger.info(
                 "Full diagnostic test completed: success=%s selected_port=%s transport_port=%s has_fix=%s lines=%s",
                 success,
-                report["details"].get("scan", {}).get("selected_port"),
                 report["details"].get("transport", {}).get("port"),
                 report["details"].get("has_fix"),
                 report["details"].get("lines_collected"),

@@ -3,82 +3,435 @@
     {
       "script": "modules/aht10_LL.py",
       "module": "modules.aht10_LL",
-      "main_return": true,
-      "returncode": null,
-      "success": true,
-      "reason": "",
+      "name": "aht10_LL",
+      "returncode": 1,
+      "success": false,
+      "error": "",
       "stdout": "",
-      "stderr": ""
+      "stderr": "",
+      "parsed": null
     },
     {
       "script": "modules/ais_LL.py",
       "module": "modules.ais_LL",
-      "main_return": false,
-      "returncode": null,
-      "success": false,
-      "reason": "",
-      "stdout": "",
-      "stderr": ""
+      "name": "ais_LL",
+      "returncode": 0,
+      "success": true,
+      "error": "",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"transport\": {\n      \"port\": \"/dev/ttyS3\",\n      \"baudrate\": 115200\n    },\n    \"traffic\": {\n      \"lines_collected\": 68,\n      \"valid_nmea_lines\": 22,\n      \"valid_ais_lines\": 19,\n      \"sentence_types\": [\n        \"AIVDO\",\n        \"GPGGA\",\n        \"GPGLL\",\n        \"GPGSA\",\n        \"GPGSV\",\n        \"GPRMC\",\n        \"PAMC\"\n      ]\n    },\n    \"navigation\": {\n      \"has_fix\": false,\n      \"lat\": null,\n      \"lon\": null,\n      \"timestamp\": null,\n      \"fix_quality\": 0,\n      \"num_sats\": 0,\n      \"hdop\": 99.99\n    }\n  }\n}",
+      "stderr": "--- Logging error ---\nTraceback (most recent call last):\n  File \"/usr/lib/python3.12/logging/__init__.py\", line 1160, in emit\n    msg = self.format(record)\n          ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/logging/__init__.py\", line 999, in format\n    return fmt.format(record)\n           ^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/logging/__init__.py\", line 703, in format\n    record.message = record.getMessage()\n                     ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/logging/__init__.py\", line 392, in getMessage\n    msg = msg % self.args\n          ~~~~^~~~~~~~~~~\nTypeError: not enough arguments for format string\nCall stack:\n  File \"/home/boya/boya/modules/ais_LL.py\", line 1102, in <module>\n    ok = main()\n  File \"/home/boya/boya/modules/ais_LL.py\", line 1096, in main\n    ok, report = ll.full_test()\n  File \"/home/boya/boya/modules/ais_LL.py\", line 857, in full_test\n    self.logger.info(\nMessage: 'Full diagnostic test completed: success=%s selected_port=%s transport_port=%s has_fix=%s lines=%s'\nArguments: (True, '/dev/ttyS3', None, None)",
+      "parsed": {
+        "initialized": true,
+        "opened": true,
+        "device_present": true,
+        "errors": [],
+        "details": {
+          "transport": {
+            "port": "/dev/ttyS3",
+            "baudrate": 115200
+          },
+          "traffic": {
+            "lines_collected": 68,
+            "valid_nmea_lines": 22,
+            "valid_ais_lines": 19,
+            "sentence_types": [
+              "AIVDO",
+              "GPGGA",
+              "GPGLL",
+              "GPGSA",
+              "GPGSV",
+              "GPRMC",
+              "PAMC"
+            ]
+          },
+          "navigation": {
+            "has_fix": false,
+            "lat": null,
+            "lon": null,
+            "timestamp": null,
+            "fix_quality": 0,
+            "num_sats": 0,
+            "hdop": 99.99
+          }
+        }
+      }
     },
     {
       "script": "modules/audioProc_LL.py",
       "module": "modules.audioProc_LL",
-      "main_return": true,
-      "returncode": null,
-      "success": true,
-      "reason": "",
-      "stdout": "",
-      "stderr": ""
+      "name": "audioProc_LL",
+      "returncode": 1,
+      "success": false,
+      "error": "Processing did not generate a binary output file",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": false,\n  \"errors\": [\n    \"Processing did not generate a binary output file\"\n  ],\n  \"details\": {\n    \"paths\": {\n      \"base_dir\": \"/home/boya/boya\",\n      \"modules_dir\": \"/home/boya/boya/modules\",\n      \"support_dir\": \"/home/boya/boya/support\",\n      \"config_path\": \"/home/boya/boya/config.json\",\n      \"output_dir\": \"/home/boya/boya/data\"\n    },\n    \"environment\": {\n      \"config_path\": \"/home/boya/boya/config.json\",\n      \"support_dir\": \"/home/boya/boya/support\",\n      \"output_dir\": \"/home/boya/boya/data\",\n      \"files\": {\n        \"third_octave_bands\": {\n          \"path\": \"/home/boya/boya/support/third_octave_bands.csv\",\n          \"exists\": true\n        },\n        \"daq\": {\n          \"path\": \"/home/boya/boya/support/UMC204HD.csv\",\n          \"exists\": true\n        },\n        \"preamp\": {\n          \"path\": \"/home/boya/boya/support/preamp_das.csv\",\n          \"exists\": true\n        },\n        \"hid_ch1\": {\n          \"path\": \"/home/boya/boya/support/B&K8103_xxxx.csv\",\n          \"exists\": true\n        },\n        \"hid_ch2\": {\n          \"path\": \"/home/boya/boya/support/B&K8103_xxxx.csv\",\n          \"exists\": true\n        },\n        \"noise_ref\": {\n          \"path\": \"/home/boya/boya/support/hid_freq_resp_rough.csv\",\n          \"exists\": true\n        }\n      },\n      \"config\": {\n        \"fs_hz\": 192000,\n        \"nperseg\": 2097152,\n        \"noverlap\": 1048576,\n        \"window\": \"hann\",\n        \"noise_ref\": \"hid_freq_resp_rough.csv\"\n      },\n      \"output_write_ok\": true\n    },\n    \"test_input\": {\n      \"path\": \"/home/boya/boya/modules/recordings/test_recordings/20180824_8105_20m_daspre_cap_2.wav\",\n      \"exists\": true,\n      \"channels\": 2,\n      \"sample_width_bytes\": 3,\n      \"sample_rate_hz\": 192000,\n      \"frames\": 12030720,\n      \"duration_s\": 62.66\n    },\n    \"reference_comparison\": {\n      \"enabled\": false,\n      \"reference_csv\": \"/home/boya/boya/data/test_data/20180824_8105_20m_daspre_cap_2.csv\",\n      \"compared\": false,\n      \"ok\": null,\n      \"max_diff_db\": null,\n      \"error\": null\n    },\n    \"processing\": {\n      \"ran\": true,\n      \"ok\": false,\n      \"output_path\": null,\n      \"output_exists\": false,\n      \"csv_output_enabled\": true\n    }\n  }\n}",
+      "stderr": "/home/boya/boya/modules/audioProc_LL.py:748: DeprecationWarning: `trapz` is deprecated. Use `trapezoid` instead, or one of the numerical integration functions in `scipy.integrate`.\n  power_in_band = np.trapz(band_psd, band_freqs)",
+      "parsed": {
+        "initialized": true,
+        "opened": true,
+        "device_present": false,
+        "errors": [
+          "Processing did not generate a binary output file"
+        ],
+        "details": {
+          "paths": {
+            "base_dir": "/home/boya/boya",
+            "modules_dir": "/home/boya/boya/modules",
+            "support_dir": "/home/boya/boya/support",
+            "config_path": "/home/boya/boya/config.json",
+            "output_dir": "/home/boya/boya/data"
+          },
+          "environment": {
+            "config_path": "/home/boya/boya/config.json",
+            "support_dir": "/home/boya/boya/support",
+            "output_dir": "/home/boya/boya/data",
+            "files": {
+              "third_octave_bands": {
+                "path": "/home/boya/boya/support/third_octave_bands.csv",
+                "exists": true
+              },
+              "daq": {
+                "path": "/home/boya/boya/support/UMC204HD.csv",
+                "exists": true
+              },
+              "preamp": {
+                "path": "/home/boya/boya/support/preamp_das.csv",
+                "exists": true
+              },
+              "hid_ch1": {
+                "path": "/home/boya/boya/support/B&K8103_xxxx.csv",
+                "exists": true
+              },
+              "hid_ch2": {
+                "path": "/home/boya/boya/support/B&K8103_xxxx.csv",
+                "exists": true
+              },
+              "noise_ref": {
+                "path": "/home/boya/boya/support/hid_freq_resp_rough.csv",
+                "exists": true
+              }
+            },
+            "config": {
+              "fs_hz": 192000,
+              "nperseg": 2097152,
+              "noverlap": 1048576,
+              "window": "hann",
+              "noise_ref": "hid_freq_resp_rough.csv"
+            },
+            "output_write_ok": true
+          },
+          "test_input": {
+            "path": "/home/boya/boya/modules/recordings/test_recordings/20180824_8105_20m_daspre_cap_2.wav",
+            "exists": true,
+            "channels": 2,
+            "sample_width_bytes": 3,
+            "sample_rate_hz": 192000,
+            "frames": 12030720,
+            "duration_s": 62.66
+          },
+          "reference_comparison": {
+            "enabled": false,
+            "reference_csv": "/home/boya/boya/data/test_data/20180824_8105_20m_daspre_cap_2.csv",
+            "compared": false,
+            "ok": null,
+            "max_diff_db": null,
+            "error": null
+          },
+          "processing": {
+            "ran": true,
+            "ok": false,
+            "output_path": null,
+            "output_exists": false,
+            "csv_output_enabled": true
+          }
+        }
+      }
     },
     {
       "script": "modules/behringer_LL.py",
       "module": "modules.behringer_LL",
-      "main_return": false,
-      "returncode": null,
-      "success": false,
-      "reason": "",
-      "stdout": "",
-      "stderr": ""
+      "name": "behringer_LL",
+      "returncode": 0,
+      "success": true,
+      "error": "",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"device\": {\n      \"index\": 5,\n      \"name\": \"UMC202HD 192k: USB Audio (hw:1,0)\",\n      \"max_input_channels\": 2,\n      \"default_sample_rate\": 44100.0\n    },\n    \"audio\": {\n      \"sample_rate\": 192000,\n      \"channels\": 2,\n      \"output_channels\": 1,\n      \"format\": \"paInt24\",\n      \"frames_per_buffer\": 8192,\n      \"stream_open_ok\": true\n    },\n    \"filesystem\": {\n      \"recordings_dir\": \"/home/boya/boya/modules/recordings\",\n      \"write_ok\": true,\n      \"free_bytes\": 457145397248\n    },\n    \"recording\": {\n      \"is_recording\": false,\n      \"last_record_ok\": false,\n      \"output_path\": null\n    }\n  }\n}",
+      "stderr": "ALSA lib pcm.c:2721:(snd_pcm_open_noupdate) Unknown PCM cards.pcm.rear\nALSA lib pcm.c:2721:(snd_pcm_open_noupdate) Unknown PCM cards.pcm.center_lfe\nALSA lib pcm.c:2721:(snd_pcm_open_noupdate) Unknown PCM cards.pcm.side\nALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map\nALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map\nALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map\nALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map\nCannot connect to server socket err = No such file or directory\nCannot connect to server request channel\njack server is not running or cannot be started\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock\nCannot connect to server socket err = No such file or directory\nCannot connect to server request channel\njack server is not running or cannot be started\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock\nALSA lib pcm_oss.c:397:(_snd_pcm_oss_open) Cannot open device /dev/dsp\nALSA lib pcm_oss.c:397:(_snd_pcm_oss_open) Cannot open device /dev/dsp\nALSA lib pcm_a52.c:1001:(_snd_pcm_a52_open) a52 is only for playback\nALSA lib confmisc.c:160:(snd_config_get_card) Invalid field card\nALSA lib pcm_usb_stream.c:482:(_snd_pcm_usb_stream_open) Invalid card 'card'\nALSA lib confmisc.c:160:(snd_config_get_card) Invalid field card\nALSA lib pcm_usb_stream.c:482:(_snd_pcm_usb_stream_open) Invalid card 'card'\nCannot connect to server socket err = No such file or directory\nCannot connect to server request channel\njack server is not running or cannot be started\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock\nJackShmReadWritePtr::~JackShmReadWritePtr - Init not done for -1, skipping unlock",
+      "parsed": {
+        "initialized": true,
+        "opened": true,
+        "device_present": true,
+        "errors": [],
+        "details": {
+          "device": {
+            "index": 5,
+            "name": "UMC202HD 192k: USB Audio (hw:1,0)",
+            "max_input_channels": 2,
+            "default_sample_rate": 44100.0
+          },
+          "audio": {
+            "sample_rate": 192000,
+            "channels": 2,
+            "output_channels": 1,
+            "format": "paInt24",
+            "frames_per_buffer": 8192,
+            "stream_open_ok": true
+          },
+          "filesystem": {
+            "recordings_dir": "/home/boya/boya/modules/recordings",
+            "write_ok": true,
+            "free_bytes": 457145397248
+          },
+          "recording": {
+            "is_recording": false,
+            "last_record_ok": false,
+            "output_path": null
+          }
+        }
+      }
     },
     {
       "script": "modules/htu21_LL.py",
       "module": "modules.htu21_LL",
-      "main_return": false,
-      "returncode": null,
+      "name": "htu21_LL",
+      "returncode": 1,
       "success": false,
-      "reason": "",
+      "error": "",
       "stdout": "",
-      "stderr": ""
+      "stderr": "2026-05-21 10:44:23,713 [HTU21LowLevel] INFO: Starting HTU21 self-test\n2026-05-21 10:44:23,714 [HTU21LowLevel] INFO: Trying I2C bus 1 for HTU21@0x40\n2026-05-21 10:44:23,714 [HTU21LowLevel] INFO: Opened I2C bus 1\n2026-05-21 10:44:23,715 [HTU21LowLevel] INFO: Detected MPU-6050 at 0x68\n2026-05-21 10:44:23,715 [HTU21LowLevel] WARNING: HTU21 not present at address 0x40 on initial bus 1; scanning other I2C buses\n2026-05-21 10:44:23,715 [HTU21LowLevel] INFO: Trying alternative I2C bus 0\n2026-05-21 10:44:23,715 [HTU21LowLevel] INFO: Trying I2C bus 0 for HTU21@0x40\n2026-05-21 10:44:23,727 [HTU21LowLevel] INFO: Opened I2C bus 0\n2026-05-21 10:44:23,728 [HTU21LowLevel] INFO: Trying alternative I2C bus 1\n2026-05-21 10:44:23,728 [HTU21LowLevel] INFO: Trying I2C bus 1 for HTU21@0x40\n2026-05-21 10:44:23,729 [HTU21LowLevel] INFO: Opened I2C bus 1\n2026-05-21 10:44:23,729 [HTU21LowLevel] INFO: Detected MPU-6050 at 0x68\n2026-05-21 10:44:23,730 [HTU21LowLevel] INFO: Trying alternative I2C bus 10\n2026-05-21 10:44:23,730 [HTU21LowLevel] INFO: Trying I2C bus 10 for HTU21@0x40\n2026-05-21 10:44:23,796 [HTU21LowLevel] INFO: Opened I2C bus 10\n2026-05-21 10:44:23,930 [HTU21LowLevel] INFO: Trying alternative I2C bus 11\n2026-05-21 10:44:23,930 [HTU21LowLevel] INFO: Trying I2C bus 11 for HTU21@0x40\n2026-05-21 10:44:23,997 [HTU21LowLevel] INFO: Opened I2C bus 11\n2026-05-21 10:44:24,131 [HTU21LowLevel] INFO: Trying alternative I2C bus 12\n2026-05-21 10:44:24,131 [HTU21LowLevel] INFO: Trying I2C bus 12 for HTU21@0x40\n2026-05-21 10:44:24,191 [HTU21LowLevel] INFO: Opened I2C bus 12\n2026-05-21 10:44:24,310 [HTU21LowLevel] INFO: Trying alternative I2C bus 2\n2026-05-21 10:44:24,310 [HTU21LowLevel] INFO: Trying I2C bus 2 for HTU21@0x40\n2026-05-21 10:44:24,311 [HTU21LowLevel] INFO: Opened I2C bus 2\n2026-05-21 10:44:24,311 [HTU21LowLevel] INFO: Trying alternative I2C bus 3\n2026-05-21 10:44:24,311 [HTU21LowLevel] INFO: Trying I2C bus 3 for HTU21@0x40\n2026-05-21 10:44:24,365 [HTU21LowLevel] INFO: Opened I2C bus 3\n2026-05-21 10:44:24,475 [HTU21LowLevel] INFO: Trying alternative I2C bus 4\n2026-05-21 10:44:24,475 [HTU21LowLevel] INFO: Trying I2C bus 4 for HTU21@0x40\n2026-05-21 10:44:24,477 [HTU21LowLevel] INFO: Opened I2C bus 4\n2026-05-21 10:44:24,480 [HTU21LowLevel] INFO: Trying alternative I2C bus 5\n2026-05-21 10:44:24,481 [HTU21LowLevel] INFO: Trying I2C bus 5 for HTU21@0x40\n2026-05-21 10:44:24,535 [HTU21LowLevel] INFO: Opened I2C bus 5\n2026-05-21 10:44:24,644 [HTU21LowLevel] INFO: Trying alternative I2C bus 6\n2026-05-21 10:44:24,644 [HTU21LowLevel] INFO: Trying I2C bus 6 for HTU21@0x40\n2026-05-21 10:44:24,645 [HTU21LowLevel] INFO: Opened I2C bus 6\n2026-05-21 10:44:24,649 [HTU21LowLevel] INFO: Trying alternative I2C bus 7\n2026-05-21 10:44:24,649 [HTU21LowLevel] INFO: Trying I2C bus 7 for HTU21@0x40\n2026-05-21 10:44:24,716 [HTU21LowLevel] INFO: Opened I2C bus 7\n2026-05-21 10:44:24,794 [HTU21LowLevel] INFO: Trying alternative I2C bus 8\n2026-05-21 10:44:24,795 [HTU21LowLevel] INFO: Trying I2C bus 8 for HTU21@0x40\n2026-05-21 10:44:24,806 [HTU21LowLevel] INFO: Opened I2C bus 8\n2026-05-21 10:44:24,940 [HTU21LowLevel] INFO: Trying alternative I2C bus 9\n2026-05-21 10:44:24,941 [HTU21LowLevel] INFO: Trying I2C bus 9 for HTU21@0x40\n2026-05-21 10:44:25,007 [HTU21LowLevel] INFO: Opened I2C bus 9\n2026-05-21 10:44:25,141 [HTU21LowLevel] ERROR: HTU21 not present at address 0x40 on any scanned bus\nHTU21 self-test: FAILED (rc=2)",
+      "parsed": null
     },
     {
       "script": "modules/iridium_LL.py",
       "module": "modules.iridium_LL",
-      "main_return": false,
-      "returncode": null,
-      "success": false,
-      "reason": "",
-      "stdout": "",
-      "stderr": ""
+      "name": "iridium_LL",
+      "returncode": 0,
+      "success": true,
+      "error": "",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"probe\": {\n      \"command\": \"AT\",\n      \"response\": {\n        \"echo\": \"AT\",\n        \"payload\": \"\",\n        \"status\": \"OK\",\n        \"raw\": \"AT\\r\\n\\r\\nOK\\r\\n\",\n        \"elapsed_s\": 1.001262903213501\n      },\n      \"device_present\": true\n    },\n    \"identity\": {\n      \"model\": \"IRIDIUM 9600 Family SBD Transceiver\",\n      \"firmware\": \"Call Processor Version: TA21004\\nModem DSP Version: 1.7 svn: 2358\\nDBB Version: 0x0001 (ASIC)\\nRFA Version: 0x0007 (SRFA2)\\nNVM Version: KVS\\nHardware Version: BOOT07d4/9602NrvA-D/04/RAW0d\\nBOOT Version: 2004 TD2-BLB960X-27 R4710\"\n    },\n    \"status\": {\n      \"csq\": \"+CSQ:0\",\n      \"creg\": \"\",\n      \"antena\": \"\",\n      \"sbdix\": \"+SBDIX: 32, 8, 2, 0, 0, 0\"\n    },\n    \"transport\": {\n      \"port\": \"/dev/ttyS0\",\n      \"baudrate\": 19200,\n      \"timeout\": 1.0,\n      \"bus_forced\": false,\n      \"preferred_port\": \"/dev/ttyS0\",\n      \"candidates\": [\n        \"/dev/ttyS0\",\n        \"/dev/ttyS1\",\n        \"/dev/ttyS2\",\n        \"/dev/ttyS3\",\n        \"/dev/ttyS4\",\n        \"/dev/ttyS5\",\n        \"/dev/ttyS6\"\n      ]\n    },\n    \"filesystem\": {\n      \"write_ok\": true,\n      \"free_bytes\": 457145389056\n    }\n  }\n}",
+      "stderr": "",
+      "parsed": {
+        "initialized": true,
+        "opened": true,
+        "device_present": true,
+        "errors": [],
+        "details": {
+          "probe": {
+            "command": "AT",
+            "response": {
+              "echo": "AT",
+              "payload": "",
+              "status": "OK",
+              "raw": "AT\r\n\r\nOK\r\n",
+              "elapsed_s": 1.001262903213501
+            },
+            "device_present": true
+          },
+          "identity": {
+            "model": "IRIDIUM 9600 Family SBD Transceiver",
+            "firmware": "Call Processor Version: TA21004\nModem DSP Version: 1.7 svn: 2358\nDBB Version: 0x0001 (ASIC)\nRFA Version: 0x0007 (SRFA2)\nNVM Version: KVS\nHardware Version: BOOT07d4/9602NrvA-D/04/RAW0d\nBOOT Version: 2004 TD2-BLB960X-27 R4710"
+          },
+          "status": {
+            "csq": "+CSQ:0",
+            "creg": "",
+            "antena": "",
+            "sbdix": "+SBDIX: 32, 8, 2, 0, 0, 0"
+          },
+          "transport": {
+            "port": "/dev/ttyS0",
+            "baudrate": 19200,
+            "timeout": 1.0,
+            "bus_forced": false,
+            "preferred_port": "/dev/ttyS0",
+            "candidates": [
+              "/dev/ttyS0",
+              "/dev/ttyS1",
+              "/dev/ttyS2",
+              "/dev/ttyS3",
+              "/dev/ttyS4",
+              "/dev/ttyS5",
+              "/dev/ttyS6"
+            ]
+          },
+          "filesystem": {
+            "write_ok": true,
+            "free_bytes": 457145389056
+          }
+        }
+      }
     },
     {
       "script": "modules/mpu6050_LL.py",
       "module": "modules.mpu6050_LL",
-      "main_return": true,
-      "returncode": null,
-      "success": true,
-      "reason": "",
-      "stdout": "",
-      "stderr": ""
+      "name": "mpu6050_LL",
+      "returncode": 0,
+      "success": false,
+      "error": "\"plausible\": true",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": false,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"bus_num\": 1,\n    \"address\": \"0x68\",\n    \"scan\": {\n      \"current_bus_probe\": {\n        \"bus\": 1,\n        \"address\": \"0x68\",\n        \"checks\": [\n          {\n            \"name\": \"whoami\",\n            \"ok\": true,\n            \"value\": \"0x68\"\n          }\n        ]\n      }\n    },\n    \"who_am_i\": \"0x68\",\n    \"configured\": true,\n    \"int_status\": \"0x05\",\n    \"data_ready\": true,\n    \"fifo_overflow\": false,\n    \"raw\": {\n      \"ax\": -16104,\n      \"ay\": -196,\n      \"az\": 900,\n      \"temp_raw\": -5296,\n      \"gx\": -7,\n      \"gy\": 129,\n      \"gz\": 38\n    },\n    \"parsed\": {\n      \"ax_g\": -0.98291015625,\n      \"ay_g\": -0.011962890625,\n      \"az_g\": 0.054931640625,\n      \"temp_c\": 20.953529411764706,\n      \"gx_dps\": -0.05343511450381679,\n      \"gy_dps\": 0.9847328244274809,\n      \"gz_dps\": 0.2900763358778626\n    },\n    \"corrected\": {\n      \"ax_g\": -0.98291015625,\n      \"ay_g\": -0.011962890625,\n      \"az_g\": 0.054931640625,\n      \"temp_c\": 20.953529411764706,\n      \"gx_dps\": -0.05343511450381679,\n      \"gy_dps\": 0.9847328244274809,\n      \"gz_dps\": 0.2900763358778626\n    },\n    \"tilt_deg\": {\n      \"roll\": -12.285916080996664,\n      \"pitch\": 86.72643948566477\n    },\n    \"offsets\": {\n      \"accel_g\": [\n        0.0,\n        0.0,\n        0.0\n      ],\n      \"gyro_dps\": [\n        0.0,\n        0.0,\n        0.0\n      ]\n    },\n    \"plausible\": true\n  }\n}",
+      "stderr": "",
+      "parsed": {
+        "initialized": true,
+        "opened": false,
+        "device_present": true,
+        "errors": [],
+        "details": {
+          "bus_num": 1,
+          "address": "0x68",
+          "scan": {
+            "current_bus_probe": {
+              "bus": 1,
+              "address": "0x68",
+              "checks": [
+                {
+                  "name": "whoami",
+                  "ok": true,
+                  "value": "0x68"
+                }
+              ]
+            }
+          },
+          "who_am_i": "0x68",
+          "configured": true,
+          "int_status": "0x05",
+          "data_ready": true,
+          "fifo_overflow": false,
+          "raw": {
+            "ax": -16104,
+            "ay": -196,
+            "az": 900,
+            "temp_raw": -5296,
+            "gx": -7,
+            "gy": 129,
+            "gz": 38
+          },
+          "parsed": {
+            "ax_g": -0.98291015625,
+            "ay_g": -0.011962890625,
+            "az_g": 0.054931640625,
+            "temp_c": 20.953529411764706,
+            "gx_dps": -0.05343511450381679,
+            "gy_dps": 0.9847328244274809,
+            "gz_dps": 0.2900763358778626
+          },
+          "corrected": {
+            "ax_g": -0.98291015625,
+            "ay_g": -0.011962890625,
+            "az_g": 0.054931640625,
+            "temp_c": 20.953529411764706,
+            "gx_dps": -0.05343511450381679,
+            "gy_dps": 0.9847328244274809,
+            "gz_dps": 0.2900763358778626
+          },
+          "tilt_deg": {
+            "roll": -12.285916080996664,
+            "pitch": 86.72643948566477
+          },
+          "offsets": {
+            "accel_g": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "gyro_dps": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "plausible": true
+        }
+      }
     },
     {
       "script": "modules/windsonic_LL.py",
       "module": "modules.windsonic_LL",
-      "main_return": false,
-      "returncode": null,
-      "success": false,
-      "reason": "",
-      "stdout": "",
-      "stderr": ""
+      "name": "windsonic_LL",
+      "returncode": 0,
+      "success": true,
+      "error": "",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"probe\": {\n      \"response\": \"\\u0002Q,193,000.06,M,00,\\u000313\",\n      \"checksum_ok\": true,\n      \"parsed\": \"Q,193,000.06,M,00,\",\n      \"fields\": [\n        \"Q\",\n        \"193\",\n        \"000.06\",\n        \"M\",\n        \"00\",\n        \"\"\n      ],\n      \"device_present\": true\n    },\n    \"sample\": {\n      \"raw\": \"\\u0002Q,193,000.06,M,00,\\u000313\",\n      \"parsed\": \"Q,193,000.06,M,00,\",\n      \"identification\": \"Q\",\n      \"direction_deg\": 193.0,\n      \"direction_valid\": true,\n      \"speed\": 0.06,\n      \"units\": \"M\",\n      \"status\": \"00\"\n    },\n    \"transport\": {\n      \"port\": \"/dev/ttyS2\",\n      \"baudrate\": 9600,\n      \"timeout\": 1.0,\n      \"bus_forced\": false,\n      \"preferred_port\": \"/dev/ttyS2\"\n    }\n  }\n}",
+      "stderr": "",
+      "parsed": {
+        "initialized": true,
+        "opened": true,
+        "device_present": true,
+        "errors": [],
+        "details": {
+          "probe": {
+            "response": "\u0002Q,193,000.06,M,00,\u000313",
+            "checksum_ok": true,
+            "parsed": "Q,193,000.06,M,00,",
+            "fields": [
+              "Q",
+              "193",
+              "000.06",
+              "M",
+              "00",
+              ""
+            ],
+            "device_present": true
+          },
+          "sample": {
+            "raw": "\u0002Q,193,000.06,M,00,\u000313",
+            "parsed": "Q,193,000.06,M,00,",
+            "identification": "Q",
+            "direction_deg": 193.0,
+            "direction_valid": true,
+            "speed": 0.06,
+            "units": "M",
+            "status": "00"
+          },
+          "transport": {
+            "port": "/dev/ttyS2",
+            "baudrate": 9600,
+            "timeout": 1.0,
+            "bus_forced": false,
+            "preferred_port": "/dev/ttyS2"
+          }
+        }
+      }
+    },
+    {
+      "script": "modules/xtra2210_LL.py",
+      "module": "modules.xtra2210_LL",
+      "name": "xtra2210_LL",
+      "returncode": 0,
+      "success": true,
+      "error": "",
+      "stdout": "{\n  \"initialized\": true,\n  \"opened\": true,\n  \"device_present\": true,\n  \"errors\": [],\n  \"details\": {\n    \"identity\": {\n      \"charging_mode\": \"mppt\",\n      \"rated_battery_current_a\": 20.0,\n      \"rated_load_current_a\": 20.0,\n      \"system_rated_voltage_v\": 12.0,\n      \"identity_confirmed\": true\n    },\n    \"summary\": {\n      \"blocks_responded\": 5,\n      \"plausible_hits\": 5\n    },\n    \"transport\": {\n      \"port\": \"/dev/ttyS4\",\n      \"baudrate\": 115200,\n      \"slave_id\": 1\n    },\n    \"readings\": {\n      \"pv_voltage_v\": 0.0,\n      \"pv_current_a\": 0.0,\n      \"load_voltage_v\": 11.63,\n      \"load_current_a\": 0.2,\n      \"load_power_w\": 2.32,\n      \"battery_soc_pct\": 20,\n      \"battery_temp_c\": 0.02,\n      \"device_temp_c\": 0.01\n    }\n  }\n}",
+      "stderr": "",
+      "parsed": {
+        "initialized": true,
+        "opened": true,
+        "device_present": true,
+        "errors": [],
+        "details": {
+          "identity": {
+            "charging_mode": "mppt",
+            "rated_battery_current_a": 20.0,
+            "rated_load_current_a": 20.0,
+            "system_rated_voltage_v": 12.0,
+            "identity_confirmed": true
+          },
+          "summary": {
+            "blocks_responded": 5,
+            "plausible_hits": 5
+          },
+          "transport": {
+            "port": "/dev/ttyS4",
+            "baudrate": 115200,
+            "slave_id": 1
+          },
+          "readings": {
+            "pv_voltage_v": 0.0,
+            "pv_current_a": 0.0,
+            "load_voltage_v": 11.63,
+            "load_current_a": 0.2,
+            "load_power_w": 2.32,
+            "battery_soc_pct": 20,
+            "battery_temp_c": 0.02,
+            "device_temp_c": 0.01
+          }
+        }
+      }
     }
   ]
 }

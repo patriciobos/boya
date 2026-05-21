@@ -994,29 +994,37 @@ def _run_self_test(bus: Optional[int] = None, address: int = MPU6050LowLevel.DEF
         except Exception:
             pass
 
-
 def main(argv=None) -> bool:
     import argparse
+    import json
 
-    parser = argparse.ArgumentParser(description="MPU6050 / GY-521 low-level driver self-test")
-    parser.add_argument("--bus", "-b", type=int, default=None, help="I2C bus number override (optional)")
-    parser.add_argument(
-        "--address",
-        "-a",
-        type=lambda x: int(x, 0),
-        default=MPU6050LowLevel.DEFAULT_ADDRESS,
-        help="I2C address override (default: 0x68, alternate: 0x69)",
+    parser = argparse.ArgumentParser(
+        description="MPU6050 / GY-521 low-level driver self-test"
     )
-    args = parser.parse_args(argv)
 
-    rc = _run_self_test(bus=args.bus, address=args.address)
-    success = rc == 0
-    if success:
-        get_logger("mpu6050_LL").info("MPU6050 self-test: OK")
-    else:
-        get_logger("mpu6050_LL").error("MPU6050 self-test: FAILED (rc=%s)", rc)
-    return success
+    parser.parse_args(argv)
 
+    ll = MPU6050LowLevel()
+
+    if not ll.init():
+        report = {
+            "initialized": False,
+            "opened": False,
+            "device_present": False,
+            "errors": [ll.last_error] if ll.last_error else [],
+            "details": {},
+        }
+
+        print(json.dumps(report, indent=2, default=str))
+        return False
+
+    ok, report = ll.full_test()
+
+    print(json.dumps(report, indent=2, default=str))
+
+    ll.deinit()
+
+    return bool(ok)
 
 if __name__ == "__main__":
     import sys

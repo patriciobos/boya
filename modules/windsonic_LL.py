@@ -193,36 +193,7 @@ class WindsonicLowLevel:
 
     def _read_sample(self) -> dict:
         details = self._probe_current_port_details()
-        if not details["device_present"]:
-            raise ProtocolError("Invalid Windsonic response or checksum")
-
-        fields = details["fields"]
-        sample: Dict[str, Any] = {
-            "raw": details["response"],
-            "parsed": details["parsed"],
-            "identification": fields[0] if len(fields) > 0 else None,
-            "direction_deg": None,
-            "speed": None,
-            "units": None,
-            "status": None,
-        }
-
-        if len(fields) > 1:
-            try:
-                sample["direction_deg"] = float(fields[1])
-            except Exception:
-                sample["direction_deg"] = fields[1]
-        if len(fields) > 2:
-            try:
-                sample["speed"] = float(fields[2])
-            except Exception:
-                sample["speed"] = fields[2]
-        if len(fields) > 3:
-            sample["units"] = fields[3]
-        if len(fields) > 4:
-            sample["status"] = fields[4]
-
-        return sample
+        return self._sample_from_probe_details(details)
 
     def _build_full_test_report(self) -> dict:
         return {
@@ -496,12 +467,11 @@ class WindsonicLowLevel:
                 probe_details = None
                 report["device_present"] = False
 
-            if report["device_present"]:
+            if report["device_present"] and probe_details:
                 try:
-                    sample = self._read_sample()
-                    report["details"]["sample"] = sample
+                    report["details"]["sample"] = self._sample_from_probe_details(probe_details)
                 except Exception as exc:
-                    report["errors"].append(f"Sample read failed: {exc}")
+                    report["errors"].append(f"Sample parse failed: {exc}")
 
             report["details"]["transport"] = {
                 "port": self.port,
@@ -509,15 +479,6 @@ class WindsonicLowLevel:
                 "timeout": self.timeout,
                 "bus_forced": self.bus_forced,
                 "preferred_port": self.preferred_port,
-                "candidates": list(self.port_candidates),
-            }
-
-            report["details"]["acquisition"] = {
-                "samples": self.samples,
-                "spacing": self.spacing,
-                "thread_alive": self.acquisition_thread.is_alive() if self.acquisition_thread else False,
-                "is_acquiring": self.is_acquiring,
-                "last_acquisition_ok": self.last_acquisition_ok,
             }
 
             success = bool(report["initialized"] and report["opened"] and report["device_present"])
@@ -535,6 +496,37 @@ class WindsonicLowLevel:
             if temporarily_opened:
                 self.close()
 
+    def _sample_from_probe_details(self, details: dict) -> dict:
+        if not details.get("device_present"):
+            raise ProtocolError("Invalid Windsonic response or checksum")
+
+        fields = details.get("fields") or []
+
+        if len(fields) < 5:
+            raise ProtocolError("Incomplete Windsonic response")
+
+        direction_raw = fields[1].strip()
+        speed_raw = fields[2].strip()
+        units = fields[3].strip()
+        status = fields[4].strip()
+
+        direction_deg = None
+        direction_valid = False
+
+        if direction_raw not in ("", "---"):
+            direction_deg = float(direction_raw)
+            direction_valid = True
+
+        return {
+            "raw": details.get("response"),
+            "parsed": details.get("parsed"),
+            "identification": fields[0],
+            "direction_deg": direction_deg,
+            "direction_valid": direction_valid,
+            "speed": float(speed_raw),
+            "units": units,
+            "status": status,
+        }
     # ------------------------------------------------------------------
     # preserved functional API
     # ------------------------------------------------------------------

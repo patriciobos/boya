@@ -1,140 +1,252 @@
-import os
 import json
-import logging
+import os
+import re
 import subprocess
+import sys
 from pathlib import Path
-import importlib
 
 import pytest
-import sys
 
-# Ensure repository root is on sys.path so `import modules.*` works
-# regardless of the current working directory or how tests are invoked.
+
 try:
-    repo_root = Path(__file__).resolve().parents[2]
+    REPO_ROOT = Path(__file__).resolve().parents[2]
 except Exception:
-    repo_root = Path.cwd()
-repo_root_str = str(repo_root)
-if repo_root_str not in sys.path:
-    sys.path.insert(0, repo_root_str)
+    REPO_ROOT = Path.cwd()
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 def _find_ll_scripts(root: Path):
-    return sorted(root.glob('modules/*_LL.py'))
+    return sorted(root.glob("modules/*_LL.py"))
+
+
+def _extract_last_json_object(text: str):
+    """
+    Extract the first valid top-level JSON object found in noisy text.
+
+    This is safer than searching from the last '{', because LL reports
+    contain many nested dicts and the last '{' usually belongs to details.
+    """
+    if not text:
+        return None
+
+    for start in [m.start() for m in re.finditer(r"\{", text)]:
+        depth = 0
+        in_string = False
+        escape = False
+
+        for idx in range(start, len(text)):
+            ch = text[idx]
+
+            if escape:
+                escape = False
+                continue
+
+            if ch == "\\":
+                escape = True
+                continue
+
+            if ch == '"':
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+
+                if depth == 0:
+                    candidate = text[start:idx + 1]
+                    try:
+                        obj = json.loads(candidate)
+                        if isinstance(obj, dict):
+                            return obj
+                    except Exception:
+                        break
+
+    return None
+
+
+def _summarize_error(parsed, returncode, stderr, reason):
+    if reason:
+        return reason
+
+    if parsed:
+        errors = parsed.get("errors") or []
+        if errors:
+            return "; ".join(str(e) for e in errors[:3])
+
+        if parsed.get("device_present") is False:
+            return "device_present=false"
+
+    lines = []
+    if stderr:
+        lines.extend([line.strip() for line in stderr.splitlines() if line.strip()])
+
+    for line in reversed(lines):
+        if line == "}":
+            continue
+        if (
+            "Error" in line
+            or "Exception" in line
+            or "Failed" in line
+            or "FAILED" in line
+            or "Traceback" in line
+        ):
+            return line[:240]
+
+    if returncode not in (0, None):
+        return f"returncode={returncode}"
+
+    for line in reversed(lines):
+        if line and line != "}":
+            return line[:240]
+
+    return ""
+
+
+def _run_script(script: Path, timeout: int):
+    module_name = f"modules.{script.stem}"
+    cmd = [os.environ.get("PYTHON", sys.executable), str(script)]
+
+    entry = {
+        "script": str(script.relative_to(REPO_ROOT)),
+        "module": module_name,
+        "name": script.stem,
+        "returncode": None,
+        "success": False,
+        "error": "",
+        "stdout": "",
+        "stderr": "",
+        "parsed": None,
+    }
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            text=True,
+            cwd=str(REPO_ROOT),
+            env=os.environ.copy(),
+        )
+
+        entry["returncode"] = proc.returncode
+        entry["stdout"] = proc.stdout.strip()
+        entry["stderr"] = proc.stderr.strip()
+
+        combined = "\n".join([entry["stdout"], entry["stderr"]])
+        parsed = _extract_last_json_object(combined)
+        entry["parsed"] = parsed
+
+        if parsed is not None:
+            entry["success"] = bool(
+                proc.returncode == 0
+                and parsed.get("initialized") is True
+                and parsed.get("opened") is True
+                and parsed.get("device_present") is True
+                and not parsed.get("errors")
+            )
+
+            if entry["success"]:
+                entry["error"] = ""
+            else:
+                entry["error"] = _summarize_error(
+                    parsed=parsed,
+                    returncode=proc.returncode,
+                    stderr="\n".join([entry["stdout"], entry["stderr"]]),
+                    reason="",
+                )
+
+    except subprocess.TimeoutExpired as exc:
+        entry["returncode"] = -1
+        entry["stdout"] = (exc.stdout or "").strip() if isinstance(exc.stdout, str) else str(exc.stdout or "")
+        entry["stderr"] = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else str(exc.stderr or "")
+        entry["success"] = False
+        entry["error"] = f"timeout after {timeout}s"
+
+    except Exception as exc:
+        entry["success"] = False
+        entry["error"] = f"runner_exception: {exc}"
+
+    return entry
+
+
+def _print_summary(results):
+    print("\nLL functional test summary")
+    print("-" * 80)
+
+    for r in results:
+        status = "OK" if r["success"] else "ERROR"
+        name = r["name"]
+        error = "" if r["success"] else (r.get("error") or "")
+
+        if error:
+            print(f"{name:<24} {status:<6} | {error}")
+        else:
+            print(f"{name:<24} {status:<6}")
+
+    print("-" * 80)
+
+    ok_count = sum(1 for r in results if r["success"])
+    print(f"Total: {ok_count}/{len(results)} OK")
+
+
+def _write_reports(results, report_dir: Path):
+    report_dir.mkdir(exist_ok=True)
+
+    report_file = report_dir / "ll_scripts_report.json"
+    summary_file = report_dir / "ll_scripts_summary.log"
+
+    with report_file.open("w", encoding="utf-8") as f:
+        json.dump({"results": results}, f, indent=2, default=str)
+
+    with summary_file.open("w", encoding="utf-8") as f:
+        for r in results:
+            status = "OK" if r["success"] else "ERROR"
+            error = "" if r["success"] else (r.get("error") or "")
+            if error:
+                f.write(f"{r['name']:<24} {status:<6} | {error}\n")
+            else:
+                f.write(f"{r['name']:<24} {status:<6}\n")
+
+        ok_count = sum(1 for r in results if r["success"])
+        f.write(f"\nTotal: {ok_count}/{len(results)} OK\n")
+
+    return report_file, summary_file
 
 
 @pytest.mark.timeout(300)
 def test_run_all_ll_scripts_and_report(tmp_path):
-    repo = Path.cwd()
-    scripts = _find_ll_scripts(repo)
+    timeout = int(os.getenv("LL_SCRIPT_TIMEOUT", "90"))
+
+    scripts = _find_ll_scripts(REPO_ROOT)
     assert scripts, "No LL scripts found under modules/"
 
-    timeout = int(os.getenv('LL_SCRIPT_TIMEOUT', '60'))
-    results = []
+    results = [_run_script(script, timeout=timeout) for script in scripts]
 
-    for script in scripts:
-        module_name = f"modules.{script.stem}"
-        result_entry = {
-            'script': str(script.relative_to(repo)),
-            'module': module_name,
-            'main_return': None,
-            'returncode': None,
-            'success': False,
-            'reason': '',
-            'stdout': '',
-            'stderr': '',
-        }
+    _print_summary(results)
 
-        # Try importing module and calling main() if available
-        try:
-            mod = importlib.import_module(module_name)
-            if hasattr(mod, 'main'):
-                try:
-                    # call main; some mains accept argv, others ignore it
-                    ret = mod.main([])
-                    result_entry['main_return'] = ret
-                    result_entry['success'] = bool(ret) is True
-                except Exception as e:
-                    result_entry['reason'] = f'main_exception: {e}'
-                    result_entry['success'] = False
-            else:
-                # fallback: run as subprocess and use returncode
-                cmd = [os.environ.get('PYTHON', sys.executable), '-m', module_name]
-                env = os.environ.copy()
-                try:
-                    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=timeout, text=True, cwd=str(repo))
-                    result_entry['returncode'] = proc.returncode
-                    result_entry['stdout'] = proc.stdout.strip()
-                    result_entry['stderr'] = proc.stderr.strip()
-                    result_entry['success'] = proc.returncode == 0
-                except subprocess.TimeoutExpired as e:
-                    result_entry['returncode'] = -1
-                    result_entry['stdout'] = (e.stdout or '')
-                    result_entry['stderr'] = str(e.stderr or '') + '\n[timeout]'
-                    result_entry['success'] = False
-        except Exception as imp_e:
-            # import failed; fallback to subprocess execution
-            result_entry['reason'] = f'import_failed: {imp_e}'
-            cmd = [os.environ.get('PYTHON', sys.executable), '-m', module_name]
-            env = os.environ.copy()
-            try:
-                proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=timeout, text=True, cwd=str(repo))
-                result_entry['returncode'] = proc.returncode
-                result_entry['stdout'] = proc.stdout.strip()
-                result_entry['stderr'] = proc.stderr.strip()
-                result_entry['success'] = proc.returncode == 0
-            except subprocess.TimeoutExpired as e:
-                result_entry['returncode'] = -1
-                result_entry['stdout'] = (e.stdout or '')
-                result_entry['stderr'] = str(e.stderr or '') + '\n[timeout]'
-                result_entry['success'] = False
+    report_file, summary_file = _write_reports(results, REPO_ROOT / "logs")
 
-        results.append(result_entry)
-
-    # write report to logs
-    report_dir = repo / 'logs'
-    report_dir.mkdir(exist_ok=True)
-    report_file = report_dir / 'll_scripts_report.json'
-    with report_file.open('w', encoding='utf-8') as f:
-        json.dump({'results': results}, f, indent=2, default=str)
-
-    # also write a human-readable log with module name and test result
-    logger = logging.getLogger('ll_script_runner')
-    if not logger.handlers:
-        logger.setLevel(logging.INFO)
-        fh = logging.FileHandler(report_dir / 'll_scripts_run.log', mode='a', encoding='utf-8')
-        fmt = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
-        fh.setFormatter(fmt)
-        logger.addHandler(fh)
-
-    for r in results:
-        name = r.get('module') or r.get('script')
-        if r.get('success'):
-            logger.info('%s: OK', name)
-        else:
-            reason = r.get('reason') or ''
-            rc = r.get('returncode')
-            extra = []
-            if reason:
-                extra.append(reason)
-            if rc is not None:
-                extra.append(f'returncode={rc}')
-            logger.error('%s: FAIL%s', name, (': ' + ', '.join(extra)) if extra else '')
-
-    # fail the test if any script failed
-    failed = [r for r in results if not r['success']]
+    failed = [r for r in results if not r["success"]]
     if failed:
-        pytest.fail(f"Some LL scripts failed. See {report_file} for details.")
+        failed_names = ", ".join(r["name"] for r in failed)
+        pytest.fail(
+            f"Some LL scripts failed: {failed_names}. "
+            f"Summary: {summary_file}. Details: {report_file}"
+        )
 
 
-if __name__ == '__main__':
-    # Allow running this test file directly to produce the JSON report and human-readable log.
-    from pathlib import Path
+if __name__ == "__main__":
     try:
-        tmp = Path.cwd() / '.tmp_ll_runner'
-        tmp.mkdir(exist_ok=True)
-        test_run_all_ll_scripts_and_report(tmp)
-        print(f"Report written to: {str(Path.cwd() / 'logs' / 'll_scripts_report.json')}")
-    except Exception as e:
-        print(f"Error running ll scripts runner: {e}")
+        test_run_all_ll_scripts_and_report(Path.cwd() / ".tmp_ll_runner")
+    except BaseException as exc:
+        # pytest.fail raises BaseException, not Exception.
+        print(f"\nRunner finished with failure: {exc}")
         raise
