@@ -1,0 +1,1 @@
+{"timestamp":"2026-06-04T22:41:52.850924Z","module":"XTRA2210","data":{"identity":{"model":"XTRA2210","firmware":"mock"},"pv":{"input_voltage":12.0,"input_current":1.2},"load":{"voltage":12.0,"current":0.5,"power":6.0},"battery":{"soc":85.0,"temperature":25.0},"temperatures":{"battery":25.0,"device":26.0}}}

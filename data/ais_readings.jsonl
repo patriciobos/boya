@@ -1,0 +1,1 @@
+{"timestamp":"2026-06-04T22:41:52.818197Z","module":"AIS","data":{"navigation":{"lat":0.0,"lon":0.0,"timestamp":null,"fix":true,"fix_quality":1,"num_sats":4,"hdop":0.9,"satellites_in_view":{},"used_sats":[]},"lines":["!AIVDM,1,1,,A,13aG;P0000G?u@N6V8D<0?v`0<0=,0*7D"]}}

@@ -1,15 +1,20 @@
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
-from modules.windsonic_LL import WindsonicLowLevel
+from modules.support.data_logger import SensorDataLogger
+from modules.support.ll_factory import get_low_level_class
+from modules.support.system_config import get_schedule
 
 
 class WindsonicHandlerFSM(BaseHandlerFSM):
     def __init__(self):
         super().__init__("Windsonic")
-        self.ll = WindsonicLowLevel()
+        self.ll = get_low_level_class("Windsonic")()
         self._pending_params = {}
         self.status_queue = None
         self.scheduler = None
         self._acquire_count = 5
+        self._acquire_interval_sec = int(get_schedule("Windsonic", 3600) or 3600)
+        self.logger.info("Windsonic schedule interval: %ss", self._acquire_interval_sec)
+        self.data_logger = SensorDataLogger("Windsonic")
 
     def _emit_state_result(self, result: ResultCode, details=None):
         if self.status_queue:
@@ -98,7 +103,7 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
         elif self.state == State.IDLE and self._on_entry_flag:
             self.logger.info("Entering IDLE")
             if self.scheduler is None:
-                self.start_scheduler(interval_sec=60, num_samples=self._acquire_count)
+                self.start_scheduler(interval_sec=self._acquire_interval_sec, num_samples=self._acquire_count)
             self._on_entry_flag = False
 
         elif self.state == State.ACQUIRE:
@@ -113,7 +118,15 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
             done, success = self.ll.is_acquisition_done()
             if done:
                 result = ResultCode.OK if success else ResultCode.ERROR
-                self._emit_action_result("acquire", result)
+                data = {
+                    "samples": self._pending_params.get("num", self._acquire_count),
+                    "status": "acquisition_completed" if success else "acquisition_failed",
+                }
+                if result == ResultCode.OK:
+                    self.data_logger.log(data)
+                    self._emit_action_result("acquire", result, data=data)
+                else:
+                    self._emit_action_result("acquire", result, data=data, error=self.ll.last_error)
                 self.set_state(State.IDLE if success else State.ERROR, self.status_queue)
 
         elif self.state == State.DISABLE and self._on_entry_flag:

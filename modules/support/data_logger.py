@@ -1,0 +1,35 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from modules.support.system_config import get_data_path
+
+
+class SensorDataLogger:
+    def __init__(self, module_name: str):
+        self.module_name = module_name
+        self.file_path = get_data_path() / f"{module_name.lower()}_readings.jsonl"
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def log(self, data: dict[str, Any]) -> None:
+        entry = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "module": self.module_name,
+            "data": data,
+        }
+        with open(self.file_path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, separators=(",", ":")))
+            handle.write("\n")
+
+
+class SystemStatusLogger:
+    def __init__(self):
+        self.file_path = get_data_path() / "system_status.json"
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def write(self, report: dict[str, Any]) -> None:
+        with open(self.file_path, "w", encoding="utf-8") as handle:
+            json.dump(report, handle, indent=2, ensure_ascii=False)

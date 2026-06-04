@@ -4,17 +4,22 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
-from modules.behringer_LL import BehringerLowLevel
+from modules.support.data_logger import SensorDataLogger
+from modules.support.ll_factory import get_low_level_class
+from modules.support.system_config import get_schedule
 
 
 class BehringerHandlerFSM(BaseHandlerFSM):
     def __init__(self):
         super().__init__("Behringer")
-        self.ll = BehringerLowLevel()
+        self.ll = get_low_level_class("Behringer")()
         self._pending_params = {}
         self.status_queue = None
         self.scheduler = None
         self._acquire_duration = 10
+        self._acquire_interval_sec = int(get_schedule("Behringer", 21600) or 21600)
+        self.logger.info("Behringer schedule interval: %ss", self._acquire_interval_sec)
+        self.data_logger = SensorDataLogger("Behringer")
 
     def _emit_state_result(self, result: ResultCode, details=None):
         if self.status_queue:
@@ -98,7 +103,7 @@ class BehringerHandlerFSM(BaseHandlerFSM):
         elif self.state == State.IDLE and self._on_entry_flag:
             self.logger.info("Entering IDLE")
             if self.scheduler is None:
-                self.start_scheduler(interval_sec=60, duration_sec=self._acquire_duration)
+                self.start_scheduler(interval_sec=self._acquire_interval_sec, duration_sec=self._acquire_duration)
             self._on_entry_flag = False
 
         elif self.state == State.ACQUIRE:
@@ -115,6 +120,8 @@ class BehringerHandlerFSM(BaseHandlerFSM):
             if done:
                 result = ResultCode.OK if success else ResultCode.ERROR
                 data = {"file": self.ll.output_path, "duration": self._pending_params.get("duration", self._acquire_duration)}
+                if result == ResultCode.OK:
+                    self.data_logger.log(data)
                 self._emit_action_result("acquire", result, data=data)
                 self.set_state(State.IDLE if success else State.ERROR, self.status_queue)
 

@@ -5,13 +5,13 @@ FSM handler for the AudioProc module.
 from threading import Thread
 
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
-from modules.audioProc_LL import AudioProcLowLevel
+from modules.support.ll_factory import get_low_level_class
 
 
 class AudioProcHandlerFSM(BaseHandlerFSM):
     def __init__(self):
         super().__init__("AudioProc")
-        self.ll = AudioProcLowLevel()
+        self.ll = get_low_level_class("AudioProc")()
         self._pending_params = {}
         self.status_queue = None
         self.scheduler = None
