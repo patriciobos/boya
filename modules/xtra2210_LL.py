@@ -73,7 +73,7 @@ class XTRA2210LowLevel:
 
     def __init__(
         self,
-        logger_name: str = "xtra2210",
+        logger_name: str = "xtra2210_LL",
         preferred_port: Optional[str] = None,
         baudrate: int = DEFAULT_BAUDRATE,
         slave_id: int = DEFAULT_SLAVE_ID,
@@ -675,21 +675,30 @@ def main(argv=None) -> bool:
         inter_frame_delay=inter_frame_delay,
         show_ports=True,
     )
+    dev.logger.info("Starting XTRA2210 self-test")
 
     if not dev.init():
         report = {
+            "success": False,
             "initialized": False,
             "opened": False,
             "device_present": False,
             "errors": [dev.last_error] if dev.last_error else [],
             "details": {},
         }
+        dev.logger.error("XTRA2210 self-test failed: initialization")
         dev.logger.error("Initialization report=%s", json.dumps(report, default=str))
         print(json.dumps(report, indent=2, default=str))
         return False
 
     ok, report = dev.full_test()
+    report["success"] = bool(ok)
+    if ok:
+        dev.logger.info("XTRA2210 self-test succeeded")
+    else:
+        dev.logger.error("XTRA2210 self-test failed")
     print(json.dumps(report, indent=2, default=str))
+    dev.deinit()
     return bool(ok)
 
 

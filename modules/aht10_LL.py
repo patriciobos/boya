@@ -218,6 +218,32 @@ class AHT10LowLevel:
         except OSError as exc:
             raise I2CError(f"I2C error during raw read({n}): {exc}") from exc
 
+    def _read_raw_with_retries(self, n: int, max_attempts: int = 3, delay_s: float = 0.02) -> bytes:
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                data = self._read_raw(n)
+                if len(data) == n:
+                    return data
+                self.logger.warning(
+                    "I2C raw read returned %s/%s bytes on attempt %s",
+                    len(data),
+                    n,
+                    attempt,
+                )
+            except Exception as exc:
+                last_exc = exc
+                self.logger.debug(
+                    "I2C raw read attempt %s failed: %s",
+                    attempt,
+                    exc,
+                )
+            time.sleep(delay_s)
+
+        if last_exc is not None:
+            raise ProtocolError(f"Could not read {n} bytes from AHT10: {last_exc}") from last_exc
+        raise ProtocolError(f"Could not read {n} bytes from AHT10 after {max_attempts} attempts")
+
     def initialize_sensor(self) -> bool:
         """Try the standard AHT10 initialization/calibration command."""
         try:
@@ -289,41 +315,52 @@ class AHT10LowLevel:
 
     def read_measurement_raw(self, timeout: float = 1.0, retry_on_null: bool = True) -> bytes:
         """Trigger and read a standard 6-byte AHT10 measurement."""
-        self.trigger_measurement()
-        start = time.time()
+        for attempt in range(1, 3 if retry_on_null else 2):
+            self.logger.debug("AHT10 measurement attempt %s", attempt)
+            self.trigger_measurement()
+            start = time.time()
 
-        while True:
-            time.sleep(0.10)
-            data = self._read_raw(6)
-            if len(data) < 6:
-                if time.time() - start > timeout:
-                    raise BusyTimeout(f"Expected 6 bytes from AHT10, got {data!r}")
+            while True:
+                time.sleep(0.10)
+                data = self._read_raw_with_retries(6, max_attempts=2, delay_s=0.02)
+                if len(data) < 6:
+                    if time.time() - start > timeout:
+                        raise BusyTimeout(f"Expected 6 bytes from AHT10, got {data!r}")
+                    time.sleep(0.02)
+                    continue
+
+                status = data[0]
+                if not self.is_busy(status):
+                    break
+
+                if (time.time() - start) > timeout:
+                    raise BusyTimeout("Timeout waiting for AHT10 measurement readiness")
+
                 time.sleep(0.02)
-                continue
 
-            status = data[0]
-            if not self.is_busy(status):
-                break
+            payload_is_null = all(x == 0x00 for x in data[1:6])
+            if payload_is_null:
+                self.logger.warning(
+                    "Null AHT10 payload detected on attempt %s: %r",
+                    attempt,
+                    data,
+                )
+                if attempt < 2 and retry_on_null:
+                    time.sleep(0.05)
+                    continue
+                raise ProtocolError("AHT10 returned a null measurement payload")
 
-            if (time.time() - start) > timeout:
-                raise BusyTimeout("Timeout waiting for AHT10 measurement readiness")
+            return data
 
-            time.sleep(0.02)
-
-        payload_is_null = all(x == 0x00 for x in data[1:6])
-        if payload_is_null and retry_on_null:
-            self.logger.debug("Null AHT10 payload detected, retrying once: %r", data)
-            time.sleep(0.05)
-            data = self._read_raw(6)
-            if len(data) < 6:
-                raise ProtocolError(f"Expected 6 bytes on retry, got {data!r}")
-
-        return data
+        raise ProtocolError("AHT10 measurement failed after multiple attempts")
 
     def parse(self, raw: bytes) -> Tuple[float, float]:
         """Parse a standard 6-byte AHT10 measurement into (temp_C, rh_pct)."""
         if not raw or len(raw) < 6:
             raise ProtocolError("Raw measurement must be at least 6 bytes")
+
+        if raw[1:] == b"\x00\x00\x00\x00\x00":
+            raise ProtocolError("AHT10 returned an all-zero payload")
 
         b = list(raw)
         hum_raw = ((b[1] << 16) | (b[2] << 8) | b[3]) >> 4
@@ -331,6 +368,15 @@ class AHT10LowLevel:
 
         rh = (hum_raw * 100.0) / float(1 << 20)
         temp_c = (temp_raw * 200.0) / float(1 << 20) - 50.0
+
+        if not (-40.0 <= temp_c <= 125.0) or not (0.0 <= rh <= 100.0):
+            self.logger.warning(
+                "Parsed AHT10 values out of expected range: temp=%s humidity=%s raw=%r",
+                temp_c,
+                rh,
+                raw,
+            )
+
         return temp_c, rh
 
     def _probe_current_bus(self) -> tuple[bool, list[str], dict]:

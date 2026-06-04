@@ -950,21 +950,30 @@ def main(argv=None) -> bool:
         timeout=timeout,
         show_ports=True,
     )
+    modem.logger.info("Starting Iridium self-test")
 
     if not modem.init():
         report = {
+            "success": False,
             "initialized": False,
             "opened": False,
             "device_present": False,
             "errors": [modem.last_error] if modem.last_error else [],
             "details": {},
         }
+        modem.logger.error("Iridium self-test failed: initialization")
         modem.logger.error("Initialization report=%s", json.dumps(report, default=str))
         print(json.dumps(report, indent=2, default=str))
         return False
 
     ok, report = modem.full_test()
+    report["success"] = bool(ok)
+    if ok:
+        modem.logger.info("Iridium self-test succeeded")
+    else:
+        modem.logger.error("Iridium self-test failed")
     print(json.dumps(report, indent=2, default=str))
+    modem.deinit()
     return bool(ok)
 
 

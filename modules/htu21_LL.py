@@ -29,6 +29,8 @@ import time
 from pathlib import Path
 from typing import Optional, Tuple, TYPE_CHECKING, Any, Iterable, cast, Type
 
+from modules.support.i2c_common import discover_i2c_buses
+
 if TYPE_CHECKING:
     from smbus2 import SMBus as SMBusType
     from smbus2 import i2c_msg as i2c_msg_mod
@@ -90,6 +92,12 @@ class HTU21LowLevel:
         self.bus_num: Optional[int] = None
         self.bus: Optional[SMBusType] = None
         self.address = self.DEFAULT_ADDRESS
+        self.is_initialized: bool = False
+        self.is_open: bool = False
+        self.last_error: Optional[str] = None
+        self.bus_candidates: list[int] = []
+        self.bus_forced: bool = False
+        self.detect_others: bool = True
         # MPU-6050 (GY-521) related attributes
         self.mpu_address: Optional[int] = None
         self.mpu_present: bool = False
@@ -123,77 +131,267 @@ class HTU21LowLevel:
                 logger.addHandler(fh)
         return logger
 
-    def init(self, bus: Optional[int] = None, address: int = DEFAULT_ADDRESS, detect_others: bool = True) -> None:
-        if SMBus is None:
-            raise NotFound("smbus2 is required for HTU21 I2C operations. Install smbus2 package")
-        self.address = address
-        candidates = []
-        if bus is not None:
-            candidates.append(int(bus))
-        else:
-            candidates.append(self.DEFAULT_BUS)
-            for p in sorted(Path('/dev').glob('i2c-*')):
-                try:
-                    n = int(p.name.split('-')[1])
-                except Exception:
-                    continue
-                if n not in candidates:
-                    candidates.append(n)
+    def _set_error(self, msg: str) -> None:
+        self.last_error = msg
 
-        last_exc = None
+    def _clear_error(self) -> None:
+        self.last_error = None
+
+    def _build_full_test_report(self) -> dict:
+        return {
+            "initialized": self.is_initialized,
+            "opened": self.is_open,
+            "device_present": False,
+            "errors": [],
+            "details": {},
+        }
+
+    def _resolve_bus_candidates(self, preferred_bus: Optional[int]) -> list[int]:
+        return discover_i2c_buses(preferred_bus)
+
+    def init(self, bus: Optional[int] = None, address: int = DEFAULT_ADDRESS, detect_others: bool = True) -> bool:
+        self.logger.info("Initializing HTU21 module")
+        self._clear_error()
+
+        try:
+            self.close()
+            self._require_i2c()
+            self.address = int(address)
+            self.bus_forced = bus is not None
+            self.bus_num = int(bus) if bus is not None else None
+            self.detect_others = bool(detect_others)
+            self.bus_candidates = self._resolve_bus_candidates(self.bus_num if self.bus_forced else None)
+            self.is_initialized = True
+            self.is_open = False
+            self.mpu_address = None
+            self.mpu_present = False
+            self._mpu_woken = False
+            self.logger.info(
+                "Module initialized: address=0x%02X bus_num=%s forced=%s candidates=%s detect_others=%s",
+                self.address,
+                self.bus_num,
+                self.bus_forced,
+                self.bus_candidates,
+                self.detect_others,
+            )
+            return True
+        except Exception as exc:
+            self.is_initialized = False
+            self._set_error(f"Initialization failed: {exc}")
+            self.logger.exception("Initialization failed: %s", exc)
+            return False
+
+    def open(self) -> bool:
+        self.logger.info("Opening HTU21 I2C bus")
+        self._clear_error()
+
+        if not self.is_initialized:
+            self._set_error("Module is not initialized")
+            self.logger.error(self.last_error)
+            return False
+
+        if self.is_open and self.bus is not None:
+            self.logger.info("HTU21 I2C bus already open on %s", self.bus_num)
+            return True
+
+        candidates = [self.bus_num] if self.bus_forced and self.bus_num is not None else list(self.bus_candidates)
+        last_exc: Optional[Exception] = None
+
         for busnum in candidates:
             try:
-                self.logger.info(f"Trying I2C bus {busnum} for HTU21@0x{self.address:02x}")
-                b = SMBus(busnum)
-                try:
-                    b.read_byte(self.address)
-                except OSError:
-                    pass
-                self.bus = b
+                self.logger.info("Trying I2C bus %s for HTU21@0x%02X", busnum, self.address)
+                if SMBus is None:
+                    raise NotFound("smbus2 is required for HTU21 I2C operations. Install smbus2 package")
+                self.bus = SMBus(busnum)
                 self.bus_num = busnum
-                self.logger.info(f"Opened I2C bus {busnum}")
-                # Optionally detect common devices sharing the bus (e.g. GY-521 / MPU-6050)
-                if detect_others:
-                    try:
-                        # only check the canonical MPU-6050 address 0x68 (do not try 0x69)
-                        try_addr = 0x68
-                        try:
-                            b.read_byte(try_addr)
-                            self.mpu_address = try_addr
-                            self.mpu_present = True
-                            self.logger.info(f"Detected MPU-6050 at 0x{try_addr:02x}")
-                        except OSError:
-                            # not present at canonical address
-                            pass
-                    except Exception:
-                        # detection best-effort only
-                        pass
-                return
-            except Exception as e:
-                last_exc = e
-                self.logger.debug(f"Could not open bus {busnum}: {e}")
-        raise I2CError(f"Could not open any I2C bus for HTU21 (tried {candidates}) - last error: {last_exc}")
+                self.is_open = True
+                self.logger.info("Opened I2C bus %s", busnum)
 
-    def deinit(self) -> None:
-        if self.bus is not None:
-            try:
-                self.bus.close()
-            except Exception:
-                pass
+                if self.detect_others:
+                    try:
+                        try_addr = 0x68
+                        self.bus.read_byte(try_addr)
+                        self.mpu_address = try_addr
+                        self.mpu_present = True
+                        self.logger.info("Detected MPU-6050 at 0x%02x", try_addr)
+                    except OSError:
+                        self.mpu_address = None
+                        self.mpu_present = False
+                return True
+            except Exception as exc:
+                last_exc = exc
+                self.logger.warning("Could not open bus %s: %s", busnum, exc)
+                if self.bus is not None:
+                    try:
+                        self.bus.close()
+                    except Exception:
+                        pass
+                self.bus = None
+                self.is_open = False
+
+        self.is_open = False
         self.bus = None
-        self.bus_num = None
+        self._set_error(f"Could not open any I2C bus for HTU21 (tried {candidates}) - last error: {last_exc}")
+        self.logger.error(self.last_error)
+        return False
+
+    def close(self) -> bool:
+        self.logger.info("Closing HTU21 I2C bus")
+        self._clear_error()
+
+        try:
+            if self.bus is not None:
+                try:
+                    self.bus.close()
+                except Exception:
+                    pass
+            self.bus = None
+            self.is_open = False
+            return True
+        except Exception as exc:
+            self.bus = None
+            self.is_open = False
+            self._set_error(f"Close failed: {exc}")
+            self.logger.exception("Close failed: %s", exc)
+            return False
+
+    def deinit(self) -> bool:
+        self.logger.info("Deinitializing HTU21 module")
+        self._clear_error()
+
+        try:
+            self.close()
+            self.is_initialized = False
+            self.is_open = False
+            self.bus_num = None
+            self.address = self.DEFAULT_ADDRESS
+            self.bus_candidates = []
+            self.bus_forced = False
+            self.detect_others = True
+            self.mpu_address = None
+            self.mpu_present = False
+            self._mpu_woken = False
+            self.last_error = None
+            return True
+        except Exception as exc:
+            self._set_error(f"Deinitialization failed: {exc}")
+            self.logger.exception("Deinitialization failed: %s", exc)
+            return False
 
     def probe(self) -> bool:
-        if self.bus is None:
-            raise I2CError("Bus is not initialized. Call init() first.")
+        self.logger.info("Probing HTU21 module")
+        self._clear_error()
+
+        if not self.is_initialized:
+            self._set_error("Module is not initialized")
+            self.logger.error(self.last_error)
+            return False
+
+        was_open = self.is_open and self.bus is not None
+        temporarily_opened = False
+
         try:
-            # read user register as presence probe
+            if not was_open:
+                if not self.open():
+                    return False
+                temporarily_opened = True
+
             _ = self.read_status()
             return True
-        except HTU21Error:
+        except Exception as exc:
+            self._set_error(f"Probe failed: {exc}")
+            self.logger.warning("Probe failed: %s", exc)
             return False
-        except OSError:
+        finally:
+            if temporarily_opened:
+                self.close()
+
+    def test(self) -> bool:
+        self.logger.info("Running HTU21 smoke test")
+        self._clear_error()
+        was_open = self.is_open and self.bus is not None
+        temporarily_opened = False
+
+        try:
+            if not was_open:
+                if not self.open():
+                    return False
+                temporarily_opened = True
+
+            result = self.probe()
+            self.logger.info("Smoke test completed: success=%s", result)
+            return result
+        except Exception as exc:
+            self._set_error(f"Test failed: {exc}")
+            self.logger.warning("Test failed: %s", exc)
             return False
+        finally:
+            if temporarily_opened:
+                self.close()
+
+    def full_test(self) -> tuple[bool, dict]:
+        self.logger.info("Running full diagnostic test")
+        self._clear_error()
+        report = self._build_full_test_report()
+
+        if not self.is_initialized:
+            msg = "Module is not initialized"
+            report["errors"].append(msg)
+            self._set_error(msg)
+            self.logger.error(msg)
+            return False, report
+
+        was_open = self.is_open and self.bus is not None
+        temporarily_opened = False
+
+        try:
+            if not was_open:
+                if not self.open():
+                    report["errors"].append(self.last_error or "Open failed")
+                    return False, report
+                temporarily_opened = True
+            report["opened"] = True
+
+            probe_ok = self.probe()
+            report["device_present"] = probe_ok
+            if not probe_ok:
+                report["errors"].append(self.last_error or "Probe failed")
+
+            try:
+                status = self.read_status()
+                report["details"]["status"] = f"0x{status:02x}"
+            except Exception as exc:
+                report["errors"].append(f"Status read failed: {exc}")
+
+            try:
+                raw = self.read_measurement_raw(timeout=2.0)
+                temp_c, rh = self.parse(raw)
+                report["details"]["measurement"] = {
+                    "temp_c": temp_c,
+                    "rh": rh,
+                }
+            except Exception as exc:
+                report["errors"].append(f"Measurement failed: {exc}")
+
+            if self.mpu_present:
+                try:
+                    mpu_ok = self.test_mpu_accel()
+                    report["details"]["mpu_accel_ok"] = mpu_ok
+                    if not mpu_ok:
+                        report["errors"].append("MPU-6050 accelerometer self-test failed")
+                except Exception as exc:
+                    report["errors"].append(f"MPU self-test failed: {exc}")
+
+            success = bool(report["initialized"] and report["opened"] and report["device_present"] and not report["errors"])
+            return success, report
+        except Exception as exc:
+            report["errors"].append(f"Unexpected full_test failure: {exc}")
+            self._set_error(f"Full test failed: {exc}")
+            self.logger.exception("Full test failed: %s", exc)
+            return False, report
+        finally:
+            if temporarily_opened:
+                self.close()
 
     def reset(self) -> None:
         self._require_i2c()

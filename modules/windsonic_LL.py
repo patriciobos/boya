@@ -648,21 +648,30 @@ def main(argv=None) -> bool:
         timeout=timeout,
         show_ports=True,
     )
+    w.logger.info("Starting Windsonic self-test")
 
     if not w.init():
         report = {
+            "success": False,
             "initialized": False,
             "opened": False,
             "device_present": False,
             "errors": [w.last_error] if w.last_error else [],
             "details": {},
         }
+        w.logger.error("Windsonic self-test failed: initialization")
         w.logger.error("Initialization report=%s", json.dumps(report, default=str))
         print(json.dumps(report, indent=2, default=str))
         return False
 
     ok, report = w.full_test()
+    report["success"] = bool(ok)
+    if ok:
+        w.logger.info("Windsonic self-test succeeded")
+    else:
+        w.logger.error("Windsonic self-test failed")
     print(json.dumps(report, indent=2, default=str))
+    w.deinit()
     return bool(ok)
 
 

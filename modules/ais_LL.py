@@ -1077,24 +1077,29 @@ def main(argv=None) -> bool:
         show_ports=True,
     )
 
+    ll.logger.info("Starting AIS self-test")
+
     if not ll.init():
-        print(
-            json.dumps(
-                {
-                    "initialized": False,
-                    "opened": False,
-                    "device_present": False,
-                    "errors": [ll.last_error] if ll.last_error else [],
-                    "details": {},
-                },
-                indent=2,
-                default=str,
-            )
-        )
+        report = {
+            "success": False,
+            "initialized": False,
+            "opened": False,
+            "device_present": False,
+            "errors": [ll.last_error] if ll.last_error else [],
+            "details": {},
+        }
+        ll.logger.error("AIS self-test failed: initialization")
+        print(json.dumps(report, indent=2, default=str))
         return False
 
     ok, report = ll.full_test()
+    report["success"] = bool(ok)
+    if ok:
+        ll.logger.info("AIS self-test succeeded")
+    else:
+        ll.logger.error("AIS self-test failed")
     print(json.dumps(report, indent=2, default=str))
+    ll.deinit()
     return bool(ok)
 
 

@@ -840,18 +840,26 @@ class BehringerLowLevel:
 
 def main(argv=None) -> bool:
     ll = BehringerLowLevel()
+    ll.logger.info("Starting Behringer self-test")
     if not ll.init():
         report = {
+            "success": False,
             "initialized": False,
             "opened": False,
             "device_present": False,
             "errors": [ll.last_error] if ll.last_error else [],
             "details": {},
         }
+        ll.logger.error("Behringer self-test failed: initialization")
         ll.logger.error("Initialization report=%s", json.dumps(report, default=str))
         print(json.dumps(report, indent=2, default=str))
         return False
     ok, report = ll.full_test()
+    report["success"] = bool(ok)
+    if ok:
+        ll.logger.info("Behringer self-test succeeded")
+    else:
+        ll.logger.error("Behringer self-test failed")
     print(json.dumps(report, indent=2, default=str))
     ll.deinit()
     return bool(ok)
