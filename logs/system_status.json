@@ -1,0 +1,62 @@
+{
+  "last_updated": "2026-06-08T18:23:39.602605Z",
+  "modules": {
+    "Behringer": {
+      "state": "IDLE",
+      "last_action": null,
+      "last_result": null,
+      "last_details": {},
+      "updated_at": "2026-06-08T18:23:39.594449Z"
+    },
+    "AudioProc": {
+      "state": "IDLE",
+      "last_action": null,
+      "last_result": null,
+      "last_details": {},
+      "updated_at": "2026-06-08T18:23:39.596344Z"
+    },
+    "Windsonic": {
+      "state": "IDLE",
+      "last_action": null,
+      "last_result": null,
+      "last_details": {},
+      "updated_at": "2026-06-08T18:23:39.597892Z"
+    },
+    "Iridium": {
+      "state": "IDLE",
+      "last_action": null,
+      "last_result": null,
+      "last_details": {},
+      "updated_at": "2026-06-08T18:23:39.601019Z"
+    },
+    "AHT10": {
+      "state": "IDLE",
+      "last_action": null,
+      "last_result": null,
+      "last_details": {},
+      "updated_at": "2026-06-08T18:23:39.601466Z"
+    },
+    "AIS": {
+      "state": "IDLE",
+      "last_action": null,
+      "last_result": null,
+      "last_details": {},
+      "updated_at": "2026-06-08T18:23:39.601870Z"
+    },
+    "MPU6050": {
+      "state": "IDLE",
+      "last_action": null,
+      "last_result": null,
+      "last_details": {},
+      "updated_at": "2026-06-08T18:23:39.602247Z"
+    },
+    "XTRA2210": {
+      "state": "IDLE",
+      "last_action": null,
+      "last_result": null,
+      "last_details": {},
+      "updated_at": "2026-06-08T18:23:39.602605Z"
+    }
+  },
+  "summary": {}
+}

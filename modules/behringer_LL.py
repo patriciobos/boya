@@ -66,7 +66,11 @@ class BehringerLowLevel:
     DEFAULT_FORMAT = pyaudio.paInt24
     DEFAULT_FRAMES_PER_BUFFER = 8192
     DEFAULT_DEVICE_NAME_FILTERS = ("Behringer", "USB")
-    DEFAULT_RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
+    DEFAULT_RECORDINGS_DIR = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "data",
+        "recordings",
+    )
 
     def __init__(
         self,

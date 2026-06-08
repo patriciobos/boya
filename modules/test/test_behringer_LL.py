@@ -71,12 +71,21 @@ def test_stop_recording():
 def test_permissions():
     """Test write permissions in the recordings directory."""
     audio = BehringerLowLevel()
-    recordings_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../modules/recordings")
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    recordings_dir = os.path.join(repo_root, "data", "recordings")
     os.makedirs(recordings_dir, exist_ok=True)
     testfile = os.path.join(recordings_dir, "pytest_perm.txt")
     with open(testfile, "w") as f:
         f.write("pytest")
     os.remove(testfile)
+
+
+def test_default_recordings_dir_is_data_recordings():
+    """Verify the default Behringer recordings path is under data/recordings."""
+    audio = BehringerLowLevel()
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    expected_dir = os.path.join(repo_root, "data", "recordings")
+    assert os.path.abspath(audio.recordings_dir) == os.path.abspath(expected_dir)
 
 def test_test_method():
     """Test that the test() method returns a boolean."""
@@ -102,7 +111,7 @@ def test_full_test_without_init():
     audio = BehringerLowLevel()
     result, detalles = audio.full_test()
     assert result is False
-    assert detalles.get("inicializado") is False
+    assert detalles.get("initialized") is False
 
 def test_stop_recording_without_recording():
     """Test stopping recording when no recording is active."""

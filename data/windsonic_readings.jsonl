@@ -10,3 +10,5 @@
 {"timestamp":"2026-06-08T17:42:41.514259Z","module":"Windsonic","data":{"samples":3,"status":"acquisition_completed"}}
 {"timestamp":"2026-06-08T17:43:22.547929Z","module":"Windsonic","data":{"samples":3,"status":"acquisition_completed"}}
 {"timestamp":"2026-06-08T17:52:19.078608Z","module":"Windsonic","data":{"samples":3,"status":"acquisition_completed"}}
+{"timestamp":"2026-06-08T18:02:19.952828Z","module":"Windsonic","data":{"samples":3,"status":"acquisition_completed"}}
+{"timestamp":"2026-06-08T18:16:24.541757Z","module":"Windsonic","data":{"samples":3,"status":"acquisition_completed"}}

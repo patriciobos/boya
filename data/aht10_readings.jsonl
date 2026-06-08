@@ -10,3 +10,5 @@
 {"timestamp":"2026-06-08T17:42:41.550212Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}
 {"timestamp":"2026-06-08T17:43:22.588319Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}
 {"timestamp":"2026-06-08T17:52:19.114415Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}
+{"timestamp":"2026-06-08T18:02:19.990361Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}
+{"timestamp":"2026-06-08T18:16:24.579082Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}
