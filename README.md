@@ -108,11 +108,12 @@ echo "BUS=$BUS"
 source .venv/bin/activate
 ```
 
-2) Ejecutar los tests de FSMs y router:
+2) Ejecutar los tests de FSMs, router y LL funcionales:
 
 ```bash
 PYTHONPATH=. pytest modules/test/test_fsm_mocks.py -q
 PYTHONPATH=. pytest modules/test/test_router.py -q
+PYTHONPATH=. pytest modules/test/test_ll_functional.py -q
 ```
 
 3) Ejecutar el test del scheduler central (retry y alive):

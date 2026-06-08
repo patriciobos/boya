@@ -2,6 +2,8 @@ import logging
 import os
 from typing import Optional
 
+from modules.support.system_config import get_logs_path
+
 def get_logger(name: str, log_file: Optional[str] = None, level=logging.INFO) -> logging.Logger:
     """
     Crea un logger uniforme para todos los módulos, con formato y handlers estándar.
@@ -9,12 +11,12 @@ def get_logger(name: str, log_file: Optional[str] = None, level=logging.INFO) ->
     - log_file: nombre del archivo de log (solo nombre, sin ruta) o ruta completa. Si es None, se usa logs/<name>.log
     - level: nivel de logging (por defecto INFO)
     """
-    # Centraliza la ubicación de logs en 'logs/'
-    logs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'logs'))
-    if not os.path.exists(logs_dir):
-        os.makedirs(logs_dir, exist_ok=True)
+    # Centraliza la ubicación de logs en el directorio configurado (por defecto 'logs/')
+    logs_dir = get_logs_path()
+    if not logs_dir.exists():
+        logs_dir.mkdir(parents=True, exist_ok=True)
     if log_file is None or not os.path.dirname(log_file):
-        log_file = os.path.join(logs_dir, f"{name}.log")
+        log_file = logs_dir / f"{name}.log"
     else:
         # Si se pasa una ruta absoluta o relativa, la respeta
         log_file = os.path.abspath(log_file)
