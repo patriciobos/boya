@@ -37,7 +37,7 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
-    def start_scheduler(self, interval_sec=3600, num_samples=5):
+    def start_scheduler(self, interval_sec=3600, num_samples=5, start_immediately: bool = False):
         self._acquire_count = num_samples
         self.scheduler = Scheduler(
             name=self.name,
@@ -45,7 +45,8 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
             get_state_fn=lambda: self.state,
             interval_sec=interval_sec,
         )
-        self.scheduler.start()
+        if start_immediately:
+            self.scheduler.start()
 
     def stop_scheduler(self):
         if self.scheduler:

@@ -45,7 +45,7 @@ class BehringerHandlerFSM(BaseHandlerFSM):
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
-    def start_scheduler(self, interval_sec=3600, duration_sec=10):
+    def start_scheduler(self, interval_sec=3600, duration_sec=10, start_immediately: bool = False):
         self._acquire_duration = duration_sec
         self.scheduler = Scheduler(
             name=self.name,
@@ -53,7 +53,8 @@ class BehringerHandlerFSM(BaseHandlerFSM):
             get_state_fn=lambda: self.state,
             interval_sec=interval_sec,
         )
-        self.scheduler.start()
+        if start_immediately:
+            self.scheduler.start()
 
     def stop_scheduler(self):
         if self.scheduler:

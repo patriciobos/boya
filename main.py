@@ -15,6 +15,10 @@ from modules.support.router import Router
 from modules.support.status_report import StatusReport
 from modules.windsonic_fsm import WindsonicHandlerFSM
 from modules.xtra2210_fsm import XTRA2210HandlerFSM
+from modules.support.system_config import get_schedule
+import threading
+import time
+from datetime import datetime, timedelta
 
 def launch_fsm(handler_class, name):
     queue = Queue()
@@ -29,6 +33,113 @@ def launch_fsm(handler_class, name):
         "process": process,
         "handler": handler
     }
+
+
+class CentralScheduler:
+    """Central scheduler that sends SIG_TIMEOUT/SIG_TRANSMIT to FSM queues.
+
+    Responsibilities:
+    - Send periodic SIG_TIMEOUT to sensor FSMs according to schedule (centralized 600s default).
+    - Send SIG_TIMEOUT to Behringer every 14400s (4h) and retry up to 2 times on failure.
+    - Send hourly 'alive' SIG_TRANSMIT to Iridium.
+    """
+
+    def __init__(self, fsms: dict[str, dict]):
+        self.fsms = fsms
+        self._stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+        # load schedules from system config
+        self.schedules = {}
+        for name in fsms.keys():
+            val = get_schedule(name)
+            self.schedules[name] = int(val) if val is not None else None
+
+        # default overrides per user request
+        defaults = {
+            "AHT10": 600,
+            "AIS": 600,
+            "MPU6050": 600,
+            "Windsonic": 600,
+            "XTRA2210": 600,
+            "Behringer": 14400,
+            "Iridium": 3600,
+            "AudioProc": None,
+        }
+        for k, v in defaults.items():
+            if k in self.schedules and (self.schedules[k] is None):
+                self.schedules[k] = v
+
+        now = datetime.utcnow()
+        self.next_run: dict[str, datetime] = {}
+        for name, interval in self.schedules.items():
+            if interval is None:
+                continue
+            self.next_run[name] = now + timedelta(seconds=interval)
+
+        # Behringer retry bookkeeping
+        self.behringer_retries: int = 0
+        self.behringer_last_attempt: datetime | None = None
+        self.max_behringer_retries = 2
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self._stop_event.set()
+        if self.thread.is_alive():
+            self.thread.join()
+
+    def record_action_result(self, origin: str, message: Message):
+        # Used to track Behringer failures for retries
+        try:
+            if origin == "Behringer" and message.id == MessageID.ACTION_RESULT:
+                result = message.params.get("result")
+                action = message.params.get("action")
+                if action == "acquire":
+                    if result == "error":
+                        # schedule immediate retry if under limit
+                        self.behringer_retries += 1
+                    else:
+                        # reset on success
+                        self.behringer_retries = 0
+        except Exception:
+            pass
+
+    def _run(self):
+        while not self._stop_event.is_set():
+            now = datetime.utcnow()
+            for name, interval in list(self.schedules.items()):
+                if interval is None:
+                    continue
+                nr = self.next_run.get(name)
+                if nr is None:
+                    self.next_run[name] = now + timedelta(seconds=interval)
+                    continue
+                if now >= nr:
+                    # send scheduling message
+                    entry = self.fsms.get(name)
+                    if entry:
+                        q = entry.get("queue")
+                        if q:
+                            if name == "Iridium":
+                                # send hourly alive
+                                msg = Message(MessageID.SIG_TRANSMIT, {"mode": "text", "text": "alive", "origin": "Scheduler"})
+                                q.put(msg)
+                            else:
+                                q.put(Message(MessageID.SIG_TIMEOUT))
+                    # increment next_run
+                    self.next_run[name] = now + timedelta(seconds=interval)
+
+            # Behringer retries: if retries >0 and <= max, trigger an immediate SIG_ACQUIRE
+            if self.behringer_retries and self.behringer_retries <= self.max_behringer_retries:
+                entry = self.fsms.get("Behringer")
+                if entry and entry.get("queue"):
+                    # send immediate retry
+                    entry.get("queue").put(Message(MessageID.SIG_ACQUIRE))
+                    self.behringer_retries = 0  # counted as dispatched; further failures will increment again
+
+            time.sleep(1)
 
 if __name__ == "__main__":
     logger = get_logger("main")
@@ -53,6 +164,10 @@ if __name__ == "__main__":
     for fsm in fsms.values():
         fsm["queue"].put(Message(MessageID.SIG_INIT))
 
+    # Start central scheduler
+    central_scheduler = CentralScheduler(fsms)
+    central_scheduler.start()
+
     status_report = StatusReport()
     try:
         while True:
@@ -65,6 +180,13 @@ if __name__ == "__main__":
                             state_name = message.params["state"]
                             logger.info(f"[{name}] Nuevo estado: {state_name}")
                             status_report.update(name, state_name, None, None, {})
+                            # Stop internal scheduler for this FSM to allow central scheduling
+                            try:
+                                if state_name == "IDLE":
+                                    if hasattr(fsms[name]["handler"], "stop_scheduler"):
+                                        fsms[name]["handler"].stop_scheduler()
+                            except Exception:
+                                pass
 
                         elif message.id == MessageID.ACTION_RESULT:
                             state = message.params["state"]
@@ -74,6 +196,11 @@ if __name__ == "__main__":
                             if "file" in message.params:
                                 logger.info(f"[{name}] Archivo generado: {message.params['file']}")
                             status_report.update(name, state, action, result, message.params)
+                            # Let central scheduler know about action results (for retries, etc.)
+                            try:
+                                central_scheduler.record_action_result(name, message)
+                            except Exception:
+                                pass
 
                         router.route(name, message)
                         status_report.write()

@@ -1,1 +1,7 @@
 {"timestamp":"2026-06-04T22:41:52.800600Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}
+{"timestamp":"2026-06-08T14:58:39.331535Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}
+{"timestamp":"2026-06-08T15:44:36.236585Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}
+{"timestamp":"2026-06-08T15:52:16.958702Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}
+{"timestamp":"2026-06-08T16:09:41.649234Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}
+{"timestamp":"2026-06-08T16:14:21.037940Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}
+{"timestamp":"2026-06-08T16:15:01.446051Z","module":"AHT10","data":{"temperature_c":25.0,"humidity_rh":50.0,"raw":[8,0,0,0,128,0]}}

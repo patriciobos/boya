@@ -98,6 +98,68 @@ Obtener el bus del CH341:
 BUS=$(i2cdetect -l | awk '/CH341/ {gsub("i2c-","",$1); print $1; exit}')
 echo "BUS=$BUS"
 
+---
+
+## Ejecutar tests
+
+1) Activar el entorno virtual desde la raíz del repositorio:
+
+```bash
+source .venv/bin/activate
+```
+
+2) Ejecutar los tests de FSMs y router:
+
+```bash
+PYTHONPATH=. pytest modules/test/test_fsm_mocks.py -q
+PYTHONPATH=. pytest modules/test/test_router.py -q
+```
+
+3) Ejecutar el test del scheduler central (retry y alive):
+
+```bash
+PYTHONPATH=. pytest modules/test/test_central_scheduler.py -q
+```
+
+4) Ejecutar todos los tests juntos:
+
+```bash
+PYTHONPATH=. pytest -q
+```
+
+5) Alternativa con helper script:
+
+```bash
+./run_tests.sh
+```
+
+## Scheduler separado
+
+El archivo `scheduler.json` define los intervalos de ejecución de los módulos y se usa en lugar de `config.json` para la parte de scheduler.
+
+Ejemplo:
+
+```json
+{
+  "schedules": {
+    "AHT10": 600,
+    "AIS": 600,
+    "MPU6050": 600,
+    "Windsonic": 600,
+    "XTRA2210": 600,
+    "Behringer": 14400,
+    "Iridium": 3600,
+    "AudioProc": null
+  }
+}
+```
+
+Con esta configuración:
+- Sensores cada 10 minutos.
+- Behringer cada 4 horas.
+- Iridium envía un "alive" cada hora.
+- AudioProc no tiene scheduler propio; solo procesa audio desde Behringer.
+
 
 Escanear y confirmar que aparece 0x38:
 

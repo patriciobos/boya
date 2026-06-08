@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
+SCHEDULER_PATH = Path(__file__).resolve().parent.parent / "scheduler.json"
 
 _default_config: dict[str, Any] | None = None
 
@@ -31,6 +32,17 @@ def get_config_value(key: str, default: Any = None) -> Any:
 
 
 def get_schedule(module_name: str, default: Any = None) -> Any:
+    # Prefer scheduler.json if present (allows separate schedule management)
+    try:
+        if SCHEDULER_PATH.exists():
+            with open(SCHEDULER_PATH, "r", encoding="utf-8") as handle:
+                sched_conf = json.load(handle)
+            schedules = sched_conf.get("schedules", {})
+            if module_name in schedules:
+                return schedules.get(module_name)
+    except Exception:
+        pass
+
     schedules = get_config_value("schedules", {})
     return schedules.get(module_name, default)
 

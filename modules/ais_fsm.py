@@ -39,14 +39,15 @@ class AISHandlerFSM(BaseHandlerFSM):
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
-    def start_scheduler(self, interval_sec: int = 300) -> None:
+    def start_scheduler(self, interval_sec: int = 300, start_immediately: bool = False) -> None:
         self.scheduler = Scheduler(
             name=self.name,
             queue=self.queue,
             get_state_fn=lambda: self.state,
             interval_sec=interval_sec,
         )
-        self.scheduler.start()
+        if start_immediately:
+            self.scheduler.start()
 
     def stop_scheduler(self) -> None:
         if self.scheduler:

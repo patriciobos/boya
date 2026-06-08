@@ -1,1 +1,7 @@
 {"timestamp":"2026-06-04T22:41:52.834403Z","module":"MPU6050","data":{"accel_raw":[0,0,0],"gyro_raw":[0,0,0],"temp_c":25.0,"accel_g":[0.0,0.0,0.0],"gyro_dps":[0.0,0.0,0.0]}}
+{"timestamp":"2026-06-08T14:58:39.367045Z","module":"MPU6050","data":{"accel_raw":[0,0,0],"gyro_raw":[0,0,0],"temp_c":25.0,"accel_g":[0.0,0.0,0.0],"gyro_dps":[0.0,0.0,0.0]}}
+{"timestamp":"2026-06-08T15:44:36.271739Z","module":"MPU6050","data":{"accel_raw":[0,0,0],"gyro_raw":[0,0,0],"temp_c":25.0,"accel_g":[0.0,0.0,0.0],"gyro_dps":[0.0,0.0,0.0]}}
+{"timestamp":"2026-06-08T15:52:16.995911Z","module":"MPU6050","data":{"accel_raw":[0,0,0],"gyro_raw":[0,0,0],"temp_c":25.0,"accel_g":[0.0,0.0,0.0],"gyro_dps":[0.0,0.0,0.0]}}
+{"timestamp":"2026-06-08T16:09:41.686925Z","module":"MPU6050","data":{"accel_raw":[0,0,0],"gyro_raw":[0,0,0],"temp_c":25.0,"accel_g":[0.0,0.0,0.0],"gyro_dps":[0.0,0.0,0.0]}}
+{"timestamp":"2026-06-08T16:14:21.076986Z","module":"MPU6050","data":{"accel_raw":[0,0,0],"gyro_raw":[0,0,0],"temp_c":25.0,"accel_g":[0.0,0.0,0.0],"gyro_dps":[0.0,0.0,0.0]}}
+{"timestamp":"2026-06-08T16:15:01.480955Z","module":"MPU6050","data":{"accel_raw":[0,0,0],"gyro_raw":[0,0,0],"temp_c":25.0,"accel_g":[0.0,0.0,0.0],"gyro_dps":[0.0,0.0,0.0]}}

@@ -43,7 +43,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             get_state_fn=lambda: self.state,
             interval_sec=interval_sec,
         )
-        self.scheduler.start()
+        # do not start internal scheduler by default; central scheduler will handle timing
 
     def stop_scheduler(self):
         if self.scheduler:

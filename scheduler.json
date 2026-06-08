@@ -1,0 +1,12 @@
+{
+  "schedules": {
+    "AHT10": 600,
+    "AIS": 600,
+    "MPU6050": 600,
+    "Windsonic": 600,
+    "XTRA2210": 600,
+    "Behringer": 14400,
+    "Iridium": 3600,
+    "AudioProc": null
+  }
+}
