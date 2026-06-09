@@ -35,10 +35,23 @@ Archivos principales:
 
 ## Entorno
 
+Dependencias de sistema recomendadas en Linux:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y portaudio19-dev python3-dev i2c-tools
+```
+
 Desde la raiz del repositorio:
 
 ```bash
 source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+```
+
+Para runtime solamente, sin herramientas de test:
+
+```bash
 python -m pip install -r requirements.txt
 ```
 

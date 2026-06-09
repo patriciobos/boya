@@ -1,0 +1,10 @@
+# Runtime dependencies for the boya acquisition stack.
+# System packages may still be required for hardware access, especially
+# PortAudio/PyAudio and I2C/serial device permissions.
+
+numpy>=2.0,<3
+pandas>=2.0,<4
+scipy>=1.14,<2
+PyAudio==0.2.14
+pyserial>=3.5,<4
+smbus2>=0.5,<1
