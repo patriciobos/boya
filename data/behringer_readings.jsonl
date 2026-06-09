@@ -12,3 +12,10 @@
 {"timestamp":"2026-06-08T17:52:19.060222Z","module":"Behringer","data":{"file":"/home/boya/boya/modules/support/behringer_mock/mock_behringer_recording.wav","duration":1}}
 {"timestamp":"2026-06-08T18:02:19.935066Z","module":"Behringer","data":{"file":"/home/boya/boya/modules/support/behringer_mock/mock_behringer_recording.wav","duration":1}}
 {"timestamp":"2026-06-08T18:16:24.523773Z","module":"Behringer","data":{"file":"/home/boya/boya/modules/support/behringer_mock/mock_behringer_recording.wav","duration":1}}
+{"timestamp":"2026-06-08T22:23:34.794400Z","module":"Behringer","data":{"file":"/home/boya/boya/modules/support/behringer_mock/mock_behringer_recording.wav","duration":10}}
+{"timestamp":"2026-06-09T02:23:35.060181Z","module":"Behringer","data":{"file":"/home/boya/boya/modules/support/behringer_mock/mock_behringer_recording.wav","duration":10}}
+{"timestamp":"2026-06-09T06:23:35.232321Z","module":"Behringer","data":{"file":"/home/boya/boya/modules/support/behringer_mock/mock_behringer_recording.wav","duration":10}}
+{"timestamp":"2026-06-09T10:23:35.430898Z","module":"Behringer","data":{"file":"/home/boya/boya/modules/support/behringer_mock/mock_behringer_recording.wav","duration":10}}
+{"timestamp":"2026-06-09T14:23:35.678502Z","module":"Behringer","data":{"file":"/home/boya/boya/modules/support/behringer_mock/mock_behringer_recording.wav","duration":10}}
+{"timestamp":"2026-06-09T17:13:07.738153Z","module":"Behringer","data":{"file":"/home/boya/boya/modules/support/behringer_mock/mock_behringer_recording.wav","duration":1}}
+{"timestamp":"2026-06-09T17:14:23.048251Z","module":"Behringer","data":{"file":"/home/boya/boya/modules/support/behringer_mock/mock_behringer_recording.wav","duration":1}}

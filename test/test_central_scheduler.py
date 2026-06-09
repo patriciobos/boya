@@ -54,3 +54,30 @@ def test_central_scheduler_retries_behringer_on_failure():
         assert message.id == MessageID.SIG_ACQUIRE
     finally:
         scheduler.stop()
+
+
+def test_central_scheduler_aligns_behringer_to_midnight():
+    queue = Queue()
+    fsms = {"Behringer": {"queue": queue}}
+
+    scheduler = CentralScheduler(fsms)
+    interval = 14400  # 4 hours
+    now = datetime(2026, 6, 9, 1, 30)
+    next_run = scheduler._aligned_next_run(now, interval)
+
+    assert next_run.hour == 4
+    assert next_run.minute == 0
+    assert next_run.second == 0
+
+    now = datetime(2026, 6, 9, 16, 0)
+    next_run = scheduler._aligned_next_run(now, interval)
+    assert next_run.hour == 16
+    assert next_run.minute == 0
+    assert next_run.second == 0
+
+    now = datetime(2026, 6, 9, 20, 1)
+    next_run = scheduler._aligned_next_run(now, interval)
+    assert next_run.hour == 0
+    assert next_run.minute == 0
+    assert next_run.second == 0
+    assert next_run.day == 10

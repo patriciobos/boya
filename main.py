@@ -18,6 +18,7 @@ from modules.xtra2210_fsm import XTRA2210HandlerFSM
 from modules.support.system_config import get_schedule
 import threading
 import time
+import math
 from datetime import datetime, timedelta
 
 def launch_fsm(handler_class, name):
@@ -75,7 +76,10 @@ class CentralScheduler:
         for name, interval in self.schedules.items():
             if interval is None:
                 continue
-            self.next_run[name] = now + timedelta(seconds=interval)
+            if name == "Behringer":
+                self.next_run[name] = self._aligned_next_run(now, interval)
+            else:
+                self.next_run[name] = now + timedelta(seconds=interval)
 
         # Behringer retry bookkeeping
         self.behringer_retries: int = 0
@@ -106,6 +110,16 @@ class CentralScheduler:
         except Exception:
             pass
 
+    def _aligned_next_run(self, now: datetime, interval_seconds: int) -> datetime:
+        """Return the next run aligned to regular slots from midnight."""
+        midnight = datetime(now.year, now.month, now.day)
+        seconds_since_midnight = (now - midnight).total_seconds()
+        next_seconds = math.ceil(seconds_since_midnight / interval_seconds) * interval_seconds
+        next_run = midnight + timedelta(seconds=next_seconds)
+        if next_run < now:
+            next_run += timedelta(seconds=interval_seconds)
+        return next_run
+
     def _run(self):
         while not self._stop_event.is_set():
             now = datetime.utcnow()
@@ -114,7 +128,10 @@ class CentralScheduler:
                     continue
                 nr = self.next_run.get(name)
                 if nr is None:
-                    self.next_run[name] = now + timedelta(seconds=interval)
+                    if name == "Behringer":
+                        self.next_run[name] = self._aligned_next_run(now, interval)
+                    else:
+                        self.next_run[name] = now + timedelta(seconds=interval)
                     continue
                 if now >= nr:
                     # send scheduling message
