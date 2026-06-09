@@ -1,7 +1,6 @@
-from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.data_logger import SensorDataLogger
 from modules.support.ll_factory import get_low_level_class
-from modules.support.system_config import get_schedule
 
 
 class WindsonicHandlerFSM(BaseHandlerFSM):
@@ -10,10 +9,7 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
         self.ll = get_low_level_class("Windsonic")()
         self._pending_params = {}
         self.status_queue = None
-        self.scheduler = None
         self._acquire_count = 5
-        self._acquire_interval_sec = int(get_schedule("Windsonic", 3600) or 3600)
-        self.logger.info("Windsonic schedule interval: %ss", self._acquire_interval_sec)
         self.data_logger = SensorDataLogger("Windsonic")
 
     def _emit_state_result(self, result: ResultCode, details=None):
@@ -36,22 +32,6 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
             payload["error"] = error
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
-
-    def start_scheduler(self, interval_sec=3600, num_samples=5, start_immediately: bool = False):
-        self._acquire_count = num_samples
-        self.scheduler = Scheduler(
-            name=self.name,
-            queue=self.queue,
-            get_state_fn=lambda: self.state,
-            interval_sec=interval_sec,
-        )
-        if start_immediately:
-            self.scheduler.start()
-
-    def stop_scheduler(self):
-        if self.scheduler:
-            self.scheduler.stop()
-            self.scheduler = None
 
     def set_config(self, samples=None, spacing=None):
         if samples is not None or spacing is not None:
@@ -103,8 +83,6 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
 
         elif self.state == State.IDLE and self._on_entry_flag:
             self.logger.info("Entering IDLE")
-            if self.scheduler is None:
-                self.start_scheduler(interval_sec=self._acquire_interval_sec, num_samples=self._acquire_count)
             self._on_entry_flag = False
 
         elif self.state == State.ACQUIRE:
@@ -132,12 +110,10 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
 
         elif self.state == State.DISABLE and self._on_entry_flag:
             self.logger.info("Entering DISABLE")
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False
 
         elif self.state == State.ERROR and self._on_entry_flag:
             self.logger.error("Entering ERROR")
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False

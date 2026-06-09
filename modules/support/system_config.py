@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
-SCHEDULER_PATH = Path(__file__).resolve().parent.parent / "scheduler.json"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+CONFIG_PATH = PROJECT_ROOT / "config.json"
+SCHEDULER_PATH = PROJECT_ROOT / "scheduler.json"
 
 _default_config: dict[str, Any] | None = None
 
@@ -50,6 +50,8 @@ def get_schedule(module_name: str, default: Any = None) -> Any:
 def get_data_path() -> Path:
     data_dir = get_config_value("data_dir", "data")
     path = Path(data_dir)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -57,5 +59,7 @@ def get_data_path() -> Path:
 def get_logs_path() -> Path:
     logs_dir = get_config_value("logs_dir", "logs")
     path = Path(logs_dir)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
     path.mkdir(parents=True, exist_ok=True)
     return path

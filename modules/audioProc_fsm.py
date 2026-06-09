@@ -14,7 +14,6 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
         self.ll = get_low_level_class("AudioProc")()
         self._pending_params = {}
         self.status_queue = None
-        self.scheduler = None
         self._processing_thread = None
 
     def _emit_state_result(self, result: ResultCode, details=None):
@@ -43,11 +42,6 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
                 payload["output"] = data["output"]
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
-
-    def stop_scheduler(self):
-        if self.scheduler:
-            self.scheduler.stop()
-            self.scheduler = None
 
     def handle_message(self, message: Message):
         params = getattr(message, "params", {}) or {}
@@ -122,12 +116,10 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
 
         elif self.state == State.DISABLE and self._on_entry_flag:
             self.logger.info("Entering DISABLE")
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False
 
         elif self.state == State.ERROR and self._on_entry_flag:
             self.logger.error("Entering ERROR")
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False

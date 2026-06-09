@@ -106,8 +106,6 @@ def test_behringer_fsm_acquire_with_mock(monkeypatch):
     assert fsm.ll.output_path is not None
     assert Path(fsm.ll.output_path).exists()
 
-    if hasattr(fsm, "stop_scheduler"):
-        fsm.stop_scheduler()
     fsm.ll.deinit()
 
 
@@ -128,8 +126,6 @@ def test_windsonic_fsm_acquire_with_mock(monkeypatch):
     messages = _drain_status_queue(status_queue)
     assert any(msg[1].id == MessageID.ACTION_RESULT for msg in messages)
 
-    if hasattr(fsm, "stop_scheduler"):
-        fsm.stop_scheduler()
     fsm.ll.deinit()
 
 
@@ -167,8 +163,6 @@ def test_iridium_fsm_transmit_with_mock(monkeypatch):
         for msg in messages
     )
 
-    if hasattr(fsm, "stop_scheduler"):
-        fsm.stop_scheduler()
     fsm.ll.deinit()
 
 

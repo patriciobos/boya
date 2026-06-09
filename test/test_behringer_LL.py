@@ -83,7 +83,7 @@ def test_permissions():
 def test_default_recordings_dir_is_data_recordings():
     """Verify the default Behringer recordings path is under data/recordings."""
     audio = BehringerLowLevel()
-    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     expected_dir = os.path.join(repo_root, "data", "recordings")
     assert os.path.abspath(audio.recordings_dir) == os.path.abspath(expected_dir)
 

@@ -7,7 +7,7 @@ Standard FSM contract:
 - Standard upstream message: ACTION_RESULT with action/result/data/error/details.
 """
 
-from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.module_LL_template import ModuleLowLevel  # Replace with actual LL module
 
 
@@ -17,8 +17,6 @@ class ModuleHandlerFSM(BaseHandlerFSM):
         self.ll = ModuleLowLevel()
         self._pending_params = {}
         self.status_queue = None
-        self.scheduler = None
-        self._acquire_interval_sec = 3600
         self._acquire_params = {}
 
     def _emit_state_result(self, result: ResultCode, details=None):
@@ -41,22 +39,6 @@ class ModuleHandlerFSM(BaseHandlerFSM):
             payload["error"] = error
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
-
-    def start_scheduler(self, interval_sec=3600, **params):
-        self._acquire_interval_sec = interval_sec
-        self._acquire_params = params or {}
-        self.scheduler = Scheduler(
-            name=self.name,
-            queue=self.queue,
-            get_state_fn=lambda: self.state,
-            interval_sec=interval_sec,
-        )
-        self.scheduler.start()
-
-    def stop_scheduler(self):
-        if self.scheduler:
-            self.scheduler.stop()
-            self.scheduler = None
 
     def handle_message(self, message: Message):
         if self.state == State.DISABLE:
@@ -108,12 +90,10 @@ class ModuleHandlerFSM(BaseHandlerFSM):
 
         elif self.state == State.DISABLE and self._on_entry_flag:
             self.logger.info("Entering DISABLE")
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False
 
         elif self.state == State.ERROR and self._on_entry_flag:
             self.logger.error("Entering ERROR")
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False

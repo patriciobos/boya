@@ -2,10 +2,9 @@
 
 from typing import Any, Dict, Optional
 
-from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.data_logger import SensorDataLogger
 from modules.support.ll_factory import get_low_level_class
-from modules.support.system_config import get_schedule
 
 
 class MPU6050HandlerFSM(BaseHandlerFSM):
@@ -14,9 +13,6 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
         self.ll = get_low_level_class("MPU6050")()
         self._pending_params: dict[str, Any] = {}
         self.status_queue = None
-        self.scheduler = None
-        self._acquire_interval_sec = int(get_schedule("MPU6050", 300) or 300)
-        self.logger.info("MPU6050 schedule interval: %ss", self._acquire_interval_sec)
         self.data_logger = SensorDataLogger("MPU6050")
 
     def _emit_state_result(self, result: ResultCode, details: Optional[Dict[str, Any]] = None):
@@ -38,21 +34,6 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
             payload["error"] = error
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
-
-    def start_scheduler(self, interval_sec: int = 300, start_immediately: bool = False) -> None:
-        self.scheduler = Scheduler(
-            name=self.name,
-            queue=self.queue,
-            get_state_fn=lambda: self.state,
-            interval_sec=interval_sec,
-        )
-        if start_immediately:
-            self.scheduler.start()
-
-    def stop_scheduler(self) -> None:
-        if self.scheduler:
-            self.scheduler.stop()
-            self.scheduler = None
 
     def handle_message(self, message: Message):
         if self.state == State.DISABLE:
@@ -89,8 +70,6 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
             self._on_entry_flag = False
 
         elif self.state == State.IDLE and self._on_entry_flag:
-            if self.scheduler is None:
-                self.start_scheduler(interval_sec=self._acquire_interval_sec)
             self._on_entry_flag = False
 
         elif self.state == State.ACQUIRE and self._on_entry_flag:
@@ -108,11 +87,9 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
             self._on_entry_flag = False
 
         elif self.state == State.DISABLE and self._on_entry_flag:
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False
 
         elif self.state == State.ERROR and self._on_entry_flag:
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False

@@ -3,8 +3,6 @@ from dataclasses import dataclass, field
 from multiprocessing import Queue
 import time
 from typing import Any, Dict, Optional
-import threading
-from datetime import datetime, timedelta
 import json
 
 
@@ -150,48 +148,6 @@ class BaseHandlerFSM:
                 ))
 
 
-# ------------------------------------------------------------------
-# Scheduler
-# ------------------------------------------------------------------
-
-class Scheduler:
-    def __init__(self, name, queue, get_state_fn, interval_sec=3600):
-        self.name = name
-        self.queue = queue
-        self.get_state = get_state_fn
-        self.interval = interval_sec
-        self.last_event = datetime.min
-
-        self.logger = get_logger(f"{name}_scheduler")
-
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.stop_event = threading.Event()
-
-    def start(self):
-        self.logger.info("Scheduler started (interval=%ss)", self.interval)
-        self.thread.start()
-
-    def stop(self):
-        self.logger.info("Scheduler stopping")
-        self.stop_event.set()
-        self.thread.join()
-        self.logger.info("Scheduler stopped")
-
-    def _run(self):
-        while not self.stop_event.is_set():
-            now = datetime.now()
-
-            if (
-                self.get_state() == State.IDLE
-                and now - self.last_event >= timedelta(seconds=self.interval)
-            ):
-                self.logger.info("Timer expired -> sending SIG_TIMEOUT")
-
-                self.queue.put(Message(MessageID.SIG_TIMEOUT))
-                self.last_event = now
-
-            time.sleep(1)
-
 def run_fsm_self_test(
     fsm,
     timeout_s: float = 30.0,
@@ -276,12 +232,6 @@ def run_fsm_self_test(
         return False, report
 
     finally:
-        try:
-            if hasattr(fsm, "stop_scheduler"):
-                fsm.stop_scheduler()
-        except Exception:
-            pass
-
         try:
             if hasattr(fsm, "ll"):
                 fsm.ll.deinit()

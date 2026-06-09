@@ -1,18 +1,13 @@
-from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.ll_factory import get_low_level_class
-from modules.support.system_config import get_schedule
 
 
 class IridiumHandlerFSM(BaseHandlerFSM):
     def __init__(self):
         super().__init__("Iridium")
         self.ll = get_low_level_class("Iridium")()
-        self.scheduler = None
         self.status_queue = None
         self._pending_params = {}
-        schedule_value = get_schedule("Iridium")
-        self._acquire_interval_sec = int(schedule_value) if schedule_value else 0
-        self.logger.info("Iridium schedule interval: %ss", self._acquire_interval_sec)
 
     def _emit_state_result(self, result: ResultCode, details=None):
         if self.status_queue:
@@ -34,21 +29,6 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             payload["error"] = error
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
-
-    def start_scheduler(self, interval_sec=300):
-        self._acquire_interval_sec = interval_sec
-        self.scheduler = Scheduler(
-            name=self.name,
-            queue=self.queue,
-            get_state_fn=lambda: self.state,
-            interval_sec=interval_sec,
-        )
-        # do not start internal scheduler by default; central scheduler will handle timing
-
-    def stop_scheduler(self):
-        if self.scheduler:
-            self.scheduler.stop()
-            self.scheduler = None
 
     def handle_message(self, message: Message):
         params = getattr(message, "params", {}) or {}
@@ -100,8 +80,6 @@ class IridiumHandlerFSM(BaseHandlerFSM):
 
         elif self.state == State.IDLE and self._on_entry_flag:
             self.logger.info("Entering IDLE")
-            if self._acquire_interval_sec > 0 and self.scheduler is None:
-                self.start_scheduler(interval_sec=self._acquire_interval_sec)
             self._on_entry_flag = False
 
         elif self.state == State.ACQUIRE and self._on_entry_flag:
@@ -151,12 +129,10 @@ class IridiumHandlerFSM(BaseHandlerFSM):
 
         elif self.state == State.DISABLE and self._on_entry_flag:
             self.logger.info("Entering DISABLE")
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False
 
         elif self.state == State.ERROR and self._on_entry_flag:
             self.logger.error("Entering ERROR")
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False

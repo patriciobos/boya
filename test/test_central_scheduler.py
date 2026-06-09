@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from multiprocessing import Queue
 from queue import Empty
 
-from main import CentralScheduler
+from main import centralScheduler
 from modules.support.base_fsm import Message, MessageID
 
 
@@ -15,7 +15,7 @@ def test_central_scheduler_sends_timeout_to_scheduled_fsm():
         "Iridium": {"queue": iridium_queue},
     }
 
-    scheduler = CentralScheduler(fsms)
+    scheduler = centralScheduler(fsms)
     scheduler.schedules["Behringer"] = 1
     scheduler.schedules["Iridium"] = 2
     now = datetime.utcnow()
@@ -40,7 +40,7 @@ def test_central_scheduler_retries_behringer_on_failure():
     behringer_queue = Queue()
     fsms = {"Behringer": {"queue": behringer_queue}}
 
-    scheduler = CentralScheduler(fsms)
+    scheduler = centralScheduler(fsms)
     scheduler.schedules["Behringer"] = 600
     scheduler.next_run["Behringer"] = datetime.utcnow() + timedelta(seconds=3600)
     scheduler.record_action_result(
@@ -60,7 +60,7 @@ def test_central_scheduler_aligns_behringer_to_midnight():
     queue = Queue()
     fsms = {"Behringer": {"queue": queue}}
 
-    scheduler = CentralScheduler(fsms)
+    scheduler = centralScheduler(fsms)
     interval = 14400  # 4 hours
     now = datetime(2026, 6, 9, 1, 30)
     next_run = scheduler._aligned_next_run(now, interval)

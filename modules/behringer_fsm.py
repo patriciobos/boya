@@ -3,10 +3,9 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode, Scheduler
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.data_logger import SensorDataLogger
 from modules.support.ll_factory import get_low_level_class
-from modules.support.system_config import get_schedule
 
 
 class BehringerHandlerFSM(BaseHandlerFSM):
@@ -15,10 +14,7 @@ class BehringerHandlerFSM(BaseHandlerFSM):
         self.ll = get_low_level_class("Behringer")()
         self._pending_params = {}
         self.status_queue = None
-        self.scheduler = None
         self._acquire_duration = 10
-        self._acquire_interval_sec = int(get_schedule("Behringer", 21600) or 21600)
-        self.logger.info("Behringer schedule interval: %ss", self._acquire_interval_sec)
         self.data_logger = SensorDataLogger("Behringer")
 
     def _emit_state_result(self, result: ResultCode, details=None):
@@ -44,22 +40,6 @@ class BehringerHandlerFSM(BaseHandlerFSM):
             payload["file"] = data["file"]
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
-
-    def start_scheduler(self, interval_sec=3600, duration_sec=10, start_immediately: bool = False):
-        self._acquire_duration = duration_sec
-        self.scheduler = Scheduler(
-            name=self.name,
-            queue=self.queue,
-            get_state_fn=lambda: self.state,
-            interval_sec=interval_sec,
-        )
-        if start_immediately:
-            self.scheduler.start()
-
-    def stop_scheduler(self):
-        if self.scheduler:
-            self.scheduler.stop()
-            self.scheduler = None
 
     def handle_message(self, message: Message):
         params = getattr(message, "params", {}) or {}
@@ -103,8 +83,6 @@ class BehringerHandlerFSM(BaseHandlerFSM):
 
         elif self.state == State.IDLE and self._on_entry_flag:
             self.logger.info("Entering IDLE")
-            if self.scheduler is None:
-                self.start_scheduler(interval_sec=self._acquire_interval_sec, duration_sec=self._acquire_duration)
             self._on_entry_flag = False
 
         elif self.state == State.ACQUIRE:
@@ -128,13 +106,11 @@ class BehringerHandlerFSM(BaseHandlerFSM):
 
         elif self.state == State.DISABLE and self._on_entry_flag:
             self.logger.info("Entering DISABLE")
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False
 
         elif self.state == State.ERROR and self._on_entry_flag:
             self.logger.error("Entering ERROR")
-            self.stop_scheduler()
             self.ll.deinit()
             self._on_entry_flag = False
 

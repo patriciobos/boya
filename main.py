@@ -19,7 +19,7 @@ from modules.support.system_config import get_schedule
 import threading
 import time
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 def launch_fsm(handler_class, name):
     queue = Queue()
@@ -36,7 +36,7 @@ def launch_fsm(handler_class, name):
     }
 
 
-class CentralScheduler:
+class centralScheduler:
     """Central scheduler that sends SIG_TIMEOUT/SIG_TRANSMIT to FSM queues.
 
     Responsibilities:
@@ -182,7 +182,7 @@ if __name__ == "__main__":
         fsm["queue"].put(Message(MessageID.SIG_INIT))
 
     # Start central scheduler
-    central_scheduler = CentralScheduler(fsms)
+    central_scheduler = centralScheduler(fsms)
     central_scheduler.start()
 
     status_report = StatusReport()
@@ -197,14 +197,6 @@ if __name__ == "__main__":
                             state_name = message.params["state"]
                             logger.info(f"[{name}] Nuevo estado: {state_name}")
                             status_report.update(name, state_name, None, None, {})
-                            # Stop internal scheduler for this FSM to allow central scheduling
-                            try:
-                                if state_name == "IDLE":
-                                    if hasattr(fsms[name]["handler"], "stop_scheduler"):
-                                        fsms[name]["handler"].stop_scheduler()
-                            except Exception:
-                                pass
-
                         elif message.id == MessageID.ACTION_RESULT:
                             state = message.params["state"]
                             action = message.params["action"]
@@ -234,7 +226,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.warning("Interrupción detectada. Finalizando FSMs...")
         for fsm in fsms.values():
-            fsm["handler"].stop_scheduler()
             fsm["process"].terminate()
             fsm["process"].join()
         logger.info("Todos los FSMs han sido detenidos correctamente.")
