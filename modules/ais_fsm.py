@@ -3,7 +3,7 @@
 from typing import Any, Dict, Optional
 
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
-from modules.support.data_logger import SensorDataLogger
+from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
 
 
@@ -86,7 +86,7 @@ class AISHandlerFSM(BaseHandlerFSM):
                     "lines": lines,
                 }
                 result = ResultCode.OK
-                self.data_logger.log(data)
+                self.data_logger.log(data, source=data_source_for(self.ll))
             except Exception as exc:
                 error_message = str(exc)
                 result = ResultCode.ERROR

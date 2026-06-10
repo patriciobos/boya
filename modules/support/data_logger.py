@@ -8,16 +8,28 @@ from typing import Any
 from modules.support.system_config import get_data_path
 
 
+def compact_utc_timestamp() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def data_source_for(low_level: Any) -> str:
+    cls = low_level.__class__
+    if cls.__name__.endswith("Mock") or "ll_mocks" in getattr(cls, "__module__", ""):
+        return "mock"
+    return "hardware"
+
+
 class SensorDataLogger:
     def __init__(self, module_name: str):
         self.module_name = module_name
         self.file_path = get_data_path() / f"{module_name.lower()}_readings.jsonl"
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def log(self, data: dict[str, Any]) -> None:
+    def log(self, data: dict[str, Any], source: str | None = None) -> None:
         entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": compact_utc_timestamp(),
             "module": self.module_name,
+            "source": source or "unknown",
             "data": data,
         }
         with open(self.file_path, "a", encoding="utf-8") as handle:

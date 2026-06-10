@@ -3,7 +3,7 @@
 from typing import Any, Dict, Optional
 
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
-from modules.support.data_logger import SensorDataLogger
+from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
 
 
@@ -34,6 +34,25 @@ class XTRA2210HandlerFSM(BaseHandlerFSM):
             payload["error"] = error
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
+
+    def _normalize_measurement(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        pv = data.get("pv", {})
+        load = data.get("load", {})
+        battery = data.get("battery", {})
+        temperatures = data.get("temperatures", {})
+        identity = data.get("identity", {})
+        return {
+            "model": identity.get("model"),
+            "firmware": identity.get("firmware"),
+            "pv_voltage_v": pv.get("input_voltage"),
+            "pv_current_a": pv.get("input_current"),
+            "load_voltage_v": load.get("voltage"),
+            "load_current_a": load.get("current"),
+            "load_power_w": load.get("power"),
+            "battery_soc_pct": battery.get("soc"),
+            "battery_temperature_c": battery.get("temperature") or temperatures.get("battery"),
+            "device_temperature_c": temperatures.get("device"),
+        }
 
     def handle_message(self, message: Message):
         if self.state == State.DISABLE:
@@ -76,9 +95,9 @@ class XTRA2210HandlerFSM(BaseHandlerFSM):
             error_message = None
             data: dict[str, Any] = {}
             try:
-                data = self.ll.read_all_decoded()
+                data = self._normalize_measurement(self.ll.read_all_decoded())
                 result = ResultCode.OK
-                self.data_logger.log(data)
+                self.data_logger.log(data, source=data_source_for(self.ll))
             except Exception as exc:
                 error_message = str(exc)
                 result = ResultCode.ERROR

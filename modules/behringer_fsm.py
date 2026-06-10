@@ -4,7 +4,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
-from modules.support.data_logger import SensorDataLogger
+from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
 
 
@@ -98,9 +98,13 @@ class BehringerHandlerFSM(BaseHandlerFSM):
             done, success = self.ll.is_recording_done()
             if done:
                 result = ResultCode.OK if success else ResultCode.ERROR
-                data = {"file": self.ll.output_path, "duration": self._pending_params.get("duration", self._acquire_duration)}
+                data = {
+                    "file": self.ll.output_path,
+                    "duration_s": self._pending_params.get("duration", self._acquire_duration),
+                    "status": "recording_completed" if success else "recording_failed",
+                }
                 if result == ResultCode.OK:
-                    self.data_logger.log(data)
+                    self.data_logger.log(data, source=data_source_for(self.ll))
                 self._emit_action_result("acquire", result, data=data)
                 self.set_state(State.IDLE if success else State.ERROR, self.status_queue)
 

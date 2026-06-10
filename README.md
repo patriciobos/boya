@@ -157,6 +157,25 @@ REQUIRE_GPS_FIX=1 RUN_HARDWARE_TESTS=1 PYTHONPATH=. .venv/bin/python -m pytest t
 
 Los archivos en `logs/` y las mediciones en `data/*.jsonl` son artefactos de ejecucion. Si se generan datos nuevos durante tests o ejecucion local, no deberian mezclarse con cambios de codigo salvo que se quieran versionar como fixtures.
 
+### Formato de mediciones JSONL
+
+Cada linea de `data/*_readings.jsonl` es un objeto JSON compacto:
+
+```json
+{"timestamp":"2026-06-09T21:42:07Z","module":"AHT10","source":"hardware","data":{}}
+```
+
+Reglas generales:
+
+- `timestamp` usa UTC sin decimales en los segundos: `YYYY-MM-DDTHH:MM:SSZ`.
+- `module` identifica el modulo que genero la medicion.
+- `source` diferencia datos reales de simulados: `hardware`, `mock` o `unknown`.
+- `data` contiene campos con unidades explicitas cuando corresponde, por ejemplo `_c`, `_rh`, `_deg`, `_mps`, `_v`, `_a`, `_w`, `_s`.
+- `Windsonic` registra resumen fisico de viento: velocidad promedio/min/max en m/s, direccion promedio en grados, cantidad de muestras y muestras validas.
+- `MPU6050` registra `temperature_c`, `accel_g`, `gyro_dps` y lecturas raw.
+- `XTRA2210` registra energia en campos planos con unidades: `pv_voltage_v`, `pv_current_a`, `load_power_w`, `battery_soc_pct`, entre otros.
+- `Behringer` registra evento de adquisicion con `file`, `duration_s` y `status`.
+
 ## CH341 e I2C para AHT10/MPU6050
 
 Dependencias de sistema utiles en Linux:

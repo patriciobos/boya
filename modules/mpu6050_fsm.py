@@ -3,7 +3,7 @@
 from typing import Any, Dict, Optional
 
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
-from modules.support.data_logger import SensorDataLogger
+from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
 
 
@@ -34,6 +34,12 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
             payload["error"] = error
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
+
+    def _normalize_measurement(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = dict(data)
+        if "temp_c" in normalized:
+            normalized["temperature_c"] = normalized.pop("temp_c")
+        return normalized
 
     def handle_message(self, message: Message):
         if self.state == State.DISABLE:
@@ -76,9 +82,9 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
             error_message = None
             data: dict[str, Any] = {}
             try:
-                data = self.ll.read_all()
+                data = self._normalize_measurement(self.ll.read_all())
                 result = ResultCode.OK
-                self.data_logger.log(data)
+                self.data_logger.log(data, source=data_source_for(self.ll))
             except Exception as exc:
                 error_message = str(exc)
                 result = ResultCode.ERROR

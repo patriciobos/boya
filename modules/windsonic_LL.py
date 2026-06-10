@@ -101,6 +101,7 @@ class WindsonicLowLevel:
         self.acquisition_thread: Optional[threading.Thread] = None
         self.is_acquiring: bool = False
         self.last_acquisition_ok: bool = False
+        self.last_samples: List[dict] = []
 
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.output_dir = os.path.join(base_dir, "windsonic")
@@ -549,6 +550,7 @@ class WindsonicLowLevel:
 
         self.is_acquiring = True
         self.last_acquisition_ok = False
+        self.last_samples = []
         self.acquisition_thread = threading.Thread(
             target=self._acquisition_loop,
             args=(int(num_acq),),
@@ -561,6 +563,7 @@ class WindsonicLowLevel:
         date_str = datetime.datetime.now().strftime("%Y%m%d")
         filename = os.path.join(self.output_dir, f"mediciones_{date_str}.txt")
         acquired = 0
+        samples: List[dict] = []
 
         try:
             for _ in range(num_acq):
@@ -572,6 +575,7 @@ class WindsonicLowLevel:
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     with open(filename, "a", encoding="utf-8") as f:
                         f.write(f"{timestamp} - {sample}\n")
+                    samples.append(sample)
                     acquired += 1
                 except Exception as exc:
                     self.logger.warning("Invalid response during acquisition: %s", exc)
@@ -589,6 +593,7 @@ class WindsonicLowLevel:
             self.logger.error("Acquisition failed: %s", exc)
             self.last_acquisition_ok = False
         finally:
+            self.last_samples = samples
             self.is_acquiring = False
 
     def is_acquisition_done(self) -> tuple[bool, bool]:

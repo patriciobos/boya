@@ -8,6 +8,16 @@ from queue import Empty
 from modules.support.base_fsm import Message, MessageID, State, run_fsm_self_test
 
 
+class CapturingDataLogger:
+    def __init__(self):
+        self.entries = []
+        self.sources = []
+
+    def log(self, data, source=None):
+        self.entries.append(data)
+        self.sources.append(source)
+
+
 def _reload_modules_with_mocks(monkeypatch):
     monkeypatch.setenv("USE_LL_MOCKS", "1")
 
@@ -103,6 +113,7 @@ def test_behringer_fsm_acquire_with_mock(monkeypatch):
     fsm = modules["Behringer"].BehringerHandlerFSM()
     status_queue = Queue()
     fsm.status_queue = status_queue
+    fsm.data_logger = CapturingDataLogger()
 
     fsm.handle_message(Message(MessageID.SIG_INIT))
     assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
@@ -113,6 +124,10 @@ def test_behringer_fsm_acquire_with_mock(monkeypatch):
     assert fsm.state == State.IDLE
     assert fsm.ll.output_path is not None
     assert Path(fsm.ll.output_path).exists()
+    assert fsm.data_logger.entries[-1]["duration_s"] == 1
+    assert fsm.data_logger.entries[-1]["status"] == "recording_completed"
+    assert "duration" not in fsm.data_logger.entries[-1]
+    assert fsm.data_logger.sources[-1] == "mock"
 
     fsm.ll.deinit()
 
@@ -123,6 +138,7 @@ def test_windsonic_fsm_acquire_with_mock(monkeypatch):
     fsm = modules["Windsonic"].WindsonicHandlerFSM()
     status_queue = Queue()
     fsm.status_queue = status_queue
+    fsm.data_logger = CapturingDataLogger()
 
     fsm.handle_message(Message(MessageID.SIG_INIT))
     assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
@@ -133,6 +149,15 @@ def test_windsonic_fsm_acquire_with_mock(monkeypatch):
     assert fsm.state == State.IDLE
     messages = _drain_status_queue(status_queue)
     assert any(msg[1].id == MessageID.ACTION_RESULT for msg in messages)
+    logged = fsm.data_logger.entries[-1]
+    assert logged["samples"] == 3
+    assert logged["valid_samples"] == 3
+    assert logged["wind_speed_mps_avg"] == 4.0
+    assert logged["wind_speed_mps_min"] == 3.0
+    assert logged["wind_speed_mps_max"] == 5.0
+    assert logged["wind_direction_deg_avg"] == 180.0
+    assert logged["direction_valid"] is True
+    assert fsm.data_logger.sources[-1] == "mock"
 
     fsm.ll.deinit()
 
@@ -180,6 +205,7 @@ def test_aht10_fsm_acquire_with_mock(monkeypatch):
     fsm = modules["AHT10"].AHT10HandlerFSM()
     status_queue = Queue()
     fsm.status_queue = status_queue
+    fsm.data_logger = CapturingDataLogger()
 
     fsm.handle_message(Message(MessageID.SIG_INIT))
     assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
@@ -191,6 +217,7 @@ def test_aht10_fsm_acquire_with_mock(monkeypatch):
     messages = _drain_status_queue(status_queue)
     assert any(msg[1].id == MessageID.ACTION_RESULT for msg in messages)
     assert any(msg[1].params.get("action") == "acquire" for msg in messages)
+    assert fsm.data_logger.sources[-1] == "mock"
 
     fsm.ll.deinit()
 
@@ -201,6 +228,7 @@ def test_ais_fsm_acquire_with_mock(monkeypatch):
     fsm = modules["AIS"].AISHandlerFSM()
     status_queue = Queue()
     fsm.status_queue = status_queue
+    fsm.data_logger = CapturingDataLogger()
 
     fsm.handle_message(Message(MessageID.SIG_INIT))
     assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
@@ -212,6 +240,7 @@ def test_ais_fsm_acquire_with_mock(monkeypatch):
     messages = _drain_status_queue(status_queue)
     assert any(msg[1].id == MessageID.ACTION_RESULT for msg in messages)
     assert any(msg[1].params.get("action") == "acquire" for msg in messages)
+    assert fsm.data_logger.sources[-1] == "mock"
 
     fsm.ll.deinit()
 
@@ -222,6 +251,7 @@ def test_mpu6050_fsm_acquire_with_mock(monkeypatch):
     fsm = modules["MPU6050"].MPU6050HandlerFSM()
     status_queue = Queue()
     fsm.status_queue = status_queue
+    fsm.data_logger = CapturingDataLogger()
 
     fsm.handle_message(Message(MessageID.SIG_INIT))
     assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
@@ -233,6 +263,10 @@ def test_mpu6050_fsm_acquire_with_mock(monkeypatch):
     messages = _drain_status_queue(status_queue)
     assert any(msg[1].id == MessageID.ACTION_RESULT for msg in messages)
     assert any(msg[1].params.get("action") == "acquire" for msg in messages)
+    logged = fsm.data_logger.entries[-1]
+    assert logged["temperature_c"] == 25.0
+    assert "temp_c" not in logged
+    assert fsm.data_logger.sources[-1] == "mock"
 
     fsm.ll.deinit()
 
@@ -243,6 +277,7 @@ def test_xtra2210_fsm_acquire_with_mock(monkeypatch):
     fsm = modules["XTRA2210"].XTRA2210HandlerFSM()
     status_queue = Queue()
     fsm.status_queue = status_queue
+    fsm.data_logger = CapturingDataLogger()
 
     fsm.handle_message(Message(MessageID.SIG_INIT))
     assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
@@ -254,5 +289,12 @@ def test_xtra2210_fsm_acquire_with_mock(monkeypatch):
     messages = _drain_status_queue(status_queue)
     assert any(msg[1].id == MessageID.ACTION_RESULT for msg in messages)
     assert any(msg[1].params.get("action") == "acquire" for msg in messages)
+    logged = fsm.data_logger.entries[-1]
+    assert logged["pv_voltage_v"] == 12.0
+    assert logged["pv_current_a"] == 1.2
+    assert logged["load_power_w"] == 6.0
+    assert logged["battery_soc_pct"] == 85.0
+    assert "pv" not in logged
+    assert fsm.data_logger.sources[-1] == "mock"
 
     fsm.ll.deinit()

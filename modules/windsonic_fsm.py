@@ -1,6 +1,46 @@
+import math
+
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
-from modules.support.data_logger import SensorDataLogger
+from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
+
+
+def _circular_mean_deg(values):
+    if not values:
+        return None
+    sin_sum = sum(math.sin(math.radians(value)) for value in values)
+    cos_sum = sum(math.cos(math.radians(value)) for value in values)
+    if sin_sum == 0 and cos_sum == 0:
+        return None
+    return round(math.degrees(math.atan2(sin_sum, cos_sum)) % 360.0, 2)
+
+
+def _summarize_wind_samples(samples, requested_samples, success):
+    speeds = [float(sample["speed"]) for sample in samples if sample.get("speed") is not None]
+    directions = [
+        float(sample["direction_deg"])
+        for sample in samples
+        if sample.get("direction_valid") and sample.get("direction_deg") is not None
+    ]
+    data = {
+        "samples": requested_samples,
+        "valid_samples": len(speeds),
+        "status": "acquisition_completed" if success else "acquisition_failed",
+    }
+    if speeds:
+        data.update({
+            "wind_speed_mps_avg": round(sum(speeds) / len(speeds), 3),
+            "wind_speed_mps_min": round(min(speeds), 3),
+            "wind_speed_mps_max": round(max(speeds), 3),
+        })
+    direction_avg = _circular_mean_deg(directions)
+    if direction_avg is not None:
+        data["wind_direction_deg_avg"] = direction_avg
+        data["direction_valid"] = True
+    else:
+        data["wind_direction_deg_avg"] = None
+        data["direction_valid"] = False
+    return data
 
 
 class WindsonicHandlerFSM(BaseHandlerFSM):
@@ -97,12 +137,11 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
             done, success = self.ll.is_acquisition_done()
             if done:
                 result = ResultCode.OK if success else ResultCode.ERROR
-                data = {
-                    "samples": self._pending_params.get("num", self._acquire_count),
-                    "status": "acquisition_completed" if success else "acquisition_failed",
-                }
+                requested_samples = self._pending_params.get("num", self._acquire_count)
+                samples = getattr(self.ll, "last_samples", [])
+                data = _summarize_wind_samples(samples, requested_samples, success)
                 if result == ResultCode.OK:
-                    self.data_logger.log(data)
+                    self.data_logger.log(data, source=data_source_for(self.ll))
                     self._emit_action_result("acquire", result, data=data)
                 else:
                     self._emit_action_result("acquire", result, data=data, error=self.ll.last_error)

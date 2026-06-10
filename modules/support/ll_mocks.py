@@ -185,6 +185,7 @@ class WindsonicLowLevelMock(MockLowLevel):
         self.identification: str = "Q"
         self.is_acquiring: bool = False
         self.last_acquisition_ok: bool = False
+        self.last_samples: List[dict[str, Any]] = []
 
     def config(self, samples: int = 10, spacing: float = 1.0) -> None:
         self.samples = int(samples)
@@ -198,6 +199,17 @@ class WindsonicLowLevelMock(MockLowLevel):
             return False
         self.is_acquiring = False
         self.last_acquisition_ok = True
+        count = int(num_acq if num_acq is not None else self.samples)
+        self.last_samples = [
+            {
+                "direction_deg": 180.0,
+                "direction_valid": True,
+                "speed": 3.0 + index,
+                "units": "M",
+                "status": "00",
+            }
+            for index in range(count)
+        ]
         return True
 
     def is_acquisition_done(self) -> tuple[bool, bool]:
