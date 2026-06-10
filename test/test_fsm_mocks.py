@@ -3,6 +3,7 @@ import os
 import time
 from multiprocessing import Queue
 from pathlib import Path
+from queue import Empty
 
 from modules.support.base_fsm import Message, MessageID, State, run_fsm_self_test
 
@@ -54,8 +55,15 @@ def _wait_for_state(fsm, target_states, max_iters=200):
 
 def _drain_status_queue(status_queue):
     messages = []
-    while not status_queue.empty():
-        messages.append(status_queue.get())
+    deadline = time.time() + 0.3
+    while True:
+        try:
+            messages.append(status_queue.get_nowait())
+            deadline = time.time() + 0.03
+        except Empty:
+            if time.time() >= deadline:
+                return messages
+            time.sleep(0.01)
     return messages
 
 

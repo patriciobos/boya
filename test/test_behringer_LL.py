@@ -22,12 +22,27 @@ import pytest
 import time
 from modules.behringer_LL import BehringerLowLevel
 
+
+def _hardware_tests_enabled():
+    return os.getenv("RUN_HARDWARE_TESTS", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+requires_hardware = pytest.mark.skipif(
+    not _hardware_tests_enabled(),
+    reason="hardware test disabled; set RUN_HARDWARE_TESTS=1 to run",
+)
+
+
+@pytest.mark.hardware
+@requires_hardware
 def test_init_and_deinit():
     """Test initialization and deinitialization of the audio interface."""
     audio = BehringerLowLevel()
     assert audio.init() in [True, False]
     assert audio.deinit() in [True, False]
 
+@pytest.mark.hardware
+@requires_hardware
 def test_open_and_close():
     """Test opening and closing the audio stream."""
     audio = BehringerLowLevel()
@@ -37,6 +52,8 @@ def test_open_and_close():
     audio.close()
     audio.deinit()
 
+@pytest.mark.hardware
+@requires_hardware
 def test_record_and_is_recording_done():
     """Test recording a short audio and checking if recording is done."""
     audio = BehringerLowLevel()
@@ -50,6 +67,8 @@ def test_record_and_is_recording_done():
         time.sleep(0.5)
     audio.deinit()
 
+@pytest.mark.hardware
+@requires_hardware
 def test_full_test():
     """Test the full_test method for correct result and details types."""
     audio = BehringerLowLevel()
@@ -59,6 +78,8 @@ def test_full_test():
     assert isinstance(detalles, dict)
     audio.deinit()
 
+@pytest.mark.hardware
+@requires_hardware
 def test_stop_recording():
     """Test stopping a recording in progress."""
     audio = BehringerLowLevel()
@@ -87,6 +108,8 @@ def test_default_recordings_dir_is_data_recordings():
     expected_dir = os.path.join(repo_root, "data", "recordings")
     assert os.path.abspath(audio.recordings_dir) == os.path.abspath(expected_dir)
 
+@pytest.mark.hardware
+@requires_hardware
 def test_test_method():
     """Test that the test() method returns a boolean."""
     audio = BehringerLowLevel()
@@ -113,6 +136,8 @@ def test_full_test_without_init():
     assert result is False
     assert detalles.get("initialized") is False
 
+@pytest.mark.hardware
+@requires_hardware
 def test_stop_recording_without_recording():
     """Test stopping recording when no recording is active."""
     audio = BehringerLowLevel()
@@ -120,6 +145,8 @@ def test_stop_recording_without_recording():
     audio.stop_recording()  # Should not raise
     audio.deinit()
 
+@pytest.mark.hardware
+@requires_hardware
 def test_close_multiple_times():
     """Test calling close multiple times in a row."""
     audio = BehringerLowLevel()

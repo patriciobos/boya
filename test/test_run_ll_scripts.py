@@ -237,6 +237,9 @@ def _write_reports(results, report_dir: Path):
 @pytest.mark.hardware
 @pytest.mark.timeout(300)
 def test_run_all_ll_scripts_and_report(tmp_path):
+    if os.getenv("RUN_HARDWARE_TESTS", "0").strip().lower() not in ("1", "true", "yes", "on"):
+        pytest.skip("hardware test disabled; set RUN_HARDWARE_TESTS=1 to run")
+
     timeout = int(os.getenv("LL_SCRIPT_TIMEOUT", "90"))
 
     scripts = _find_ll_scripts(REPO_ROOT)
@@ -250,8 +253,6 @@ def test_run_all_ll_scripts_and_report(tmp_path):
 
     failed = [r for r in results if not r["success"]]
     if failed:
-        if os.getenv("RUN_HARDWARE_TESTS", "0").strip().lower() not in ("1", "true", "yes", "on"):
-            pytest.skip(f"LL hardware scripts failed or hardware is unavailable. Summary: {summary_file}. Details: {report_file}")
         failed_names = ", ".join(r["name"] for r in failed)
         pytest.fail(
             f"Some LL scripts failed: {failed_names}. "
