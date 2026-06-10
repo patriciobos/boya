@@ -13,7 +13,7 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
         self.ll = get_low_level_class("MPU6050")()
         self._pending_params: dict[str, Any] = {}
         self.status_queue = None
-        self.data_logger = SensorDataLogger("MPU6050")
+        self.data_logger = SensorDataLogger("MPU6050", include_module=False)
 
     def _emit_state_result(self, result: ResultCode, details: Optional[Dict[str, Any]] = None):
         if self.status_queue:
@@ -36,10 +36,16 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
     def _normalize_measurement(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        normalized = dict(data)
-        if "temp_c" in normalized:
-            normalized["temperature_c"] = normalized.pop("temp_c")
-        return normalized
+        accel = data.get("accel_g") or []
+        gyro = data.get("gyro_dps") or []
+        return {
+            "ax_g": round(float(data.get("ax_g", accel[0] if len(accel) > 0 else 0.0)), 4),
+            "ay_g": round(float(data.get("ay_g", accel[1] if len(accel) > 1 else 0.0)), 4),
+            "az_g": round(float(data.get("az_g", accel[2] if len(accel) > 2 else 0.0)), 4),
+            "gx_dps": round(float(data.get("gx_dps", gyro[0] if len(gyro) > 0 else 0.0)), 3),
+            "gy_dps": round(float(data.get("gy_dps", gyro[1] if len(gyro) > 1 else 0.0)), 3),
+            "gz_dps": round(float(data.get("gz_dps", gyro[2] if len(gyro) > 2 else 0.0)), 3),
+        }
 
     def handle_message(self, message: Message):
         if self.state == State.DISABLE:

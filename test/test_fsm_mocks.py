@@ -268,8 +268,18 @@ def test_mpu6050_fsm_acquire_with_mock(monkeypatch):
     assert any(msg[1].id == MessageID.ACTION_RESULT for msg in messages)
     assert any(msg[1].params.get("action") == "acquire" for msg in messages)
     logged = fsm.data_logger.entries[-1]
-    assert logged["temperature_c"] == 25.0
+    assert logged == {
+        "ax_g": 0.0,
+        "ay_g": 0.0,
+        "az_g": 0.0,
+        "gx_dps": 0.0,
+        "gy_dps": 0.0,
+        "gz_dps": 0.0,
+    }
+    assert "temperature_c" not in logged
     assert "temp_c" not in logged
+    assert "accel_raw" not in logged
+    assert "gyro_raw" not in logged
     assert fsm.data_logger.sources[-1] == "hardware mock"
 
     fsm.ll.deinit()
