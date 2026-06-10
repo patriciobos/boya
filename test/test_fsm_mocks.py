@@ -218,6 +218,9 @@ def test_aht10_fsm_acquire_with_mock(monkeypatch):
     messages = _drain_status_queue(status_queue)
     assert any(msg[1].id == MessageID.ACTION_RESULT for msg in messages)
     assert any(msg[1].params.get("action") == "acquire" for msg in messages)
+    logged = fsm.data_logger.entries[-1]
+    assert logged == {"temperature_c": 25.0, "humidity_rh": 50.0}
+    assert "raw" not in logged
     assert fsm.data_logger.sources[-1] == "hardware mock"
 
     fsm.ll.deinit()

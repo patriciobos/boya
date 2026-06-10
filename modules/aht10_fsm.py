@@ -13,7 +13,7 @@ class AHT10HandlerFSM(BaseHandlerFSM):
         self.ll = get_low_level_class("AHT10")()
         self._pending_params: dict[str, Any] = {}
         self.status_queue = None
-        self.data_logger = SensorDataLogger("AHT10")
+        self.data_logger = SensorDataLogger("AHT10", include_module=False)
 
     def _emit_state_result(self, result: ResultCode, details: Optional[Dict[str, Any]] = None):
         if self.status_queue:
@@ -82,9 +82,8 @@ class AHT10HandlerFSM(BaseHandlerFSM):
                 )
                 temperature_c, humidity_rh = self.ll.parse(raw)
                 data = {
-                    "temperature_c": temperature_c,
-                    "humidity_rh": humidity_rh,
-                    "raw": [int(x) for x in raw],
+                    "temperature_c": round(temperature_c, 2),
+                    "humidity_rh": round(humidity_rh, 2),
                 }
                 result = ResultCode.OK
                 self.data_logger.log(data, source=data_source_for(self.ll))
