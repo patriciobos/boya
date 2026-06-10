@@ -1,0 +1,16 @@
+[run]
+branch = True
+source =
+    main
+    modules
+omit =
+    modules/support/module_LL_template.py
+    modules/support/module_fsm_template.py
+    modules/support/smokeTest_Xtra2210.py
+
+[report]
+show_missing = True
+skip_covered = True
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
