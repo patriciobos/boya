@@ -114,7 +114,7 @@ Con esta configuracion:
 Suite normal para desarrollo, sin hardware:
 
 ```bash
-./run_tests.sh
+./scripts/run_tests.sh
 ```
 
 Equivalente manual:
@@ -126,19 +126,19 @@ PYTHONPATH=. .venv/bin/python -m pytest -m "not hardware" -q
 Cobertura local, excluyendo drivers de hardware real:
 
 ```bash
-./run_coverage.sh
+./scripts/run_coverage.sh
 ```
 
 Tests de hardware real:
 
 ```bash
-./run_hardware_tests.sh
+./scripts/run_hardware_tests.sh
 ```
 
 Cobertura con hardware real, incluyendo drivers `*_LL.py`:
 
 ```bash
-./run_hardware_coverage.sh
+./scripts/run_hardware_coverage.sh
 ```
 
 Equivalente manual:
