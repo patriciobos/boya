@@ -124,10 +124,11 @@ def test_behringer_fsm_acquire_with_mock(monkeypatch):
     assert fsm.state == State.IDLE
     assert fsm.ll.output_path is not None
     assert Path(fsm.ll.output_path).exists()
+    assert not Path(fsm.data_logger.entries[-1]["file"]).is_absolute()
     assert fsm.data_logger.entries[-1]["duration_s"] == 1
     assert fsm.data_logger.entries[-1]["status"] == "recording_completed"
     assert "duration" not in fsm.data_logger.entries[-1]
-    assert fsm.data_logger.sources[-1] == "mock"
+    assert fsm.data_logger.sources[-1] == "hardware mock"
 
     fsm.ll.deinit()
 
@@ -157,7 +158,7 @@ def test_windsonic_fsm_acquire_with_mock(monkeypatch):
     assert logged["wind_speed_mps_max"] == 5.0
     assert logged["wind_direction_deg_avg"] == 180.0
     assert logged["direction_valid"] is True
-    assert fsm.data_logger.sources[-1] == "mock"
+    assert fsm.data_logger.sources[-1] == "hardware mock"
 
     fsm.ll.deinit()
 
@@ -217,7 +218,7 @@ def test_aht10_fsm_acquire_with_mock(monkeypatch):
     messages = _drain_status_queue(status_queue)
     assert any(msg[1].id == MessageID.ACTION_RESULT for msg in messages)
     assert any(msg[1].params.get("action") == "acquire" for msg in messages)
-    assert fsm.data_logger.sources[-1] == "mock"
+    assert fsm.data_logger.sources[-1] == "hardware mock"
 
     fsm.ll.deinit()
 
@@ -240,7 +241,7 @@ def test_ais_fsm_acquire_with_mock(monkeypatch):
     messages = _drain_status_queue(status_queue)
     assert any(msg[1].id == MessageID.ACTION_RESULT for msg in messages)
     assert any(msg[1].params.get("action") == "acquire" for msg in messages)
-    assert fsm.data_logger.sources[-1] == "mock"
+    assert fsm.data_logger.sources[-1] == "hardware mock"
 
     fsm.ll.deinit()
 
@@ -266,7 +267,7 @@ def test_mpu6050_fsm_acquire_with_mock(monkeypatch):
     logged = fsm.data_logger.entries[-1]
     assert logged["temperature_c"] == 25.0
     assert "temp_c" not in logged
-    assert fsm.data_logger.sources[-1] == "mock"
+    assert fsm.data_logger.sources[-1] == "hardware mock"
 
     fsm.ll.deinit()
 
@@ -292,9 +293,16 @@ def test_xtra2210_fsm_acquire_with_mock(monkeypatch):
     logged = fsm.data_logger.entries[-1]
     assert logged["pv_voltage_v"] == 12.0
     assert logged["pv_current_a"] == 1.2
-    assert logged["load_power_w"] == 6.0
+    assert logged["load_current_a"] == 0.5
+    assert logged["battery_voltage_v"] == 12.6
     assert logged["battery_soc_pct"] == 85.0
+    assert logged["battery_temperature_c"] == 25.0
+    assert logged["device_temperature_c"] == 26.0
+    assert "model" not in logged
+    assert "firmware" not in logged
+    assert "load_voltage_v" not in logged
+    assert "load_power_w" not in logged
     assert "pv" not in logged
-    assert fsm.data_logger.sources[-1] == "mock"
+    assert fsm.data_logger.sources[-1] == "firmware mock"
 
     fsm.ll.deinit()

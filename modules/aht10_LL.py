@@ -547,22 +547,29 @@ class AHT10LowLevel:
                 "calibrated": self.is_calibrated(status),
             }
 
-            raw = self.read_measurement_raw(timeout=2.0, retry_on_null=True)
-            temp_c, rh = self.parse(raw)
-            details["details"]["measurement"] = {
-                "raw": [int(x) for x in raw],
-                "temperature_c": temp_c,
-                "humidity_rh": rh,
-            }
+            measurements = []
+            for attempt in range(1, 4):
+                raw = self.read_measurement_raw(timeout=2.0, retry_on_null=True)
+                temp_c, rh = self.parse(raw)
+                measurement = {
+                    "attempt": attempt,
+                    "raw": [int(x) for x in raw],
+                    "temperature_c": temp_c,
+                    "humidity_rh": rh,
+                    "plausible": (-40.0 <= temp_c <= 85.0) and (0.0 <= rh <= 100.0),
+                }
+                measurements.append(measurement)
+                if measurement["plausible"]:
+                    details["details"]["measurement"] = measurement
+                    details["details"]["measurement_attempts"] = measurements
+                    return True, details
+                time.sleep(0.1)
 
-            plausible = (-40.0 <= temp_c <= 85.0) and (0.0 <= rh <= 100.0)
-            details["details"]["measurement"]["plausible"] = plausible
-            if not plausible:
-                details["errors"].append("Measurement values are outside plausible AHT10 range")
-                self.logger.error("AHT10 measurement outside plausible range: %s", details["details"]["measurement"])
-                return False, details
-
-            return True, details
+            details["details"]["measurement"] = measurements[-1]
+            details["details"]["measurement_attempts"] = measurements
+            details["errors"].append("Measurement values are outside plausible AHT10 range")
+            self.logger.error("AHT10 measurement outside plausible range: %s", details["details"]["measurement"])
+            return False, details
         except Exception as exc:
             details["errors"].append(str(exc))
             self._set_error(str(exc))

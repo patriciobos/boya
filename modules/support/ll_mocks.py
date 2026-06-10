@@ -354,7 +354,7 @@ class XTRA2210LowLevelMock(MockLowLevel):
             "identity": {"model": "XTRA2210", "firmware": "mock"},
             "pv": {"input_voltage": 12.0, "input_current": 1.2},
             "load": {"voltage": 12.0, "current": 0.5, "power": 6.0},
-            "battery": {"soc": 85.0, "temperature": 25.0},
+            "battery": {"voltage": 12.6, "soc": 85.0, "temperature": 25.0},
             "temperatures": {"battery": 25.0, "device": 26.0},
         }
 

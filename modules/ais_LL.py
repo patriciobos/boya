@@ -857,9 +857,10 @@ class AISLowLevel:
             self.logger.info(
                 "Full diagnostic test completed: success=%s selected_port=%s transport_port=%s has_fix=%s lines=%s",
                 success,
+                selected_port,
                 report["details"].get("transport", {}).get("port"),
-                report["details"].get("has_fix"),
-                report["details"].get("lines_collected"),
+                report["details"].get("navigation", {}).get("has_fix"),
+                report["details"].get("traffic", {}).get("lines_collected"),
             )
 
             return success, report

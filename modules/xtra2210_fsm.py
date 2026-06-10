@@ -13,7 +13,7 @@ class XTRA2210HandlerFSM(BaseHandlerFSM):
         self.ll = get_low_level_class("XTRA2210")()
         self._pending_params: dict[str, Any] = {}
         self.status_queue = None
-        self.data_logger = SensorDataLogger("XTRA2210")
+        self.data_logger = SensorDataLogger("XTRA2210", include_module=False)
 
     def _emit_state_result(self, result: ResultCode, details: Optional[Dict[str, Any]] = None):
         if self.status_queue:
@@ -35,23 +35,24 @@ class XTRA2210HandlerFSM(BaseHandlerFSM):
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
+    def _is_firmware_mock(self, data: Dict[str, Any]) -> bool:
+        identity = data.get("identity", {})
+        firmware = identity.get("firmware") or data.get("firmware")
+        return isinstance(firmware, str) and firmware.strip().lower() == "mock"
+
     def _normalize_measurement(self, data: Dict[str, Any]) -> Dict[str, Any]:
         pv = data.get("pv", {})
         load = data.get("load", {})
         battery = data.get("battery", {})
         temperatures = data.get("temperatures", {})
-        identity = data.get("identity", {})
         return {
-            "model": identity.get("model"),
-            "firmware": identity.get("firmware"),
-            "pv_voltage_v": pv.get("input_voltage"),
-            "pv_current_a": pv.get("input_current"),
-            "load_voltage_v": load.get("voltage"),
-            "load_current_a": load.get("current"),
-            "load_power_w": load.get("power"),
-            "battery_soc_pct": battery.get("soc"),
-            "battery_temperature_c": battery.get("temperature") or temperatures.get("battery"),
-            "device_temperature_c": temperatures.get("device"),
+            "pv_voltage_v": data.get("pv_voltage_v", pv.get("pv_voltage_v", pv.get("input_voltage"))),
+            "pv_current_a": data.get("pv_current_a", pv.get("pv_current_a", pv.get("input_current"))),
+            "load_current_a": data.get("load_current_a", load.get("load_current_a", load.get("current"))),
+            "battery_voltage_v": data.get("battery_voltage_v", battery.get("battery_voltage_v", battery.get("voltage", battery.get("system_rated_voltage_v", data.get("system_rated_voltage_v"))))),
+            "battery_soc_pct": data.get("battery_soc_pct", battery.get("battery_soc_pct", battery.get("soc"))),
+            "battery_temperature_c": data.get("battery_temp_c", battery.get("battery_temp_c", battery.get("temperature") or temperatures.get("battery_temp_c", temperatures.get("battery")))),
+            "device_temperature_c": data.get("device_temp_c", temperatures.get("device_temp_c", temperatures.get("device"))),
         }
 
     def handle_message(self, message: Message):
@@ -95,9 +96,13 @@ class XTRA2210HandlerFSM(BaseHandlerFSM):
             error_message = None
             data: dict[str, Any] = {}
             try:
-                data = self._normalize_measurement(self.ll.read_all_decoded())
+                if not getattr(self.ll, "is_open", False):
+                    self.ll.open()
+                raw_data = self.ll.read_all_decoded()
+                data = self._normalize_measurement(raw_data)
                 result = ResultCode.OK
-                self.data_logger.log(data, source=data_source_for(self.ll))
+                source = "firmware mock" if self._is_firmware_mock(raw_data) else data_source_for(self.ll)
+                self.data_logger.log(data, source=source)
             except Exception as exc:
                 error_message = str(exc)
                 result = ResultCode.ERROR

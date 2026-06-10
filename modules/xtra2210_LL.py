@@ -58,10 +58,10 @@ class XTRA2210LowLevel:
 
     REGISTER_BLOCKS = [
         (0x3100, 2, "PV input voltage/current"),
+        (0x3104, 2, "Battery voltage/current"),
         (0x310C, 4, "Load voltage/current/power"),
-        (0x311A, 2, "Battery SOC / temperature"),
-        (0x311D, 1, "Battery real rated voltage"),
-        (0x3200, 2, "Battery temperature / device temperature"),
+        (0x3110, 2, "Battery temperature / device temperature"),
+        (0x311A, 1, "Battery SOC"),
     ]
 
     IDENTIFICATION_REGISTERS = {
@@ -219,6 +219,11 @@ class XTRA2210LowLevel:
     def regs_to_u32(high_reg: int, low_reg: int) -> int:
         return ((high_reg & 0xFFFF) << 16) | (low_reg & 0xFFFF)
 
+    @staticmethod
+    def reg_to_i16(reg: int) -> int:
+        reg &= 0xFFFF
+        return reg - 0x10000 if reg & 0x8000 else reg
+
     def decode_block(self, start_reg: int, regs: List[int]) -> dict:
         decoded: Dict[str, Any] = {}
         if start_reg == 0x3005 and len(regs) >= 1:
@@ -235,19 +240,20 @@ class XTRA2210LowLevel:
         elif start_reg == 0x3100 and len(regs) >= 2:
             decoded["pv_voltage_v"] = regs[0] / 100.0
             decoded["pv_current_a"] = regs[1] / 100.0
+        elif start_reg == 0x3104 and len(regs) >= 2:
+            decoded["battery_voltage_v"] = regs[0] / 100.0
+            decoded["battery_current_a"] = regs[1] / 100.0
         elif start_reg == 0x310C and len(regs) >= 4:
             decoded["load_voltage_v"] = regs[0] / 100.0
             decoded["load_current_a"] = regs[1] / 100.0
             decoded["load_power_w"] = self.regs_to_u32(regs[3], regs[2]) / 100.0
-        elif start_reg == 0x311A and len(regs) >= 2:
+        elif start_reg == 0x3110 and len(regs) >= 2:
+            decoded["battery_temp_c"] = self.reg_to_i16(regs[0]) / 100.0 if regs[0] not in (0x7FFF, 0xFFFF) else None
+            decoded["device_temp_c"] = self.reg_to_i16(regs[1]) / 100.0 if regs[1] not in (0x7FFF, 0xFFFF) else None
+        elif start_reg == 0x311A and len(regs) >= 1:
             decoded["battery_soc_pct"] = regs[0]
-            raw_temp = regs[1]
-            decoded["battery_temp_c"] = raw_temp / 100.0 if raw_temp not in (0x7FFF, 0xFFFF) else None
         elif start_reg == 0x311D and len(regs) >= 1:
             decoded["system_rated_voltage_v"] = regs[0] / 100.0
-        elif start_reg == 0x3200 and len(regs) >= 2:
-            decoded["battery_temp_c"] = regs[0] / 100.0 if regs[0] not in (0x7FFF, 0xFFFF) else None
-            decoded["device_temp_c"] = regs[1] / 100.0 if regs[1] not in (0x7FFF, 0xFFFF) else None
         return decoded
 
     @staticmethod
@@ -258,6 +264,8 @@ class XTRA2210LowLevel:
         if "pv_current_a" in decoded and 0.0 <= decoded["pv_current_a"] <= 100.0:
             plausible = True
         if "load_voltage_v" in decoded and 0.0 <= decoded["load_voltage_v"] <= 100.0:
+            plausible = True
+        if "battery_voltage_v" in decoded and 0.0 <= decoded["battery_voltage_v"] <= 100.0:
             plausible = True
         if "battery_soc_pct" in decoded and 0 <= decoded["battery_soc_pct"] <= 100:
             plausible = True
@@ -319,8 +327,8 @@ class XTRA2210LowLevel:
     def read_battery(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {}
         for start_reg, reg_count, description in [
-            (0x311A, 2, "Battery SOC / temperature"),
-            (0x311D, 1, "System rated voltage"),
+            (0x3104, 2, "Battery voltage/current"),
+            (0x311A, 1, "Battery SOC"),
         ]:
             ok, result = self.read_register_block(start_reg, reg_count, description, function_code=0x04)
             if not ok:
@@ -329,7 +337,7 @@ class XTRA2210LowLevel:
         return data
 
     def read_temperatures(self) -> Dict[str, Any]:
-        ok, result = self.read_register_block(0x3200, 2, "Battery temperature / device temperature", function_code=0x04)
+        ok, result = self.read_register_block(0x3110, 2, "Battery temperature / device temperature", function_code=0x04)
         if not ok:
             raise ProtocolError(str(result))
         return result["decoded"]
@@ -622,6 +630,7 @@ class XTRA2210LowLevel:
                 "load_voltage_v": readings.get("load_voltage_v"),
                 "load_current_a": readings.get("load_current_a"),
                 "load_power_w": readings.get("load_power_w"),
+                "battery_voltage_v": readings.get("battery_voltage_v"),
                 "battery_soc_pct": readings.get("battery_soc_pct"),
                 "battery_temp_c": readings.get("battery_temp_c"),
                 "device_temp_c": readings.get("device_temp_c"),

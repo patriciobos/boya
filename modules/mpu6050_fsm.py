@@ -82,6 +82,8 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
             error_message = None
             data: dict[str, Any] = {}
             try:
+                if not getattr(self.ll, "is_open", False):
+                    self.ll.open()
                 data = self._normalize_measurement(self.ll.read_all())
                 result = ResultCode.OK
                 self.data_logger.log(data, source=data_source_for(self.ll))
