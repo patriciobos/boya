@@ -13,7 +13,7 @@ class AISHandlerFSM(BaseHandlerFSM):
         self.ll = get_low_level_class("AIS")()
         self._pending_params: dict[str, Any] = {}
         self.status_queue = None
-        self.data_logger = SensorDataLogger("AIS")
+        self.data_logger = SensorDataLogger("AIS", include_module=False)
 
     def _emit_state_result(self, result: ResultCode, details: Optional[Dict[str, Any]] = None):
         if self.status_queue:
@@ -34,6 +34,16 @@ class AISHandlerFSM(BaseHandlerFSM):
             payload["error"] = error
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
+
+    def _normalize_measurement(self, navigation: Dict[str, Any], lines: list[str]) -> Dict[str, Any]:
+        return {
+            "gps_fix": bool(navigation.get("fix")),
+            "lat": navigation.get("lat"),
+            "lon": navigation.get("lon"),
+            "satellites": int(navigation.get("num_sats") or 0),
+            "hdop": navigation.get("hdop"),
+            "own_transmit_messages": sum(1 for line in lines if isinstance(line, str) and line.startswith("!AIVDO")),
+        }
 
     def handle_message(self, message: Message):
         if self.state == State.DISABLE:
@@ -81,10 +91,7 @@ class AISHandlerFSM(BaseHandlerFSM):
                 seconds = float(self._pending_params.get("seconds", 1.0))
                 lines = self.ll.read_lines(seconds=seconds)
                 navigation = self.ll.get_navigation()
-                data = {
-                    "navigation": navigation,
-                    "lines": lines,
-                }
+                data = self._normalize_measurement(navigation, lines)
                 result = ResultCode.OK
                 self.data_logger.log(data, source=data_source_for(self.ll))
             except Exception as exc:

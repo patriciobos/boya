@@ -17,6 +17,7 @@ MODULES = {
     "AIS": ("modules.ais_fsm", "AISHandlerFSM", Message(MessageID.SIG_ACQUIRE, {"seconds": 1.0})),
     "MPU6050": ("modules.mpu6050_fsm", "MPU6050HandlerFSM", Message(MessageID.SIG_ACQUIRE)),
     "XTRA2210": ("modules.xtra2210_fsm", "XTRA2210HandlerFSM", Message(MessageID.SIG_ACQUIRE)),
+    "Windsonic": ("modules.windsonic_fsm", "WindsonicHandlerFSM", Message(MessageID.SIG_ACQUIRE, {"num": 5})),
     "Behringer": ("modules.behringer_fsm", "BehringerHandlerFSM", Message(MessageID.SIG_ACQUIRE, {"duration": 1})),
 }
 
@@ -28,7 +29,8 @@ def _enabled_modules():
     else:
         names = list(MODULES)
 
-    skipped = {name.strip() for name in os.getenv("HARDWARE_LOG_SKIP", "Windsonic").split(",") if name.strip()}
+    default_skip = "" if selected else "Windsonic"
+    skipped = {name.strip() for name in os.getenv("HARDWARE_LOG_SKIP", default_skip).split(",") if name.strip()}
     return [name for name in names if name not in skipped]
 
 
@@ -89,7 +91,7 @@ def test_hardware_fsm_acquire_logs_real_reading(module_name, monkeypatch):
 
     last_line = [line for line in readings_file.read_text(encoding="utf-8").splitlines() if line.strip()][-1]
     entry = json.loads(last_line)
-    if module_name in ("AHT10", "MPU6050", "XTRA2210"):
+    if module_name in ("AHT10", "AIS", "MPU6050", "Windsonic", "XTRA2210"):
         assert "module" not in entry
     else:
         assert entry["module"] == module_name

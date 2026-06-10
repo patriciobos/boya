@@ -25,7 +25,6 @@ def _summarize_wind_samples(samples, requested_samples, success):
     data = {
         "samples": requested_samples,
         "valid_samples": len(speeds),
-        "status": "acquisition_completed" if success else "acquisition_failed",
     }
     if speeds:
         data.update({
@@ -50,7 +49,7 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
         self._pending_params = {}
         self.status_queue = None
         self._acquire_count = 5
-        self.data_logger = SensorDataLogger("Windsonic")
+        self.data_logger = SensorDataLogger("Windsonic", include_module=False)
 
     def _emit_state_result(self, result: ResultCode, details=None):
         if self.status_queue:
@@ -128,6 +127,8 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
         elif self.state == State.ACQUIRE:
             if self._on_entry_flag:
                 self.logger.info("Entering ACQUIRE")
+                if not getattr(self.ll, "is_open", False):
+                    self.ll.open()
                 success = self.ll.acquire(self._pending_params.get("num", self._acquire_count))
                 if not success:
                     self._emit_action_result("acquire", ResultCode.ERROR, error=self.ll.last_error)

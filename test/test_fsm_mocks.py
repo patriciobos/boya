@@ -158,6 +158,7 @@ def test_windsonic_fsm_acquire_with_mock(monkeypatch):
     assert logged["wind_speed_mps_max"] == 5.0
     assert logged["wind_direction_deg_avg"] == 180.0
     assert logged["direction_valid"] is True
+    assert "status" not in logged
     assert fsm.data_logger.sources[-1] == "hardware mock"
 
     fsm.ll.deinit()
@@ -244,6 +245,17 @@ def test_ais_fsm_acquire_with_mock(monkeypatch):
     messages = _drain_status_queue(status_queue)
     assert any(msg[1].id == MessageID.ACTION_RESULT for msg in messages)
     assert any(msg[1].params.get("action") == "acquire" for msg in messages)
+    logged = fsm.data_logger.entries[-1]
+    assert logged == {
+        "gps_fix": True,
+        "lat": 0.0,
+        "lon": 0.0,
+        "satellites": 4,
+        "hdop": 0.9,
+        "own_transmit_messages": 1,
+    }
+    assert "navigation" not in logged
+    assert "lines" not in logged
     assert fsm.data_logger.sources[-1] == "hardware mock"
 
     fsm.ll.deinit()

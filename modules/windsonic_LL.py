@@ -20,7 +20,6 @@ Functional helpers preserved/adapted from the original module:
 
 from __future__ import annotations
 
-import datetime
 import json
 import os
 import sys
@@ -102,10 +101,6 @@ class WindsonicLowLevel:
         self.is_acquiring: bool = False
         self.last_acquisition_ok: bool = False
         self.last_samples: List[dict] = []
-
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.output_dir = os.path.join(base_dir, "windsonic")
-        os.makedirs(self.output_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
     # internal helpers
@@ -560,8 +555,6 @@ class WindsonicLowLevel:
         return True
 
     def _acquisition_loop(self, num_acq: int) -> None:
-        date_str = datetime.datetime.now().strftime("%Y%m%d")
-        filename = os.path.join(self.output_dir, f"mediciones_{date_str}.txt")
         acquired = 0
         samples: List[dict] = []
 
@@ -572,9 +565,6 @@ class WindsonicLowLevel:
 
                 try:
                     sample = self._read_sample()
-                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    with open(filename, "a", encoding="utf-8") as f:
-                        f.write(f"{timestamp} - {sample}\n")
                     samples.append(sample)
                     acquired += 1
                 except Exception as exc:
@@ -584,6 +574,9 @@ class WindsonicLowLevel:
 
             if acquired == num_acq:
                 self.logger.info("Acquisition completed successfully: %s samples", acquired)
+                self.last_acquisition_ok = True
+            elif acquired > 0:
+                self.logger.warning("Acquisition partially completed: %s of %s samples", acquired, num_acq)
                 self.last_acquisition_ok = True
             else:
                 self.logger.error("Acquisition incomplete: %s of %s samples", acquired, num_acq)

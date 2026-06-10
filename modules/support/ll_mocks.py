@@ -320,7 +320,7 @@ class AISLowLevelMock(MockLowLevel):
         if not self.is_initialized:
             self._set_error("Module is not initialized")
             return []
-        return ["!AIVDM,1,1,,A,13aG;P0000G?u@N6V8D<0?v`0<0=,0*7D"]
+        return ["!AIVDO,1,1,,,E>nlfKg2PVVa0hD:2abDP0000006NAc0J2@`010888wf80,4*70"]
 
 
 class MPU6050LowLevelMock(MockLowLevel):
