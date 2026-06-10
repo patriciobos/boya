@@ -91,7 +91,7 @@ def test_hardware_fsm_acquire_logs_real_reading(module_name, monkeypatch):
 
     last_line = [line for line in readings_file.read_text(encoding="utf-8").splitlines() if line.strip()][-1]
     entry = json.loads(last_line)
-    if module_name in ("AHT10", "AIS", "MPU6050", "Windsonic", "XTRA2210"):
+    if module_name in ("AHT10", "AIS", "Behringer", "MPU6050", "Windsonic", "XTRA2210"):
         assert "module" not in entry
     else:
         assert entry["module"] == module_name

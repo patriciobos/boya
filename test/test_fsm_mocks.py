@@ -125,9 +125,13 @@ def test_behringer_fsm_acquire_with_mock(monkeypatch):
     assert fsm.ll.output_path is not None
     assert Path(fsm.ll.output_path).exists()
     assert not Path(fsm.data_logger.entries[-1]["file"]).is_absolute()
-    assert fsm.data_logger.entries[-1]["duration_s"] == 1
-    assert fsm.data_logger.entries[-1]["status"] == "recording_completed"
-    assert "duration" not in fsm.data_logger.entries[-1]
+    logged = fsm.data_logger.entries[-1]
+    assert logged["duration_s"] == 1
+    assert logged["sample_rate_hz"] == 192000
+    assert logged["channels"] == 1
+    assert logged["size_bytes"] > 0
+    assert "status" not in logged
+    assert "duration" not in logged
     assert fsm.data_logger.sources[-1] == "hardware mock"
 
     fsm.ll.deinit()

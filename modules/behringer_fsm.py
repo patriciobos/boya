@@ -19,6 +19,15 @@ def _project_relative_path(path):
         return str(path)
 
 
+def _file_size_bytes(path):
+    if path is None:
+        return None
+    try:
+        return Path(path).stat().st_size
+    except OSError:
+        return None
+
+
 class BehringerHandlerFSM(BaseHandlerFSM):
     def __init__(self):
         super().__init__("Behringer")
@@ -26,7 +35,7 @@ class BehringerHandlerFSM(BaseHandlerFSM):
         self._pending_params = {}
         self.status_queue = None
         self._acquire_duration = 10
-        self.data_logger = SensorDataLogger("Behringer")
+        self.data_logger = SensorDataLogger("Behringer", include_module=False)
 
     def _emit_state_result(self, result: ResultCode, details=None):
         if self.status_queue:
@@ -112,7 +121,9 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                 data = {
                     "file": _project_relative_path(self.ll.output_path),
                     "duration_s": self._pending_params.get("duration", self._acquire_duration),
-                    "status": "recording_completed" if success else "recording_failed",
+                    "sample_rate_hz": getattr(self.ll, "sample_rate", 192000),
+                    "channels": getattr(self.ll, "output_channels", 1),
+                    "size_bytes": _file_size_bytes(self.ll.output_path),
                 }
                 if result == ResultCode.OK:
                     self.data_logger.log(data, source=data_source_for(self.ll))
