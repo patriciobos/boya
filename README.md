@@ -46,13 +46,13 @@ Desde la raiz del repositorio:
 
 ```bash
 source .venv/bin/activate
-python -m pip install -r requirements-dev.txt
+python -m pip install -r support/requirements-dev.txt
 ```
 
 Para runtime solamente, sin herramientas de test:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -r support/requirements.txt
 ```
 
 Para comandos de test se recomienda usar la venv explicitamente:
