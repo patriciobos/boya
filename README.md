@@ -55,10 +55,10 @@ Para runtime solamente, sin herramientas de test:
 python -m pip install -r support/requirements.txt
 ```
 
-Para comandos de test se recomienda usar la venv explicitamente:
+Para comandos de test se recomienda usar la venv explicitamente. La suite local por defecto no requiere hardware:
 
 ```bash
-PYTHONPATH=. .venv/bin/python -m pytest -q
+PYTHONPATH=. .venv/bin/python -m pytest -m "not hardware" -q
 ```
 
 ## Ejecucion
@@ -111,22 +111,28 @@ Con esta configuracion:
 
 ## Tests
 
-Suite normal, sin exigir hardware opt-in:
-
-```bash
-PYTHONPATH=. .venv/bin/python -m pytest -q
-```
-
-Subset usado por el helper:
+Suite normal para desarrollo, sin hardware:
 
 ```bash
 ./run_tests.sh
 ```
 
+Equivalente manual:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pytest -m "not hardware" -q
+```
+
 Tests de hardware real:
 
 ```bash
-RUN_HARDWARE_TESTS=1 PYTHONPATH=. .venv/bin/python -m pytest test/test_ais_LL.py test/test_run_ll_scripts.py -q -rs
+./run_hardware_tests.sh
+```
+
+Equivalente manual:
+
+```bash
+RUN_HARDWARE_TESTS=1 PYTHONPATH=. .venv/bin/python -m pytest -m hardware -q -rs
 ```
 
 Para exigir fix GPS en AIS/GPS:
