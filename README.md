@@ -153,6 +153,14 @@ En los bitmaps, `0` significa OK y `1` significa error. Orden de bits:
 
 La deteccion de errores se basa en `system_status.json`: estado `ERROR`, ultimo resultado `error` o detalles con errores.
 
+Para pruebas sin visibilidad satelital, `config.json` puede dejar:
+
+```json
+"iridium_transmit_enabled": false
+```
+
+Con esa opcion, Iridium arma el payload y registra cada pedido en `logs/iridium_transmit_requests.jsonl`, pero no abre sesion SBD ni intenta transmitir por modem. Para transmision real, cambiar el valor a `true`.
+
 
 ## Tests
 

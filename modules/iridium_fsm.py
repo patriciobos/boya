@@ -8,7 +8,7 @@ from modules.support.iridium_protocol import (
     build_status_bitmaps,
 )
 from modules.support.ll_factory import get_low_level_class
-from modules.support.system_config import get_data_path, get_logs_path
+from modules.support.system_config import get_config_value, get_data_path, get_logs_path
 
 
 class IridiumHandlerFSM(BaseHandlerFSM):
@@ -91,6 +91,69 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         }
         return payload, details
 
+    def _transmit_enabled(self):
+        return bool(get_config_value("iridium_transmit_enabled", True))
+
+    def _log_transmit_request(self, mode, payload, details, skipped_reason=None):
+        entry = {
+            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "mode": mode,
+            "payload_size_bytes": len(payload) if isinstance(payload, (bytes, bytearray)) else None,
+            "payload_hex": bytes(payload).hex() if isinstance(payload, (bytes, bytearray)) else None,
+            "details": details,
+        }
+        if skipped_reason:
+            entry["skipped_reason"] = skipped_reason
+        path = get_logs_path() / "iridium_transmit_requests.jsonl"
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, separators=(",", ":"), ensure_ascii=False) + "\n")
+        self.logger.info(
+            "Iridium transmit request logged: mode=%s size=%s skipped_reason=%s",
+            entry["mode"],
+            entry["payload_size_bytes"],
+            skipped_reason,
+        )
+
+    def _send_binary_or_log(self, payload, details, clear_after_success, max_attempts, retry_delay_s):
+        if not self._transmit_enabled():
+            skipped = {
+                "mode": "binary",
+                "skipped": True,
+                "reason": "iridium_transmit_disabled",
+            }
+            self._log_transmit_request("binary", payload, details, skipped_reason=skipped["reason"])
+            return True, skipped
+
+        self._log_transmit_request("binary", payload, details)
+        return self.ll.send_sbd_binary(
+            payload,
+            clear_after_success=clear_after_success,
+            max_attempts=max_attempts,
+            retry_delay_s=retry_delay_s,
+        )
+
+    def _send_text_or_log(self, text, clear_after_success, max_attempts, retry_delay_s):
+        details = {
+            "message_type": "text",
+            "payload_size_bytes": len(text.encode("utf-8")),
+        }
+        if not self._transmit_enabled():
+            skipped = {
+                "mode": "text",
+                "skipped": True,
+                "reason": "iridium_transmit_disabled",
+            }
+            self._log_transmit_request("text", None, {**details, "text": text}, skipped_reason=skipped["reason"])
+            return True, skipped
+
+        self._log_transmit_request("text", None, details)
+        return self.ll.send_sbd_text(
+            text,
+            clear_after_success=clear_after_success,
+            max_attempts=max_attempts,
+            retry_delay_s=retry_delay_s,
+        )
+
     def handle_message(self, message: Message):
         params = getattr(message, "params", {}) or {}
 
@@ -159,33 +222,35 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             try:
                 if mode == "alive":
                     payload, alive_details = self._build_alive_payload()
-                    ok, transmit_details = self.ll.send_sbd_binary(
+                    ok, transmit_details = self._send_binary_or_log(
                         payload,
-                        clear_after_success=clear_after_success,
-                        max_attempts=max_attempts,
-                        retry_delay_s=retry_delay_s,
+                        alive_details,
+                        clear_after_success,
+                        max_attempts,
+                        retry_delay_s,
                     )
                     details = {"alive": alive_details, "transmit": transmit_details}
                 elif mode == "binary":
                     payload = self._pending_params.get("payload")
                     if not isinstance(payload, (bytes, bytearray)):
                         raise ValueError("binary transmit requires bytes payload")
-                    ok, details = self.ll.send_sbd_binary(
+                    ok, details = self._send_binary_or_log(
                         bytes(payload),
-                        clear_after_success=clear_after_success,
-                        max_attempts=max_attempts,
-                        retry_delay_s=retry_delay_s,
+                        {"message_type": "binary", "payload_size_bytes": len(payload)},
+                        clear_after_success,
+                        max_attempts,
+                        retry_delay_s,
                     )
                 else:
                     text = self._pending_params.get("text")
                     if text is None:
                         payload = self._pending_params.get("payload")
                         text = payload.decode("utf-8") if isinstance(payload, bytes) else str(payload or "")
-                    ok, details = self.ll.send_sbd_text(
+                    ok, details = self._send_text_or_log(
                         text,
-                        clear_after_success=clear_after_success,
-                        max_attempts=max_attempts,
-                        retry_delay_s=retry_delay_s,
+                        clear_after_success,
+                        max_attempts,
+                        retry_delay_s,
                     )
 
                 result = ResultCode.OK if ok else ResultCode.ERROR
