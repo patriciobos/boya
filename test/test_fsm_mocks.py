@@ -236,6 +236,68 @@ def test_iridium_fsm_transmit_with_mock(monkeypatch):
     fsm.ll.deinit()
 
 
+def test_iridium_fsm_transmits_alive_binary_with_mock(monkeypatch, tmp_path):
+    modules = _reload_modules_with_mocks(monkeypatch)
+    iridium_module = modules["Iridium"]
+
+    logs_path = tmp_path / "logs"
+    data_path = tmp_path / "data"
+    logs_path.mkdir()
+    data_path.mkdir()
+    (logs_path / "system_status.json").write_text(
+        json.dumps({
+            "modules": {
+                "AHT10": {"state": "IDLE", "last_result": "ok"},
+                "AIS": {"state": "IDLE", "last_result": "ok"},
+                "AudioProc": {"state": "IDLE", "last_result": "ok"},
+                "Behringer": {"state": "IDLE", "last_result": "ok"},
+                "Iridium": {"state": "IDLE", "last_result": "ok"},
+                "MPU6050": {"state": "IDLE", "last_result": "ok"},
+                "Windsonic": {"state": "IDLE", "last_result": "ok"},
+                "XTRA2210": {"state": "IDLE", "last_result": "ok"},
+            }
+        }),
+        encoding="utf-8",
+    )
+    (data_path / "ais_readings.jsonl").write_text(
+        json.dumps({"data": {"gps_fix": True, "lat": -34.1, "lon": -58.2}}) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(iridium_module, "get_logs_path", lambda: logs_path)
+    monkeypatch.setattr(iridium_module, "get_data_path", lambda: data_path)
+
+    fsm = iridium_module.IridiumHandlerFSM()
+    status_queue = Queue()
+    fsm.status_queue = status_queue
+
+    fsm.handle_message(Message(MessageID.SIG_INIT))
+    assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
+    assert fsm.state == State.IDLE
+    _drain_status_queue(status_queue)
+
+    fsm.handle_message(
+        Message(
+            MessageID.SIG_TRANSMIT,
+            {"mode": "alive", "clear_after_success": True, "max_attempts": 1, "retry_delay_s": 0.1},
+        )
+    )
+    assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
+    assert fsm.state == State.IDLE
+
+    messages = _drain_status_queue(status_queue)
+    action_results = [msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT]
+    assert action_results
+    details = action_results[-1].params["details"]
+    assert details["alive"]["payload_size_bytes"] == 16
+    assert details["alive"]["fsm_status_bits"] == 0
+    assert details["alive"]["ll_status_bits"] == 0
+    assert details["alive"]["gps_fix"] is True
+    assert details["transmit"]["mode"] == "binary"
+    assert details["transmit"]["size"] == 16
+
+    fsm.ll.deinit()
+
+
 def test_aht10_fsm_acquire_with_mock(monkeypatch):
     modules = _reload_modules_with_mocks(monkeypatch)
 

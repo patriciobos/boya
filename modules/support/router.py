@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict
 
 from modules.support.base_fsm import Message, MessageID
@@ -149,7 +149,7 @@ class Router:
             return False
 
         telemetry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "origin": origin,
             "audio": self.latest_audio_summary,
             "sensors": self.latest_sensor_readings,
@@ -165,6 +165,6 @@ class Router:
             },
         )
         self.send(IRIDIUM_MODULE, transmit_message)
-        self.last_transmit_at = datetime.utcnow()
+        self.last_transmit_at = datetime.now(timezone.utc)
         self.logger.info("Sent compact telemetry to Iridium with %s sensor modules", len(self.latest_sensor_readings))
         return True

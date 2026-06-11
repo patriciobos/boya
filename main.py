@@ -71,7 +71,7 @@ class centralScheduler:
             if k in self.schedules and (self.schedules[k] is None):
                 self.schedules[k] = v
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         self.next_run: dict[str, datetime] = {}
         for name, interval in self.schedules.items():
             if interval is None:
@@ -112,7 +112,7 @@ class centralScheduler:
 
     def _aligned_next_run(self, now: datetime, interval_seconds: int) -> datetime:
         """Return the next run aligned to regular slots from midnight."""
-        midnight = datetime(now.year, now.month, now.day)
+        midnight = datetime(now.year, now.month, now.day, tzinfo=now.tzinfo)
         seconds_since_midnight = (now - midnight).total_seconds()
         next_seconds = math.ceil(seconds_since_midnight / interval_seconds) * interval_seconds
         next_run = midnight + timedelta(seconds=next_seconds)
@@ -122,7 +122,7 @@ class centralScheduler:
 
     def _run(self):
         while not self._stop_event.is_set():
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             for name, interval in list(self.schedules.items()):
                 if interval is None:
                     continue
@@ -140,9 +140,7 @@ class centralScheduler:
                         q = entry.get("queue")
                         if q:
                             if name == "Iridium":
-                                # send hourly alive
-                                msg = Message(MessageID.SIG_TRANSMIT, {"mode": "text", "text": "alive", "origin": "Scheduler"})
-                                q.put(msg)
+                                q.put(Message(MessageID.SIG_TRANSMIT, {"mode": "alive", "origin": "Scheduler"}))
                             else:
                                 q.put(Message(MessageID.SIG_TIMEOUT))
                     # increment next_run

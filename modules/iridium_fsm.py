@@ -1,5 +1,14 @@
+import json
+from datetime import datetime, timezone
+
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
+from modules.support.iridium_protocol import (
+    ALIVE_PAYLOAD_SIZE,
+    build_alive_payload,
+    build_status_bitmaps,
+)
 from modules.support.ll_factory import get_low_level_class
+from modules.support.system_config import get_data_path, get_logs_path
 
 
 class IridiumHandlerFSM(BaseHandlerFSM):
@@ -29,6 +38,58 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             payload["error"] = error
         if self.status_queue:
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
+
+    def _load_system_status(self):
+        path = get_logs_path() / "system_status.json"
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            self.logger.warning("Could not parse system status file: %s", path)
+            return {}
+
+    def _load_latest_ais_position(self):
+        path = get_data_path() / "ais_readings.jsonl"
+        if not path.exists():
+            return {"gps_fix": False, "lat": None, "lon": None}
+        for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            data = entry.get("data") or {}
+            return {
+                "gps_fix": bool(data.get("gps_fix")),
+                "lat": data.get("lat"),
+                "lon": data.get("lon"),
+            }
+        return {"gps_fix": False, "lat": None, "lon": None}
+
+    def _build_alive_payload(self):
+        system_status = self._load_system_status()
+        fsm_bits, ll_bits = build_status_bitmaps(system_status)
+        ais = self._load_latest_ais_position()
+        payload = build_alive_payload(
+            timestamp=datetime.now(timezone.utc),
+            fsm_status_bits=fsm_bits,
+            ll_status_bits=ll_bits,
+            gps_fix=ais["gps_fix"],
+            lat=ais["lat"],
+            lon=ais["lon"],
+        )
+        details = {
+            "message_type": "alive",
+            "payload_size_bytes": ALIVE_PAYLOAD_SIZE,
+            "fsm_status_bits": fsm_bits,
+            "ll_status_bits": ll_bits,
+            "gps_fix": ais["gps_fix"],
+            "lat_present": ais["lat"] is not None,
+            "lon_present": ais["lon"] is not None,
+        }
+        return payload, details
 
     def handle_message(self, message: Message):
         params = getattr(message, "params", {}) or {}
@@ -96,7 +157,16 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             retry_delay_s = float(self._pending_params.get("retry_delay_s", 10.0))
             clear_after_success = bool(self._pending_params.get("clear_after_success", True))
             try:
-                if mode == "binary":
+                if mode == "alive":
+                    payload, alive_details = self._build_alive_payload()
+                    ok, transmit_details = self.ll.send_sbd_binary(
+                        payload,
+                        clear_after_success=clear_after_success,
+                        max_attempts=max_attempts,
+                        retry_delay_s=retry_delay_s,
+                    )
+                    details = {"alive": alive_details, "transmit": transmit_details}
+                elif mode == "binary":
                     payload = self._pending_params.get("payload")
                     if not isinstance(payload, (bytes, bytearray)):
                         raise ValueError("binary transmit requires bytes payload")

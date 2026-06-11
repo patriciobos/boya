@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,7 @@ class StatusReport:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def update(self, origin: str, state: str, action: str | None, result: str | None, details: Any = None) -> None:
-        self.report["last_updated"] = datetime.utcnow().isoformat() + "Z"
+        self.report["last_updated"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         module_report = self.report["modules"].setdefault(origin, {})
         module_report.update({
             "state": state,
