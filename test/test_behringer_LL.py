@@ -18,6 +18,7 @@ Tests for BehringerLowLevel class in modules/behringer_LL.py
 """
 
 import os
+import re
 import pytest
 import time
 from modules.behringer_LL import BehringerLowLevel
@@ -107,6 +108,13 @@ def test_default_recordings_dir_is_data_recordings():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     expected_dir = os.path.join(repo_root, "data", "recordings")
     assert os.path.abspath(audio.recordings_dir) == os.path.abspath(expected_dir)
+
+def test_output_path_is_flat_utc_recordings_file():
+    """Verify recordings are named with a UTC timestamp directly under data/recordings."""
+    audio = BehringerLowLevel()
+    output_path = audio._make_output_path()
+    assert os.path.abspath(os.path.dirname(output_path)) == os.path.abspath(audio.recordings_dir)
+    assert re.fullmatch(r"recording_\d{8}_\d{6}\.wav", os.path.basename(output_path))
 
 @pytest.mark.hardware
 @requires_hardware

@@ -92,6 +92,7 @@ data/*.wav
 data/*.dat
 data/*.tmp
 data/recordings/
+data/audio_proc/
 modules/recordings/
 modules/support/behringer_mock/
 /test.wav

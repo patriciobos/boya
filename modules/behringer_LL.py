@@ -27,7 +27,7 @@ import queue
 import threading
 import time
 import wave
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from numpy import info
@@ -326,11 +326,9 @@ class BehringerLowLevel:
             return False
 
     def _make_output_path(self) -> str:
-        date_str = datetime.now().strftime("%Y%m%d")
-        recordings_dir = os.path.join(self.recordings_dir, date_str)
-        os.makedirs(recordings_dir, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return os.path.join(recordings_dir, f"recording_{timestamp}.wav")
+        os.makedirs(self.recordings_dir, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        return os.path.join(self.recordings_dir, f"recording_{timestamp}.wav")
 
     def _clear_queue(self) -> None:
         try:

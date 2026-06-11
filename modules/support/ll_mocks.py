@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import wave
 from pathlib import Path
@@ -107,15 +108,15 @@ class AudioProcLowLevelMock(MockLowLevel):
             return None
 
         source = Path(wav_path) if wav_path else Path("audio_proc_mock_input.wav")
-        output = source.with_name(f"{source.stem}_mock_processed.wav")
+        output = source.with_name(f"audioProc_{source.stem}.json")
         output.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            with wave.open(str(output), "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(192000)
-                wf.writeframes(b"\x00\x00" * 1920)
+            payload = {
+                "timestamp": "1970-01-01T00:00:00Z",
+                "relative_band_power_db": [[1.0], [2.0]],
+            }
+            output.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
             self.output_path = str(output)
             return self.output_path
         except Exception as exc:

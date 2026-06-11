@@ -40,10 +40,11 @@ def _normalize_source(data: dict[str, Any], source: str | None) -> str | None:
 
 
 class SensorDataLogger:
-    def __init__(self, module_name: str, include_module: bool = True):
+    def __init__(self, module_name: str, include_module: bool = True, file_stem: str | None = None):
         self.module_name = module_name
         self.include_module = include_module
-        self.file_path = get_data_path() / f"{module_name.lower()}_readings.jsonl"
+        stem = file_stem or module_name.lower()
+        self.file_path = get_data_path() / f"{stem}_readings.jsonl"
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
 
     def log(self, data: dict[str, Any], source: str | None = None) -> None:

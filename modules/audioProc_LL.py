@@ -7,6 +7,8 @@ This class provides a standard interface for initializing, testing, acquiring da
 import os
 import sys
 import json
+import math
+import re
 import numpy as np
 import wave
 import pandas as pd
@@ -14,6 +16,7 @@ from scipy.signal import butter, lfilter, welch
 from scipy import signal
 from scipy.interpolate import interp1d
 from scipy.stats import chi2
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -38,7 +41,7 @@ def _trapz(y, x):
 # Keep the same filename, but construct it relative to repository root so it works
 # on Windows and Linux. If the file isn't present, TEST_WAV_PATH will be None.
 BASE_DIR = Path(__file__).resolve().parents[1]
-_candidate = BASE_DIR / 'modules' / 'recordings' / 'test_recordings' / '20180824_8105_20m_daspre_cap_2.wav'
+_candidate = BASE_DIR / 'test' / 'recordings' / 'test_recordings' / '20180824_8105_20m_daspre_cap_2.wav'
 
 TEST_WAV_PATH = str(_candidate) if _candidate.exists() else None
 
@@ -466,9 +469,8 @@ class AudioProcLowLevel:
                     band_psd = psd_corrected[band_mask]
                     if len(band_psd) == 1:
                         # In case there is only one PSD point inside band,
-                        # rectangular area using df_min as width is 
-                        # considered.
-                        power_in_band = band_psd * df_min
+                        # rectangular area using df_min as width is considered.
+                        power_in_band = float(band_psd[0]) * df_min
                     else:
                         power_in_band = _trapz(band_psd, band_freqs)
                     
@@ -620,6 +622,48 @@ class AudioProcLowLevel:
         self.logger.info("Relative power calculation completed using noise_ref PSD.")
         return powers
     
+    def _json_safe_matrix(self, values):
+        arr = np.asarray(values, dtype=float)
+        if arr.ndim == 1:
+            arr = arr.reshape(-1, 1)
+        matrix = []
+        for row in arr:
+            matrix.append([
+                None if not math.isfinite(float(value)) else round(float(value), 3)
+                for value in row
+            ])
+        return matrix
+
+    def _output_timestamp_from_wav(self, wav_path):
+        wav_basename = os.path.splitext(os.path.basename(wav_path))[0]
+        match = re.search(r"(\d{8})_(\d{6})", wav_basename)
+        if not match:
+            now = datetime.now(timezone.utc)
+            return now.strftime("%Y%m%d_%H%M%S"), now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        date_part, time_part = match.groups()
+        dt_utc = datetime.strptime(f"{date_part}_{time_part}", "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
+        return f"{date_part}_{time_part}", dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def generate_json_output(self, rel_powers, wav_path):
+        self.logger.info(f"Generating JSON output file for: {wav_path}")
+
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        output_dir = os.path.join(base_dir, "data", "audio_proc")
+        os.makedirs(output_dir, exist_ok=True)
+        timestamp_token, timestamp = self._output_timestamp_from_wav(wav_path)
+        output_path = os.path.join(output_dir, f"audioProc_{timestamp_token}.json")
+
+        payload = {
+            "timestamp": timestamp,
+            "relative_band_power_db": self._json_safe_matrix(rel_powers),
+        }
+        with open(output_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, separators=(",", ":"), ensure_ascii=False)
+            handle.write("\n")
+        self.logger.info(f"JSON file generated: {output_path}")
+        return output_path
+
     def generate_output(self, rel_powers, wav_path):
         """
         Writes rel_powers data to a binary file.
@@ -716,9 +760,9 @@ class AudioProcLowLevel:
             self.logger.info("Step 2: Calculating relative powers with respect to reference...")
             rel_powers = self.rel_band_power_calculator(powers)
             
-            # Step 3: Generate binary output file
-            self.logger.info("Step 3: Generating binary output file...")
-            output_path = self.generate_output(rel_powers, wav_path)
+            # Step 3: Generate JSON output file
+            self.logger.info("Step 3: Generating JSON output file...")
+            output_path = self.generate_json_output(rel_powers, wav_path)
             
             self.logger.info(f"Processing completed successfully. Generated file: {output_path}")
             return output_path
@@ -757,8 +801,7 @@ class AudioProcLowLevel:
 
         try:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            modules_dir = os.path.dirname(os.path.abspath(__file__))
-            test_recordings_dir = os.path.join(modules_dir, "recordings", "test_recordings")
+            test_recordings_dir = os.path.join(base_dir, "test", "recordings", "test_recordings")
             test_data_dir = os.path.join(base_dir, "data", "test_data")
             os.makedirs(test_recordings_dir, exist_ok=True)
             os.makedirs(test_data_dir, exist_ok=True)

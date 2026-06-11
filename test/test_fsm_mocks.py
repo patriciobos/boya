@@ -1,4 +1,5 @@
 import importlib
+import json
 import os
 import time
 from multiprocessing import Queue
@@ -86,6 +87,36 @@ def test_audio_proc_fsm_uses_mock_and_self_tests_with_mock(monkeypatch):
     ok, report = run_fsm_self_test(fsm)
     assert ok, report
     assert report["final_state"] == "IDLE"
+
+
+def test_audio_proc_fsm_process_with_mock_logs_output(monkeypatch, tmp_path):
+    modules = _reload_modules_with_mocks(monkeypatch)
+
+    fsm = modules["AudioProc"].AudioProcHandlerFSM()
+    fsm.data_logger = CapturingDataLogger()
+    status_queue = Queue()
+    fsm.status_queue = status_queue
+
+    input_path = tmp_path / "recording.wav"
+    input_path.write_bytes(b"mock wav placeholder")
+
+    fsm.handle_message(Message(MessageID.SIG_INIT))
+    assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
+    assert fsm.state == State.IDLE
+
+    fsm.handle_message(Message(MessageID.SIG_PROCESS, {"file": str(input_path)}))
+    assert _wait_for_state(fsm, {State.IDLE, State.ERROR}, max_iters=400)
+    assert fsm.state == State.IDLE
+
+    logged = fsm.data_logger.entries[-1]
+    assert set(logged) == {"input_file", "output_file"}
+    assert logged["input_file"].endswith("recording.wav")
+    output_path = Path(logged["output_file"])
+    assert output_path.exists()
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert set(payload) == {"timestamp", "relative_band_power_db"}
+    assert payload["relative_band_power_db"] == [[1.0], [2.0]]
+    assert fsm.data_logger.sources[-1] == "hardware mock"
 
 
 def test_mocks_can_be_enabled_per_module(monkeypatch):
