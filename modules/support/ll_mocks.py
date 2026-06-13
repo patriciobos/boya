@@ -113,7 +113,7 @@ class AudioProcLowLevelMock(MockLowLevel):
 
         try:
             payload = {
-                "timestamp": "1970-01-01T00:00:00Z",
+                "timestamp": "1970-01-01T00:00:00-03:00",
                 "relative_band_power_db": [[1.0], [2.0]],
             }
             output.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")

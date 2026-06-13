@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
+from modules.ais_LL import _nmea_validate_checksum
 
 
 class AISHandlerFSM(BaseHandlerFSM):
@@ -43,6 +44,31 @@ class AISHandlerFSM(BaseHandlerFSM):
             "satellites": int(navigation.get("num_sats") or 0),
             "hdop": navigation.get("hdop"),
             "own_transmit_messages": sum(1 for line in lines if isinstance(line, str) and line.startswith("!AIVDO")),
+        }
+
+    def _fresh_traffic_summary(self, lines: list[str]) -> Dict[str, int]:
+        valid_nmea = 0
+        valid_ais = 0
+
+        for line in lines:
+            if not isinstance(line, str):
+                continue
+            line = line.strip()
+            if not line:
+                continue
+
+            if line.startswith(("!AIVDO", "!AIVDM")) and _nmea_validate_checksum(line):
+                valid_ais += 1
+            elif line.startswith("$") and _nmea_validate_checksum(line):
+                valid_nmea += 1
+                parse_nmea = getattr(self.ll, "parse_nmea", None)
+                if callable(parse_nmea):
+                    parse_nmea(line)
+
+        return {
+            "lines_seen": len([line for line in lines if isinstance(line, str) and line.strip()]),
+            "valid_nmea_lines": valid_nmea,
+            "valid_ais_lines": valid_ais,
         }
 
     def handle_message(self, message: Message):
@@ -88,8 +114,18 @@ class AISHandlerFSM(BaseHandlerFSM):
             try:
                 if not getattr(self.ll, "is_open", False):
                     self.ll.open()
+                reset_navigation = getattr(self.ll, "_reset_navigation", None)
+                if callable(reset_navigation):
+                    reset_navigation()
                 seconds = float(self._pending_params.get("seconds", 1.0))
                 lines = self.ll.read_lines(seconds=seconds)
+                traffic = self._fresh_traffic_summary(lines)
+                if traffic["valid_nmea_lines"] + traffic["valid_ais_lines"] == 0:
+                    raise RuntimeError(
+                        "No fresh AIS/GPS traffic detected "
+                        f"(lines={traffic['lines_seen']}, valid_nmea={traffic['valid_nmea_lines']}, "
+                        f"valid_ais={traffic['valid_ais_lines']})"
+                    )
                 navigation = self.ll.get_navigation()
                 data = self._normalize_measurement(navigation, lines)
                 result = ResultCode.OK

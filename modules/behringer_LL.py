@@ -20,25 +20,22 @@ Functional helpers:
 
 from __future__ import annotations
 
-import glob
 import json
 import os
 import queue
 import threading
 import time
 import wave
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from numpy import info
 import pyaudio
 
-import os
 import sys
 
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.support.log_utils import get_logger
+from modules.support.system_config import compact_utc_minus_3_timestamp
 
 # Suppress common ALSA/JACK warnings and prevent JACK server autostart.
 os.environ["PYTHONWARNINGS"] = "ignore"
@@ -327,7 +324,7 @@ class BehringerLowLevel:
 
     def _make_output_path(self) -> str:
         os.makedirs(self.recordings_dir, exist_ok=True)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = compact_utc_minus_3_timestamp()
         return os.path.join(self.recordings_dir, f"recording_{timestamp}.wav")
 
     def _clear_queue(self) -> None:

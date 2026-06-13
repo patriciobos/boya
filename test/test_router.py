@@ -43,3 +43,68 @@ def test_router_does_not_route_when_condition_fails():
 
     assert routed is False
     assert audio_queue.empty()
+
+
+def test_router_stores_audioproc_result_without_immediate_iridium_request():
+    router = Router()
+    iridium_queue = Queue()
+    router.register("Iridium", iridium_queue)
+
+    message = Message(
+        MessageID.ACTION_RESULT,
+        {
+            "action": "process",
+            "result": "ok",
+            "output": "data/audio_proc/audioProc_test.json",
+            "data": {
+                "input": "data/recordings/test.wav",
+                "output": "data/audio_proc/audioProc_test.json",
+            },
+        },
+    )
+
+    routed = router.route("AudioProc", message)
+
+    assert routed is False
+    assert iridium_queue.empty()
+    assert router.latest_audio_summary["output"] == "data/audio_proc/audioProc_test.json"
+
+
+def test_router_does_not_route_failed_audioproc_to_iridium():
+    router = Router()
+    iridium_queue = Queue()
+    router.register("Iridium", iridium_queue)
+
+    message = Message(
+        MessageID.ACTION_RESULT,
+        {
+            "action": "process",
+            "result": "error",
+            "error": "no_input_available",
+        },
+    )
+
+    routed = router.route("AudioProc", message)
+
+    assert routed is False
+    assert iridium_queue.empty()
+
+
+def test_router_does_not_route_audioproc_without_output_to_iridium():
+    router = Router()
+    iridium_queue = Queue()
+    router.register("Iridium", iridium_queue)
+
+    message = Message(
+        MessageID.ACTION_RESULT,
+        {
+            "action": "process",
+            "result": "ok",
+            "data": {"input": "data/recordings/test.wav"},
+        },
+    )
+
+    routed = router.route("AudioProc", message)
+
+    assert routed is False
+    assert iridium_queue.empty()

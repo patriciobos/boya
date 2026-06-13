@@ -1,14 +1,22 @@
 import json
-from datetime import datetime, timezone
+from pathlib import Path
 
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.iridium_protocol import (
     ALIVE_PAYLOAD_SIZE,
+    AUDIOPROC_HEADER_SIZE,
     build_alive_payload,
+    build_audio_proc_payload,
     build_status_bitmaps,
+    expected_audio_band_count,
+    status_details,
 )
 from modules.support.ll_factory import get_low_level_class
-from modules.support.system_config import get_config_value, get_data_path, get_logs_path
+from modules.support.system_config import PROJECT_ROOT, get_config_value, get_data_path, get_logs_path, now_utc_minus_3, utc_minus_3_timestamp
+
+
+class AudioProcPayloadUnavailable(ValueError):
+    pass
 
 
 class IridiumHandlerFSM(BaseHandlerFSM):
@@ -73,7 +81,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         fsm_bits, ll_bits = build_status_bitmaps(system_status)
         ais = self._load_latest_ais_position()
         payload = build_alive_payload(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=now_utc_minus_3(),
             fsm_status_bits=fsm_bits,
             ll_status_bits=ll_bits,
             gps_fix=ais["gps_fix"],
@@ -83,11 +91,84 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         details = {
             "message_type": "alive",
             "payload_size_bytes": ALIVE_PAYLOAD_SIZE,
-            "fsm_status_bits": fsm_bits,
-            "ll_status_bits": ll_bits,
+            **status_details(fsm_bits, ll_bits),
             "gps_fix": ais["gps_fix"],
             "lat_present": ais["lat"] is not None,
             "lon_present": ais["lon"] is not None,
+        }
+        return payload, details
+
+    def _resolve_audio_output_path(self, output_path):
+        if not output_path:
+            raise ValueError("audio transmit requires output path")
+        path = Path(str(output_path))
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return path
+
+    def _load_latest_audio_output(self):
+        path = get_data_path() / "audioProc_readings.jsonl"
+        if not path.exists():
+            raise AudioProcPayloadUnavailable("No AudioProc readings are available")
+        for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            data = entry.get("data") or {}
+            output_file = data.get("output_file") or data.get("output")
+            if not output_file:
+                continue
+            output_path = self._resolve_audio_output_path(output_file)
+            if output_path.exists():
+                return {"output": output_file}
+        raise AudioProcPayloadUnavailable("No valid AudioProc output is available")
+
+    def _load_audio_proc_data(self, audio):
+        audio = audio or self._load_latest_audio_output()
+        if "relative_band_power_db" in audio:
+            return audio
+        if not audio.get("output"):
+            audio = self._load_latest_audio_output()
+        output_path = self._resolve_audio_output_path(audio.get("output"))
+        try:
+            data = json.loads(output_path.read_text(encoding="utf-8"))
+            data.setdefault("output", audio.get("output"))
+            return data
+        except FileNotFoundError as exc:
+            raise ValueError(f"AudioProc output not found: {output_path}") from exc
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid AudioProc output JSON: {output_path}: {exc}") from exc
+
+    def _build_audio_proc_payload(self, audio):
+        system_status = self._load_system_status()
+        fsm_bits, ll_bits = build_status_bitmaps(system_status)
+        audio_data = self._load_audio_proc_data(audio)
+        bands = audio_data.get("relative_band_power_db")
+        if bands is None:
+            raise AudioProcPayloadUnavailable("AudioProc relative_band_power_db is not available")
+        expected_bands = expected_audio_band_count()
+        payload = build_audio_proc_payload(
+            fsm_status_bits=fsm_bits,
+            ll_status_bits=ll_bits,
+            relative_band_power_db=bands,
+            expected_band_count=expected_bands,
+        )
+        audio_value_count = max(0, len(payload) - AUDIOPROC_HEADER_SIZE)
+        channel_count = audio_value_count // expected_bands if expected_bands else 0
+        details = {
+            "message_type": "audioProc",
+            "payload_size_bytes": len(payload),
+            "header_size_bytes": AUDIOPROC_HEADER_SIZE,
+            **status_details(fsm_bits, ll_bits),
+            "frequency_band_count": expected_bands,
+            "channel_count": channel_count,
+            "audio_value_count": audio_value_count,
+            "bytes_per_channel": expected_bands,
+            "audio_output": (audio or {}).get("output") or audio_data.get("output"),
+            "encoding": "int8_db_null_-128",
         }
         return payload, details
 
@@ -96,7 +177,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
 
     def _log_transmit_request(self, mode, payload, details, skipped_reason=None):
         entry = {
-            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "timestamp": utc_minus_3_timestamp(),
             "mode": mode,
             "payload_size_bytes": len(payload) if isinstance(payload, (bytes, bytearray)) else None,
             "payload_hex": bytes(payload).hex() if isinstance(payload, (bytes, bytearray)) else None,
@@ -132,28 +213,6 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             retry_delay_s=retry_delay_s,
         )
 
-    def _send_text_or_log(self, text, clear_after_success, max_attempts, retry_delay_s):
-        details = {
-            "message_type": "text",
-            "payload_size_bytes": len(text.encode("utf-8")),
-        }
-        if not self._transmit_enabled():
-            skipped = {
-                "mode": "text",
-                "skipped": True,
-                "reason": "iridium_transmit_disabled",
-            }
-            self._log_transmit_request("text", None, {**details, "text": text}, skipped_reason=skipped["reason"])
-            return True, skipped
-
-        self._log_transmit_request("text", None, details)
-        return self.ll.send_sbd_text(
-            text,
-            clear_after_success=clear_after_success,
-            max_attempts=max_attempts,
-            retry_delay_s=retry_delay_s,
-        )
-
     def handle_message(self, message: Message):
         params = getattr(message, "params", {}) or {}
 
@@ -171,9 +230,10 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             self.set_state(State.ACQUIRE, self.status_queue)
         elif message.id == MessageID.SIG_TRANSMIT:
             self._pending_params = {
-                "mode": params.get("mode", "text"),
+                "mode": params.get("mode", "alive"),
                 "payload": params.get("payload"),
                 "text": params.get("text"),
+                "audio": params.get("audio"),
                 "clear_after_success": params.get("clear_after_success", True),
                 "max_attempts": params.get("max_attempts", 3),
                 "retry_delay_s": params.get("retry_delay_s", 10.0),
@@ -230,28 +290,44 @@ class IridiumHandlerFSM(BaseHandlerFSM):
                         retry_delay_s,
                     )
                     details = {"alive": alive_details, "transmit": transmit_details}
-                elif mode == "binary":
-                    payload = self._pending_params.get("payload")
-                    if not isinstance(payload, (bytes, bytearray)):
-                        raise ValueError("binary transmit requires bytes payload")
-                    ok, details = self._send_binary_or_log(
-                        bytes(payload),
-                        {"message_type": "binary", "payload_size_bytes": len(payload)},
-                        clear_after_success,
-                        max_attempts,
-                        retry_delay_s,
-                    )
+                elif mode == "audio":
+                    try:
+                        payload, audio_details = self._build_audio_proc_payload(self._pending_params.get("audio"))
+                    except (AudioProcPayloadUnavailable, ValueError) as exc:
+                        ok = True
+                        details = {
+                            "audio": {
+                                "message_type": "audioProc",
+                                "skipped": True,
+                                "reason": "audioProc_payload_unavailable",
+                                "error": str(exc),
+                            },
+                            "transmit": {
+                                "mode": "binary",
+                                "skipped": True,
+                                "reason": "audioProc_payload_unavailable",
+                            },
+                        }
+                    else:
+                        ok, transmit_details = self._send_binary_or_log(
+                            payload,
+                            audio_details,
+                            clear_after_success,
+                            max_attempts,
+                            retry_delay_s,
+                        )
+                        details = {"audio": audio_details, "transmit": transmit_details}
                 else:
-                    text = self._pending_params.get("text")
-                    if text is None:
-                        payload = self._pending_params.get("payload")
-                        text = payload.decode("utf-8") if isinstance(payload, bytes) else str(payload or "")
-                    ok, details = self._send_text_or_log(
-                        text,
-                        clear_after_success,
-                        max_attempts,
-                        retry_delay_s,
-                    )
+                    ok = True
+                    details = {
+                        "transmit": {
+                            "mode": mode,
+                            "skipped": True,
+                            "reason": "unsupported_transmit_mode",
+                            "allowed_modes": ["alive", "audio"],
+                        }
+                    }
+                    self.logger.warning("Skipping unsupported Iridium transmit mode: %s", mode)
 
                 result = ResultCode.OK if ok else ResultCode.ERROR
                 self._emit_action_result("transmit", result, details=details)

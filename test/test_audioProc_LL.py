@@ -22,7 +22,7 @@ def test_audio_proc_processes_real_fixture_wav():
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert set(payload) == {"timestamp", "relative_band_power_db"}
-    assert payload["timestamp"].endswith("Z")
+    assert payload["timestamp"].endswith("-03:00")
     powers = payload["relative_band_power_db"]
     assert isinstance(powers, list)
     assert len(powers) > 0

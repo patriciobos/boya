@@ -9,17 +9,17 @@ from modules.behringer_fsm import BehringerHandlerFSM
 from modules.iridium_fsm import IridiumHandlerFSM
 from modules.mpu6050_fsm import MPU6050HandlerFSM
 from modules.support.base_fsm import Message, MessageID, State
-from modules.support.ll_factory import is_mock_enabled
+from modules.support.ll_factory import get_mocked_module_names, is_mock_enabled, validate_mock_configuration
 from modules.support.log_utils import get_logger
 from modules.support.router import Router
 from modules.support.status_report import StatusReport
 from modules.windsonic_fsm import WindsonicHandlerFSM
 from modules.xtra2210_fsm import XTRA2210HandlerFSM
-from modules.support.system_config import get_schedule
+from modules.support.system_config import get_schedule, now_utc_minus_3
 import threading
 import time
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 def launch_fsm(handler_class, name):
     queue = Queue()
@@ -40,9 +40,9 @@ class centralScheduler:
     """Central scheduler that sends SIG_TIMEOUT/SIG_TRANSMIT to FSM queues.
 
     Responsibilities:
-    - Send periodic SIG_TIMEOUT to sensor FSMs according to schedule (centralized 600s default).
+    - Send periodic SIG_TIMEOUT to FSMs on regular wall-clock slots (UTC-3).
     - Send SIG_TIMEOUT to Behringer every 14400s (4h) and retry up to 2 times on failure.
-    - Send hourly 'alive' SIG_TRANSMIT to Iridium.
+    - Send hourly Iridium SIG_TRANSMIT on regular hours: alive, alive, alive, audio.
     """
 
     def __init__(self, fsms: dict[str, dict]):
@@ -71,15 +71,12 @@ class centralScheduler:
             if k in self.schedules and (self.schedules[k] is None):
                 self.schedules[k] = v
 
-        now = datetime.now(timezone.utc)
+        now = now_utc_minus_3()
         self.next_run: dict[str, datetime] = {}
         for name, interval in self.schedules.items():
             if interval is None:
                 continue
-            if name == "Behringer":
-                self.next_run[name] = self._aligned_next_run(now, interval)
-            else:
-                self.next_run[name] = now + timedelta(seconds=interval)
+            self.next_run[name] = self._aligned_next_run(now, interval)
 
         # Behringer retry bookkeeping
         self.behringer_retries: int = 0
@@ -111,7 +108,7 @@ class centralScheduler:
             pass
 
     def _aligned_next_run(self, now: datetime, interval_seconds: int) -> datetime:
-        """Return the next run aligned to regular slots from midnight."""
+        """Return the next run aligned to regular slots from midnight UTC-3."""
         midnight = datetime(now.year, now.month, now.day, tzinfo=now.tzinfo)
         seconds_since_midnight = (now - midnight).total_seconds()
         next_seconds = math.ceil(seconds_since_midnight / interval_seconds) * interval_seconds
@@ -120,18 +117,25 @@ class centralScheduler:
             next_run += timedelta(seconds=interval_seconds)
         return next_run
 
+    def _advance_next_run(self, previous_run: datetime, now: datetime, interval_seconds: int) -> datetime:
+        if previous_run > now:
+            return previous_run
+        missed_slots = int((now - previous_run).total_seconds() // interval_seconds) + 1
+        return previous_run + timedelta(seconds=missed_slots * interval_seconds)
+
+    def _iridium_mode_for_run(self, run_at: datetime) -> str:
+        # Four-hour cycle anchored at midnight UTC-3: 01/02/03 alive, 04 audio.
+        return "audio" if run_at.hour % 4 == 0 else "alive"
+
     def _run(self):
         while not self._stop_event.is_set():
-            now = datetime.now(timezone.utc)
+            now = now_utc_minus_3()
             for name, interval in list(self.schedules.items()):
                 if interval is None:
                     continue
                 nr = self.next_run.get(name)
                 if nr is None:
-                    if name == "Behringer":
-                        self.next_run[name] = self._aligned_next_run(now, interval)
-                    else:
-                        self.next_run[name] = now + timedelta(seconds=interval)
+                    self.next_run[name] = self._aligned_next_run(now, interval)
                     continue
                 if now >= nr:
                     # send scheduling message
@@ -140,11 +144,12 @@ class centralScheduler:
                         q = entry.get("queue")
                         if q:
                             if name == "Iridium":
-                                q.put(Message(MessageID.SIG_TRANSMIT, {"mode": "alive", "origin": "Scheduler"}))
+                                mode = self._iridium_mode_for_run(nr)
+                                q.put(Message(MessageID.SIG_TRANSMIT, {"mode": mode, "origin": "Scheduler", "scheduled_for": nr.isoformat()}))
                             else:
-                                q.put(Message(MessageID.SIG_TIMEOUT))
-                    # increment next_run
-                    self.next_run[name] = now + timedelta(seconds=interval)
+                                q.put(Message(MessageID.SIG_TIMEOUT, {"origin": "Scheduler", "scheduled_for": nr.isoformat()}))
+                    # increment next_run from the regular slot, not from current time, to avoid drift
+                    self.next_run[name] = self._advance_next_run(nr, now, interval)
 
             # Behringer retries: if retries >0 and <= max, trigger an immediate SIG_ACQUIRE
             if self.behringer_retries and self.behringer_retries <= self.max_behringer_retries:
@@ -158,7 +163,17 @@ class centralScheduler:
 
 if __name__ == "__main__":
     logger = get_logger("main")
-    if is_mock_enabled():
+    mock_config = validate_mock_configuration()
+    mock_modules = get_mocked_module_names()
+    if mock_modules:
+        logger.warning(
+            "Mock mode enabled for modules=%s config_modules=%s env_modules=%s all_mock=%s",
+            mock_modules,
+            mock_config["config_modules"],
+            mock_config["env_modules"],
+            mock_config["all_mock"],
+        )
+    if is_mock_enabled() and mock_config["all_mock"]:
         logger.warning("USE_LL_MOCKS is enabled: all LL modules will use mocks")
     fsms = {
         "Behringer": launch_fsm(BehringerHandlerFSM, "Behringer"),

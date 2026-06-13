@@ -1,8 +1,22 @@
 import logging
 import os
+from datetime import datetime
 from typing import Optional
 
-from modules.support.system_config import get_logs_path
+from modules.support.system_config import UTC_MINUS_3, UTC_MINUS_3_LABEL, get_logs_path
+
+
+class UTCMinus3Formatter(logging.Formatter):
+    def format(self, record):
+        record.timezone_label = UTC_MINUS_3_LABEL
+        return super().format(record)
+
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, UTC_MINUS_3).replace(microsecond=0)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.isoformat()
+
 
 def get_logger(name: str, log_file: Optional[str] = None, level=logging.INFO) -> logging.Logger:
     """
@@ -26,7 +40,7 @@ def get_logger(name: str, log_file: Optional[str] = None, level=logging.INFO) ->
 
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    formatter = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s')
+    formatter = UTCMinus3Formatter('%(asctime)s %(timezone_label)s [%(name)s] %(levelname)s: %(message)s')
 
     # Handler de archivo
     if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == os.path.abspath(log_file) for h in logger.handlers):

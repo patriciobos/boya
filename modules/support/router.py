@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable, Dict
 
 from modules.support.base_fsm import Message, MessageID
 from modules.support.log_utils import get_logger
+from modules.support.system_config import now_utc_minus_3
 
 RouteCondition = Callable[[Message], bool]
 RouteMessageFactory = Callable[[str, Message], Message]
@@ -91,9 +91,15 @@ class Router:
             return False
 
         if origin == AUDIO_MODULE and message.id == MessageID.ACTION_RESULT:
+            if message.params.get("result") != "ok":
+                self.logger.info("AudioProc result is not OK; keeping Iridium on scheduled transmissions")
+                return False
             if message.params.get("output"):
                 self.latest_audio_summary = self._compact_audio_message(message)
-                return self._route_compact_telemetry_to_iridium(origin, message)
+                self.logger.info("Stored latest AudioProc result for scheduled Iridium audio transmit")
+                return False
+            self.logger.info("AudioProc result has no output; keeping Iridium on scheduled transmissions")
+            return False
 
         for rule in self.rules:
             if rule.origin != origin or rule.message_id != message.id:
@@ -148,23 +154,15 @@ class Router:
             self.logger.warning("Iridium queue is not registered. Cannot send telemetry.")
             return False
 
-        telemetry = {
-            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "origin": origin,
-            "audio": self.latest_audio_summary,
-            "sensors": self.latest_sensor_readings,
-        }
-
-        payload_text = json.dumps(telemetry, separators=(",", ":"), ensure_ascii=False)
         transmit_message = Message(
             MessageID.SIG_TRANSMIT,
             {
-                "mode": "text",
-                "text": payload_text,
+                "mode": "audio",
+                "audio": self.latest_audio_summary,
                 "origin": "Router",
             },
         )
         self.send(IRIDIUM_MODULE, transmit_message)
-        self.last_transmit_at = datetime.now(timezone.utc)
-        self.logger.info("Sent compact telemetry to Iridium with %s sensor modules", len(self.latest_sensor_readings))
+        self.last_transmit_at = now_utc_minus_3()
+        self.logger.info("Sent AudioProc binary telemetry request to Iridium")
         return True

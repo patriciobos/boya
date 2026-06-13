@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from modules.support.system_config import get_data_path
+from modules.support.system_config import get_data_path, utc_minus_3_timestamp
 
 
 def compact_utc_timestamp() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return utc_minus_3_timestamp()
 
 
 def data_source_for(low_level: Any) -> str | None:

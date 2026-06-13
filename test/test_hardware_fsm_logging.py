@@ -10,7 +10,7 @@ import pytest
 from modules.support.base_fsm import Message, MessageID, State
 from modules.support.system_config import get_data_path
 
-TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-03:00")
 
 MODULES = {
     "AHT10": ("modules.aht10_fsm", "AHT10HandlerFSM", Message(MessageID.SIG_ACQUIRE, {"timeout": 3.0})),

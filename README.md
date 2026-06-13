@@ -18,7 +18,7 @@ El proceso principal (`main.py`) lanza los FSMs en procesos separados, conecta s
 - `XTRA2210`: controlador solar por puerto serie/Modbus.
 - `Behringer`: adquisicion de audio USB.
 - `AudioProc`: procesamiento de audio generado por Behringer.
-- `Iridium`: gateway satelital SBD; transmite alive binario y queda preparado para comandos entrantes.
+- `Iridium`: gateway satelital SBD; transmite mensajes binarios `alive` y `audioProc` en horarios regulares.
 
 ## Rutas del proyecto
 
@@ -81,6 +81,14 @@ Tambien se puede mockear un modulo individual:
 USE_MOCK_AHT10=1 PYTHONPATH=. .venv/bin/python main.py
 ```
 
+La forma recomendada para ensayos repetibles es declarar los modulos mockeados en `config.json`:
+
+```json
+"mock_modules": ["Windsonic", "Iridium", "AIS", "XTRA2210"]
+```
+
+Los mocks configurados siguen el flujo normal de sus FSMs y quedan identificados en logs, readings y `system_status.json` como `hardware mock`. El sistema valida configuraciones ambiguas, por ejemplo mezclar `USE_LL_MOCKS=1` global con una lista parcial en `mock_modules`.
+
 ## Scheduler central
 
 El unico scheduler activo es el scheduler central de `main.py`. Los FSMs no tienen schedulers internos.
@@ -102,12 +110,14 @@ El unico scheduler activo es el scheduler central de `main.py`. Los FSMs no tien
 }
 ```
 
-Con esta configuracion:
+Con esta configuracion, el scheduler agenda activaciones en horas regulares UTC-3, ancladas a medianoche:
 
-- Sensores cada 10 minutos.
-- Behringer cada 4 horas.
-- Iridium envia un alive binario cada hora.
-- AudioProc no se agenda: procesa cuando Behringer entrega un archivo.
+- Sensores cada 10 minutos: `:00`, `:10`, `:20`, etc.
+- Behringer cada 4 horas: `00:00`, `04:00`, `08:00`, `12:00`, `16:00`, `20:00`.
+- Iridium cada hora exacta, con ciclo de 4 horas: `alive`, `alive`, `alive`, `audio`.
+- AudioProc no se agenda directamente: procesa cuando Behringer entrega un archivo.
+
+El scheduler incrementa desde el slot programado, no desde la hora real de ejecucion, para evitar drift si el loop se demora.
 
 ## Iridium SBD
 
@@ -115,10 +125,11 @@ Iridium funciona como gateway satelital. La FSM de Iridium decide que transmitir
 
 ### Alive binario
 
-El scheduler central envia cada hora a Iridium:
+El scheduler central envia Iridium cada hora exacta UTC-3. En las primeras tres horas del ciclo envia `alive`; en la cuarta envia `audio`:
 
 ```python
 Message(MessageID.SIG_TRANSMIT, {"mode": "alive", "origin": "Scheduler"})
+Message(MessageID.SIG_TRANSMIT, {"mode": "audio", "origin": "Scheduler"})
 ```
 
 La FSM arma un payload binario de 16 bytes leyendo:
@@ -126,7 +137,7 @@ La FSM arma un payload binario de 16 bytes leyendo:
 - `logs/system_status.json`: estado operativo de FSMs y low-levels.
 - `data/ais_readings.jsonl`: ultima posicion GPS disponible (`gps_fix`, `lat`, `lon`).
 
-Formato del payload alive, big-endian, sin version:
+Formato del payload `alive`, big-endian, sin version:
 
 | Campo | Tipo | Bytes | Descripcion |
 | --- | --- | ---: | --- |
@@ -152,6 +163,20 @@ En los bitmaps, `0` significa OK y `1` significa error. Orden de bits:
 | 7 | XTRA2210 |
 
 La deteccion de errores se basa en `system_status.json`: estado `ERROR`, ultimo resultado `error` o detalles con errores.
+
+
+### AudioProc binario
+
+En la cuarta hora del ciclo, el scheduler envia a Iridium `mode="audio"`. La FSM de Iridium busca el ultimo `output_file` valido en `data/audioProc_readings.jsonl`, carga el JSON `data/audio_proc/audioProc_*.json` y transmite un payload binario con:
+
+- `message_type = 0x02`
+- 2 bytes de status (`fsm_status`, `ll_status`)
+- cantidad de valores de audio
+- un byte por banda de frecuencia y por canal, codificado como dB `int8` (`None` se codifica como `-128`)
+
+El payload de audio se considera valido solo si tiene exactamente tantas filas como bandas de frecuencia esperadas por canal. Para `192000 Hz`, la cantidad esperada actual es 49 bandas por canal.
+
+El Router no dispara transmisiones Iridium al terminar AudioProc; solo registra el ultimo resultado. Las transmisiones satelitales quedan controladas por el scheduler central en horarios regulares.
 
 Para pruebas sin visibilidad satelital, `config.json` puede dejar:
 
@@ -215,12 +240,13 @@ Los archivos en `logs/` y las mediciones en `data/*.jsonl` son artefactos de eje
 Cada linea de `data/*_readings.jsonl` es un objeto JSON compacto:
 
 ```json
-{"timestamp":"2026-06-09T21:42:07Z","data":{}}
+{"timestamp":"2026-06-09T21:42:07-03:00","data":{}}
 ```
 
 Reglas generales:
 
-- `timestamp` usa UTC sin decimales en los segundos: `YYYY-MM-DDTHH:MM:SSZ`.
+- `timestamp` usa UTC-3 sin decimales en los segundos: `YYYY-MM-DDTHH:MM:SS-03:00`.
+- Los `.log` de texto agregan la etiqueta humana `UTC-3` despues del timestamp.
 - `data` contiene campos con unidades explicitas cuando corresponde, por ejemplo `_c`, `_rh`, `_deg`, `_mps`, `_v`, `_a`, `_w`, `_s`.
 - Los registros reales no llevan `source`.
 - Los registros generados por mocks llevan `source` con valor `hardware mock` o `firmware mock`.

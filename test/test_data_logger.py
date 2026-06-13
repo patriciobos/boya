@@ -14,7 +14,7 @@ def test_sensor_data_logger_uses_compact_utc_timestamp(monkeypatch, tmp_path):
     assert entry["module"] == "AHT10"
     assert entry["source"] == "hardware mock"
     assert entry["data"] == {"temperature_c": 25.0}
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", entry["timestamp"])
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-03:00", entry["timestamp"])
 
 
 def test_data_source_for_distinguishes_mocks():

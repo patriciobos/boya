@@ -16,12 +16,13 @@ from scipy.signal import butter, lfilter, welch
 from scipy import signal
 from scipy.interpolate import interp1d
 from scipy.stats import chi2
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.support.log_utils import get_logger
+from modules.support.system_config import now_utc_minus_3
 
 
 def _trapz(y, x):
@@ -638,12 +639,12 @@ class AudioProcLowLevel:
         wav_basename = os.path.splitext(os.path.basename(wav_path))[0]
         match = re.search(r"(\d{8})_(\d{6})", wav_basename)
         if not match:
-            now = datetime.now(timezone.utc)
-            return now.strftime("%Y%m%d_%H%M%S"), now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            now = now_utc_minus_3()
+            return now.strftime("%Y%m%d_%H%M%S"), now.replace(microsecond=0).isoformat()
 
         date_part, time_part = match.groups()
-        dt_utc = datetime.strptime(f"{date_part}_{time_part}", "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
-        return f"{date_part}_{time_part}", dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        dt_local = datetime.strptime(f"{date_part}_{time_part}", "%Y%m%d_%H%M%S").replace(tzinfo=now_utc_minus_3().tzinfo)
+        return f"{date_part}_{time_part}", dt_local.replace(microsecond=0).isoformat()
 
     def generate_json_output(self, rel_powers, wav_path):
         self.logger.info(f"Generating JSON output file for: {wav_path}")
