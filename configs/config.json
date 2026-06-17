@@ -11,6 +11,5 @@
   "noise_ref": "hid_freq_resp_rough.csv",
   "data_dir": "data",
   "logs_dir": "logs",
-  "iridium_transmit_enabled": false,
-  "mock_modules": []
+  "iridium_transmit_enabled": false
 }

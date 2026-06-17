@@ -131,7 +131,17 @@ def _use_temp_config(monkeypatch, tmp_path, config):
     return system_config
 
 
-def test_mocks_can_be_enabled_from_config(monkeypatch, tmp_path):
+def _use_temp_mocks_config(monkeypatch, tmp_path, config):
+    import modules.support.system_config as system_config
+
+    mocks_config_path = tmp_path / "mocks.json"
+    mocks_config_path.write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.setattr(system_config, "MOCKS_CONFIG_PATH", mocks_config_path)
+    monkeypatch.setattr(system_config, "_default_mocks_config", None)
+    return system_config
+
+
+def test_mocks_can_be_enabled_from_mocks_config(monkeypatch, tmp_path):
     for name in (
         "USE_LL_MOCKS",
         "USE_MOCK_AHT10",
@@ -144,7 +154,7 @@ def test_mocks_can_be_enabled_from_config(monkeypatch, tmp_path):
         "USE_MOCK_XTRA2210",
     ):
         monkeypatch.delenv(name, raising=False)
-    _use_temp_config(monkeypatch, tmp_path, {"mock_modules": ["ais", "XTRA2210"]})
+    _use_temp_mocks_config(monkeypatch, tmp_path, {"mock_modules": ["ais", "XTRA2210"]})
 
     import modules.support.ll_factory as ll_factory
     importlib.reload(ll_factory)
@@ -159,7 +169,7 @@ def test_mocks_can_be_enabled_from_config(monkeypatch, tmp_path):
 
 def test_global_mock_env_rejects_partial_config(monkeypatch, tmp_path):
     monkeypatch.setenv("USE_LL_MOCKS", "1")
-    _use_temp_config(monkeypatch, tmp_path, {"mock_modules": ["AIS"]})
+    _use_temp_mocks_config(monkeypatch, tmp_path, {"mock_modules": ["AIS"]})
 
     import modules.support.ll_factory as ll_factory
     importlib.reload(ll_factory)
@@ -168,13 +178,21 @@ def test_global_mock_env_rejects_partial_config(monkeypatch, tmp_path):
         ll_factory.validate_mock_configuration()
 
 
+def test_mock_modules_fallback_to_main_config_when_mocks_config_missing(monkeypatch, tmp_path):
+    monkeypatch.delenv("USE_LL_MOCKS", raising=False)
+    _use_temp_config(monkeypatch, tmp_path, {"mock_modules": ["AIS"]})
+
+    import modules.support.system_config as system_config
+    monkeypatch.setattr(system_config, "MOCKS_CONFIG_PATH", tmp_path / "missing_mocks.json")
+    monkeypatch.setattr(system_config, "_default_mocks_config", None)
+
+    assert system_config.get_configured_mock_modules() == ["AIS"]
+
+
 def test_status_report_tags_mock_modules(monkeypatch, tmp_path):
     monkeypatch.delenv("USE_LL_MOCKS", raising=False)
-    _use_temp_config(
-        monkeypatch,
-        tmp_path,
-        {"logs_dir": str(tmp_path / "logs"), "mock_modules": ["AIS"]},
-    )
+    _use_temp_config(monkeypatch, tmp_path, {"logs_dir": str(tmp_path / "logs")})
+    _use_temp_mocks_config(monkeypatch, tmp_path, {"mock_modules": ["AIS"]})
 
     import modules.support.ll_factory as ll_factory
     import modules.support.status_report as status_report
