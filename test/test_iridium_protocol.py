@@ -2,10 +2,12 @@ from datetime import datetime, timezone
 
 from modules.support.iridium_protocol import (
     ALIVE_PAYLOAD_SIZE,
+    AUDIOPROC_CRC_SIZE,
     AUDIOPROC_HEADER_SIZE,
     AUDIOPROC_NULL_DB,
     MESSAGE_TYPE_ALIVE,
-    MESSAGE_TYPE_AUDIOPROC,
+    MESSAGE_TYPE_AUDIO_MONO,
+    MESSAGE_TYPE_AUDIO_STEREO,
     NO_COORD,
     build_alive_payload,
     build_audio_proc_payload,
@@ -82,22 +84,23 @@ def test_status_details_includes_binary_status_bytes():
     assert details["status_bytes_binary"] == "10100000 00000101"
 
 
-def test_build_audio_proc_payload_encodes_status_and_audio_values():
+def test_build_audio_proc_payload_encodes_mono_audio_with_timestamp_and_crc():
+    timestamp = datetime(2026, 6, 13, 11, 0, 8, tzinfo=timezone.utc)
     payload = build_audio_proc_payload(
-        fsm_status_bits=module_bit("AIS"),
-        ll_status_bits=module_bit("AudioProc"),
+        timestamp=timestamp,
         relative_band_power_db=[[None], [62.7], [-200], [200]],
         expected_band_count=4,
     )
 
-    assert len(payload) == AUDIOPROC_HEADER_SIZE + 4
-    decoded = decode_audio_proc_payload(payload)
-    assert decoded["message_type"] == MESSAGE_TYPE_AUDIOPROC
-    assert decoded["fsm_status_bits"] == module_bit("AIS")
-    assert decoded["ll_status_bits"] == module_bit("AudioProc")
-    assert decoded["band_count"] == 4
-    assert decoded["relative_band_power_db"] == [None, 63, -127, 127]
+    assert len(payload) == AUDIOPROC_HEADER_SIZE + 4 + AUDIOPROC_CRC_SIZE
+    assert payload[0] == MESSAGE_TYPE_AUDIO_MONO
     assert payload[AUDIOPROC_HEADER_SIZE] == (AUDIOPROC_NULL_DB & 0xFF)
+    decoded = decode_audio_proc_payload(payload)
+    assert decoded["message_type"] == MESSAGE_TYPE_AUDIO_MONO
+    assert decoded["timestamp"] == timestamp
+    assert decoded["channel_count"] == 1
+    assert decoded["band_count"] == 4
+    assert decoded["relative_band_power_db"] == [[None], [63], [-127], [127]]
 
 
 def test_audio_proc_payload_validates_frequency_bands_per_channel():
@@ -105,23 +108,45 @@ def test_audio_proc_payload_validates_frequency_bands_per_channel():
     assert expected_bands == 49
 
     mono_bands = [[float(index)] for index in range(expected_bands)]
-    stereo_bands = [[float(index), float(index + 1)] for index in range(expected_bands)]
+    stereo_bands = [[float(index), float(index + 100)] for index in range(expected_bands)]
 
-    mono_payload = build_audio_proc_payload(relative_band_power_db=mono_bands, expected_band_count=expected_bands)
-    stereo_payload = build_audio_proc_payload(relative_band_power_db=stereo_bands, expected_band_count=expected_bands)
+    mono_payload = build_audio_proc_payload(
+        timestamp=0, relative_band_power_db=mono_bands, expected_band_count=expected_bands
+    )
+    stereo_payload = build_audio_proc_payload(
+        timestamp=0, relative_band_power_db=stereo_bands, expected_band_count=expected_bands
+    )
 
-    assert len(mono_payload) == AUDIOPROC_HEADER_SIZE + expected_bands
-    assert len(stereo_payload) == AUDIOPROC_HEADER_SIZE + 2 * expected_bands
+    assert len(mono_payload) == AUDIOPROC_HEADER_SIZE + expected_bands + AUDIOPROC_CRC_SIZE
+    assert len(stereo_payload) == AUDIOPROC_HEADER_SIZE + 2 * expected_bands + AUDIOPROC_CRC_SIZE
+    assert mono_payload[0] == MESSAGE_TYPE_AUDIO_MONO
+    assert stereo_payload[0] == MESSAGE_TYPE_AUDIO_STEREO
     assert decode_audio_proc_payload(mono_payload)["band_count"] == expected_bands
-    assert decode_audio_proc_payload(stereo_payload)["band_count"] == 2 * expected_bands
+    decoded_stereo = decode_audio_proc_payload(stereo_payload)
+    assert decoded_stereo["band_count"] == expected_bands
+    assert decoded_stereo["channel_count"] == 2
+    assert decoded_stereo["relative_band_power_db"][0] == [0, 100]
+    assert stereo_payload[AUDIOPROC_HEADER_SIZE:AUDIOPROC_HEADER_SIZE + expected_bands] == bytes(range(expected_bands))
 
 
 def test_audio_proc_payload_rejects_wrong_band_count():
     expected_bands = 4
 
     try:
-        build_audio_proc_payload(relative_band_power_db=[[1.0], [2.0], [3.0]], expected_band_count=expected_bands)
+        build_audio_proc_payload(timestamp=0, relative_band_power_db=[[1.0], [2.0], [3.0]], expected_band_count=expected_bands)
     except ValueError as exc:
         assert "band count mismatch" in str(exc)
     else:
         raise AssertionError("expected ValueError for wrong AudioProc band count")
+
+
+def test_audio_proc_payload_rejects_bad_crc():
+    payload = bytearray(build_audio_proc_payload(timestamp=0, relative_band_power_db=[[1.0]], expected_band_count=1))
+    payload[-1] ^= 0x01
+
+    try:
+        decode_audio_proc_payload(bytes(payload))
+    except ValueError as exc:
+        assert "CRC mismatch" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for bad CRC")

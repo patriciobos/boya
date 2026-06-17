@@ -80,6 +80,7 @@ dmypy.json
 docs/_build/
 
 # Runtime logs and reports
+main.pid
 logs/*.log
 logs/*.json
 logs/*.jsonl

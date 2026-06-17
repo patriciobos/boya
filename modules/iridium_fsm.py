@@ -4,7 +4,10 @@ from pathlib import Path
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.iridium_protocol import (
     ALIVE_PAYLOAD_SIZE,
+    AUDIOPROC_CRC_SIZE,
     AUDIOPROC_HEADER_SIZE,
+    MESSAGE_TYPE_AUDIO_MONO,
+    MESSAGE_TYPE_AUDIO_STEREO,
     build_alive_payload,
     build_audio_proc_payload,
     build_status_bitmaps,
@@ -143,32 +146,35 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             raise ValueError(f"Invalid AudioProc output JSON: {output_path}: {exc}") from exc
 
     def _build_audio_proc_payload(self, audio):
-        system_status = self._load_system_status()
-        fsm_bits, ll_bits = build_status_bitmaps(system_status)
         audio_data = self._load_audio_proc_data(audio)
         bands = audio_data.get("relative_band_power_db")
         if bands is None:
             raise AudioProcPayloadUnavailable("AudioProc relative_band_power_db is not available")
+        if not audio_data.get("timestamp"):
+            raise AudioProcPayloadUnavailable("AudioProc timestamp is not available")
+
         expected_bands = expected_audio_band_count()
         payload = build_audio_proc_payload(
-            fsm_status_bits=fsm_bits,
-            ll_status_bits=ll_bits,
+            timestamp=audio_data["timestamp"],
             relative_band_power_db=bands,
             expected_band_count=expected_bands,
         )
-        audio_value_count = max(0, len(payload) - AUDIOPROC_HEADER_SIZE)
-        channel_count = audio_value_count // expected_bands if expected_bands else 0
+        message_type = payload[0]
+        channel_count = 1 if message_type == MESSAGE_TYPE_AUDIO_MONO else 2
+        audio_value_count = max(0, len(payload) - AUDIOPROC_HEADER_SIZE - AUDIOPROC_CRC_SIZE)
         details = {
             "message_type": "audioProc",
+            "message_type_byte": message_type,
             "payload_size_bytes": len(payload),
             "header_size_bytes": AUDIOPROC_HEADER_SIZE,
-            **status_details(fsm_bits, ll_bits),
+            "crc_size_bytes": AUDIOPROC_CRC_SIZE,
             "frequency_band_count": expected_bands,
             "channel_count": channel_count,
             "audio_value_count": audio_value_count,
             "bytes_per_channel": expected_bands,
             "audio_output": (audio or {}).get("output") or audio_data.get("output"),
-            "encoding": "int8_db_null_-128",
+            "audio_timestamp": audio_data["timestamp"],
+            "encoding": "int8_db_null_-128_crc16_ccitt_false",
         }
         return payload, details
 

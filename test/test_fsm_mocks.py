@@ -197,6 +197,9 @@ def test_mocks_can_be_enabled_per_module(monkeypatch):
     monkeypatch.setenv("USE_MOCK_AUDIOPROC", "1")
     monkeypatch.delenv("USE_MOCK_BEHRINGER", raising=False)
 
+    import modules.support.system_config as system_config
+    monkeypatch.setattr(system_config, "_default_config", {"mock_modules": []})
+
     import modules.support.ll_factory as ll_factory
     importlib.reload(ll_factory)
 
@@ -431,19 +434,19 @@ def test_iridium_fsm_logs_audio_binary_when_transmit_disabled(monkeypatch, tmp_p
     assert action_results[-1].params["result"] == "ok"
     details = action_results[-1].params["details"]
     assert details["audio"]["message_type"] == "audioProc"
-    assert details["audio"]["fsm_status_bits_binary"] == "00000010"
-    assert details["audio"]["ll_status_bits_binary"] == "00000000"
+    assert details["audio"]["message_type_byte"] == 0x03
     assert details["audio"]["frequency_band_count"] == 49
     assert details["audio"]["channel_count"] == 1
     assert details["audio"]["audio_value_count"] == 49
     assert details["audio"]["bytes_per_channel"] == 49
+    assert details["audio"]["crc_size_bytes"] == 2
     assert details["transmit"]["reason"] == "iridium_transmit_disabled"
 
     entry = json.loads((logs_path / "iridium_transmit_requests.jsonl").read_text(encoding="utf-8").splitlines()[-1])
     assert entry["mode"] == "binary"
-    assert entry["payload_size_bytes"] == 53
-    assert entry["payload_hex"].startswith("02020031")
-    assert entry["details"]["status_bytes_binary"] == "00000010 00000000"
+    assert entry["payload_size_bytes"] == 56
+    assert entry["payload_hex"].startswith("03")
+    assert entry["details"]["message_type_byte"] == 0x03
     assert entry["skipped_reason"] == "iridium_transmit_disabled"
 
     fsm.ll.deinit()
@@ -502,10 +505,12 @@ def test_iridium_fsm_audio_uses_latest_audioproc_output_when_not_provided(monkey
     details = action_results[-1].params["details"]
     assert action_results[-1].params["result"] == "ok"
     assert details["audio"]["message_type"] == "audioProc"
+    assert details["audio"]["message_type_byte"] == 0x03
     assert details["audio"]["audio_output"] == "data/audio_proc/audioProc_latest.json"
     assert details["transmit"]["reason"] == "iridium_transmit_disabled"
 
     entry = json.loads((logs_path / "iridium_transmit_requests.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    assert entry["payload_size_bytes"] == 56
     assert entry["details"]["audio_output"] == "data/audio_proc/audioProc_latest.json"
 
     fsm.ll.deinit()

@@ -68,7 +68,11 @@ def test_hardware_fsm_acquire_logs_real_reading(module_name, monkeypatch):
         pytest.skip("hardware test disabled; set RUN_HARDWARE_TESTS=1 to run")
 
     monkeypatch.delenv("USE_LL_MOCKS", raising=False)
-    monkeypatch.delenv(f"USE_MOCK_{module_name.upper()}", raising=False)
+    for name in MODULES:
+        monkeypatch.delenv(f"USE_MOCK_{name.upper()}", raising=False)
+
+    import modules.support.ll_factory as ll_factory
+    importlib.reload(ll_factory)
 
     module_path, class_name, acquire_message = MODULES[module_name]
     module = importlib.import_module(module_path)
