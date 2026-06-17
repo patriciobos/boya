@@ -11,6 +11,7 @@ import math
 import re
 import numpy as np
 import wave
+from modules.support.system_config import CONFIG_PATH, PROJECT_ROOT
 import pandas as pd
 from scipy.signal import butter, lfilter, welch
 from scipy import signal
@@ -342,9 +343,8 @@ class AudioProcLowLevel:
         else:
             raise ValueError(f"Unsupported number of channels: {n_channels}")
         
-        # Load configuration from JSON (config.json moved to repository root)
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        config_path = os.path.join(base_dir, "config.json")
+        # Load configuration from the project configs directory
+        config_path = CONFIG_PATH
         with open(config_path, 'r') as f:
             config = json.load(f)
         nperseg = config['nperseg']
@@ -371,7 +371,7 @@ class AudioProcLowLevel:
                            f"(L={L}, min_length_factor={min_length_factor})")
         
         # Load frequency responses of the 3 stages
-        support_dir = os.path.join(base_dir, "support")
+        support_dir = str(PROJECT_ROOT / "support")
         
         # Load DAQ response
         daq_file = os.path.join(support_dir, f"{config['daq']}.csv")
@@ -398,7 +398,7 @@ class AudioProcLowLevel:
                                          kind='linear', bounds_error=False, fill_value='extrapolate')
         
         # Load third-octave bands from CSV
-        csv_path = os.path.join(base_dir, "support", "third_octave_bands.csv")
+        csv_path = str(PROJECT_ROOT / "support" / "third_octave_bands.csv")
         bands_df = pd.read_csv(csv_path)
         
         # Filter bands in the range from 1 Hz to 100000 Hz
@@ -514,25 +514,22 @@ class AudioProcLowLevel:
         """
         self.logger.info("Calculating relative power with respect to minimum reference (noise_ref from config)...")
 
-        # Determine base and support directories
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        support_dir = os.path.join(base_dir, "support")
-
-        # Load config to get noise_ref filename and sampling frequency
-        config_path = os.path.join(base_dir, "config.json")
+        # Determine support directory and load config to get noise_ref/fs.
+        support_dir = str(PROJECT_ROOT / "support")
+        config_path = CONFIG_PATH
         try:
             with open(config_path, 'r') as cf:
                 config = json.load(cf)
         except Exception as e:
-            raise RuntimeError(f"Failed to load config.json at '{config_path}': {e}")
+            raise RuntimeError(f"Failed to load configs/config.json at '{config_path}': {e}")
 
         noise_ref_name = config.get('noise_ref')
         if not noise_ref_name:
-            raise ValueError("'noise_ref' not specified in config.json")
+            raise ValueError("'noise_ref' not specified in configs/config.json")
 
         fs = config.get('fs[Hz]')
         if fs is None:
-            raise ValueError("Sampling rate 'fs[Hz]' not found in config.json")
+            raise ValueError("Sampling rate 'fs[Hz]' not found in configs/config.json")
 
         # Locate noise_ref file (prefer absolute path if given, else in support dir)
         if os.path.isabs(noise_ref_name):

@@ -1,0 +1,90 @@
+{
+  "battery": {
+    "manufacturer": "TRV Eco Energy",
+    "model": "LPS12-115",
+    "type": "VRLA",
+    "nominal_voltage": 12,
+    "capacity_ah": 110
+  },
+  "registers": {
+    "0x9000": {
+      "name": "Battery Type",
+      "value": 0,
+      "meaning": "USER"
+    },
+    "0x9001": {
+      "name": "Battery Capacity",
+      "value": 110,
+      "unit": "Ah"
+    },
+    "0x9002": {
+      "name": "Temperature Compensation Coefficient",
+      "value": -3,
+      "unit": "mV/C/2V"
+    },
+    "0x9003": {
+      "name": "Over Voltage Disconnect",
+      "voltage": 15.0,
+      "modbus_value": 1500
+    },
+    "0x9004": {
+      "name": "Charging Limit Voltage",
+      "voltage": 14.8,
+      "modbus_value": 1480
+    },
+    "0x9005": {
+      "name": "Over Voltage Reconnect",
+      "voltage": 14.6,
+      "modbus_value": 1460
+    },
+    "0x9006": {
+      "name": "Equalization Voltage",
+      "voltage": 14.4,
+      "modbus_value": 1440
+    },
+    "0x9007": {
+      "name": "Boost / Absorption Voltage",
+      "voltage": 14.4,
+      "modbus_value": 1440
+    },
+    "0x9008": {
+      "name": "Float Voltage",
+      "voltage": 13.7,
+      "modbus_value": 1370
+    },
+    "0x9009": {
+      "name": "Boost Reconnect Voltage",
+      "voltage": 13.2,
+      "modbus_value": 1320
+    },
+    "0x900A": {
+      "name": "Low Voltage Reconnect",
+      "voltage": 12.3,
+      "modbus_value": 1230
+    },
+    "0x900B": {
+      "name": "Under Voltage Recover",
+      "voltage": 12.0,
+      "modbus_value": 1200
+    },
+    "0x900C": {
+      "name": "Under Voltage Warning",
+      "voltage": 11.8,
+      "modbus_value": 1180
+    },
+    "0x900D": {
+      "name": "Low Voltage Disconnect",
+      "voltage": 11.3,
+      "modbus_value": 1130
+    },
+    "0x900E": {
+      "name": "Discharging Limit Voltage",
+      "voltage": 10.8,
+      "modbus_value": 1080
+    }
+  },
+  "timers": {
+    "equalization_time_minutes": 0,
+    "boost_time_minutes": 120
+  }
+}

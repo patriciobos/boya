@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CONFIG_PATH = PROJECT_ROOT / "config.json"
+CONFIGS_PATH = PROJECT_ROOT / "configs"
+CONFIG_PATH = CONFIGS_PATH / "config.json"
 SCHEDULER_PATH = PROJECT_ROOT / "scheduler.json"
 UTC_MINUS_3_LABEL = "UTC-3"
 UTC_MINUS_3 = timezone(timedelta(hours=-3), UTC_MINUS_3_LABEL)
@@ -106,6 +107,10 @@ def get_schedule(module_name: str, default: Any = None) -> Any:
 
     schedules = get_config_value("schedules", {})
     return schedules.get(module_name, default)
+
+
+def get_configs_path() -> Path:
+    return CONFIGS_PATH
 
 
 def get_data_path() -> Path:

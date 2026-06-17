@@ -34,6 +34,7 @@ import serial
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.support.log_utils import get_logger
+from modules.support.system_config import CONFIGS_PATH
 
 
 class Xtra2210Error(Exception):
@@ -71,6 +72,54 @@ class XTRA2210LowLevel:
         "system_rated_voltage_v": (0x311D, 1, 0x04),
     }
 
+    BATTERY_PARAMETER_SPECS = {
+        "battery_type": {
+            "register": 0x9000,
+            "unit": None,
+            "scale": 1,
+            "values": {
+                "user": 0x0000,
+                "sealed": 0x0001,
+                "gel": 0x0002,
+                "flooded": 0x0003,
+            },
+        },
+        "battery_capacity_ah": {"register": 0x9001, "unit": "Ah", "scale": 1},
+        "temperature_compensation_coefficient": {"register": 0x9002, "unit": "mV/C/2V", "scale": 100},
+        "over_voltage_disconnect_v": {"register": 0x9003, "unit": "V", "scale": 100},
+        "charging_limit_voltage_v": {"register": 0x9004, "unit": "V", "scale": 100},
+        "over_voltage_reconnect_v": {"register": 0x9005, "unit": "V", "scale": 100},
+        "equalization_voltage_v": {"register": 0x9006, "unit": "V", "scale": 100},
+        "boost_voltage_v": {"register": 0x9007, "unit": "V", "scale": 100},
+        "float_voltage_v": {"register": 0x9008, "unit": "V", "scale": 100},
+        "boost_reconnect_voltage_v": {"register": 0x9009, "unit": "V", "scale": 100},
+        "low_voltage_reconnect_v": {"register": 0x900A, "unit": "V", "scale": 100},
+        "under_voltage_recover_v": {"register": 0x900B, "unit": "V", "scale": 100},
+        "under_voltage_warning_v": {"register": 0x900C, "unit": "V", "scale": 100},
+        "low_voltage_disconnect_v": {"register": 0x900D, "unit": "V", "scale": 100},
+        "discharging_limit_voltage_v": {"register": 0x900E, "unit": "V", "scale": 100},
+        "equalization_time_min": {"register": 0x906B, "unit": "min", "scale": 1},
+        "boost_time_min": {"register": 0x906C, "unit": "min", "scale": 1},
+    }
+
+    RECOMMENDED_BATTERY_PARAMETERS = {
+        "battery_type": "user",
+        "boost_voltage_v": 14.4,
+        "float_voltage_v": 13.7,
+        "equalization_voltage_v": 14.4,
+        "equalization_time_min": 0,
+        "over_voltage_disconnect_v": 15.0,
+        "charging_limit_voltage_v": 14.6,
+        "low_voltage_reconnect_v": 12.6,
+        "under_voltage_warning_v": 11.8,
+        "low_voltage_disconnect_v": 11.1,
+        "discharging_limit_voltage_v": 10.8,
+    }
+
+    WRITABLE_REGISTER_ALLOWLIST: dict[int, str] = {
+        spec["register"]: name for name, spec in BATTERY_PARAMETER_SPECS.items()
+    }
+
     def __init__(
         self,
         logger_name: str = "xtra2210_LL",
@@ -101,6 +150,7 @@ class XTRA2210LowLevel:
         self.timeout: float = float(timeout)
         self.inter_frame_delay: float = float(inter_frame_delay)
         self.show_ports: bool = bool(show_ports)
+        self.battery_parameter_sync_report: Optional[dict] = None
 
     def _set_error(self, msg: str) -> None:
         self.last_error = msg
@@ -184,9 +234,34 @@ class XTRA2210LowLevel:
     def build_read_input_registers_request(self, start_reg: int, count: int) -> bytes:
         return self._build_request(0x04, start_reg, count)
 
+    def build_read_holding_registers_request(self, start_reg: int, count: int) -> bytes:
+        return self._build_request(0x03, start_reg, count)
+
+    def build_write_holding_registers_request(self, start_reg: int, values: list[int]) -> bytes:
+        if not 0 <= int(start_reg) <= 0xFFFF:
+            raise ValueError("start_reg must fit uint16")
+        if not values:
+            raise ValueError("values must not be empty")
+        if len(values) > 0x7B:
+            raise ValueError("Modbus RTU write-multiple supports at most 123 registers")
+        for value in values:
+            if not 0 <= int(value) <= 0xFFFF:
+                raise ValueError("each value must fit uint16")
+        payload = struct.pack(">BBHHB", self.slave_id, 0x10, int(start_reg), len(values), len(values) * 2)
+        payload += b"".join(struct.pack(">H", int(value)) for value in values)
+        crc = self.modbus_crc(payload)
+        return payload + struct.pack("<H", crc)
+
+    def build_write_single_register_request(self, register: int, value: int) -> bytes:
+        return self.build_write_holding_registers_request(int(register), [int(value)])
+
     @staticmethod
     def expected_response_length(register_count: int) -> int:
         return 1 + 1 + 1 + (2 * register_count) + 2
+
+    @staticmethod
+    def expected_write_single_response_length() -> int:
+        return 8
 
     def parse_modbus_response(self, resp: bytes, function_code: int, register_count: int) -> Tuple[bool, Any]:
         if len(resp) < 5:
@@ -214,6 +289,35 @@ class XTRA2210LowLevel:
             off = 3 + 2 * i
             regs.append(struct.unpack(">H", resp[off:off + 2])[0])
         return True, regs
+
+    def parse_write_holding_registers_response(self, resp: bytes, start_reg: int, count: int) -> Tuple[bool, Any]:
+        if len(resp) < self.expected_write_single_response_length():
+            return False, "response too short"
+        data = resp[:-2]
+        rx_crc = struct.unpack("<H", resp[-2:])[0]
+        calc_crc = self.modbus_crc(data)
+        if rx_crc != calc_crc:
+            return False, f"invalid CRC (rx=0x{rx_crc:04X}, calc=0x{calc_crc:04X})"
+        if resp[0] != self.slave_id:
+            return False, f"unexpected slave id ({resp[0]})"
+        func = resp[1]
+        if func == 0x90:
+            return False, f"Modbus exception 0x{resp[2]:02X}" if len(resp) >= 5 else "Modbus exception"
+        if func != 0x10:
+            return False, f"unexpected function 0x{func:02X}"
+        echoed_register, register_count = struct.unpack(">HH", resp[2:6])
+        if echoed_register != int(start_reg):
+            return False, f"unexpected register 0x{echoed_register:04X}"
+        if register_count != int(count):
+            return False, f"unexpected register count {register_count}"
+        return True, {"register": echoed_register, "count": register_count}
+
+    def parse_write_single_register_response(self, resp: bytes, register: int, value: int) -> Tuple[bool, Any]:
+        ok, parsed = self.parse_write_holding_registers_response(resp, register, 1)
+        if not ok:
+            return ok, parsed
+        parsed["value"] = int(value)
+        return True, parsed
 
     @staticmethod
     def regs_to_u32(high_reg: int, low_reg: int) -> int:
@@ -296,6 +400,398 @@ class XTRA2210LowLevel:
     def send_read_input_registers(self, start_reg: int, reg_count: int) -> Tuple[bool, Any]:
         req = self.build_read_input_registers_request(start_reg, reg_count)
         return self._send_request(req, 0x04, reg_count)
+
+    def send_read_holding_registers(self, start_reg: int, reg_count: int) -> Tuple[bool, Any]:
+        req = self.build_read_holding_registers_request(start_reg, reg_count)
+        ser = self._require_open_serial()
+        resp_len = self.expected_response_length(reg_count)
+        ser.reset_input_buffer()
+        ser.write(req)
+        ser.flush()
+        time.sleep(self.inter_frame_delay)
+        resp = ser.read(resp_len)
+        if not resp:
+            return False, "timeout"
+        return self.parse_modbus_response(resp, 0x03, reg_count)
+
+    def read_holding_registers_raw(self, start_reg: int, reg_count: int = 1) -> list[int]:
+        ok, result = self.send_read_holding_registers(start_reg, reg_count)
+        if not ok:
+            raise ProtocolError(str(result))
+        return result
+
+    def write_holding_registers(
+        self,
+        start_reg: int,
+        values: list[int],
+        dry_run: bool = True,
+        confirm: bool = False,
+    ) -> dict:
+        start_reg = int(start_reg)
+        values = [int(value) for value in values]
+        request = self.build_write_holding_registers_request(start_reg, values)
+        register_names = [self.WRITABLE_REGISTER_ALLOWLIST.get(start_reg + offset) for offset in range(len(values))]
+        result = {
+            "start_register": start_reg,
+            "start_register_hex": f"0x{start_reg:04X}",
+            "count": len(values),
+            "register_names": register_names,
+            "values": values,
+            "dry_run": bool(dry_run),
+            "request_hex": request.hex(),
+            "written": False,
+        }
+        if dry_run:
+            self.logger.info("Dry-run XTRA2210 holding-register block write: %s", result)
+            return result
+        if not confirm:
+            raise ValueError("Refusing real XTRA2210 write without confirm=True")
+        blocked = [start_reg + offset for offset, name in enumerate(register_names) if name is None]
+        if blocked:
+            blocked_hex = ", ".join(f"0x{register:04X}" for register in blocked)
+            raise ValueError(f"Refusing to write non-allowlisted XTRA2210 register(s) {blocked_hex}")
+
+        ser = self._require_open_serial()
+        ser.reset_input_buffer()
+        ser.write(request)
+        ser.flush()
+        time.sleep(self.inter_frame_delay)
+        response = ser.read(self.expected_write_single_response_length())
+        if not response:
+            raise ProtocolError("timeout")
+        ok, parsed = self.parse_write_holding_registers_response(response, start_reg, len(values))
+        if not ok:
+            raise ProtocolError(str(parsed))
+        result["response_hex"] = response.hex()
+        result["written"] = True
+        return result
+
+    def write_single_holding_register(
+        self,
+        register: int,
+        value: int,
+        dry_run: bool = True,
+        confirm: bool = False,
+    ) -> dict:
+        register = int(register)
+        value = int(value)
+        request = self.build_write_single_register_request(register, value)
+        register_name = self.WRITABLE_REGISTER_ALLOWLIST.get(register)
+
+        result = {
+            "register": register,
+            "register_hex": f"0x{register:04X}",
+            "register_name": register_name,
+            "value": value,
+            "value_hex": f"0x{value:04X}",
+            "dry_run": bool(dry_run),
+            "request_hex": request.hex(),
+            "written": False,
+        }
+
+        if dry_run:
+            self.logger.info("Dry-run XTRA2210 holding-register write: %s", result)
+            return result
+
+        if not confirm:
+            raise ValueError("Refusing real XTRA2210 write without confirm=True")
+
+        if register_name is None:
+            raise ValueError(
+                f"Refusing to write non-allowlisted XTRA2210 register 0x{register:04X}"
+            )
+
+        ser = self._require_open_serial()
+        ser.reset_input_buffer()
+        ser.write(request)
+        ser.flush()
+        time.sleep(self.inter_frame_delay)
+        response = ser.read(self.expected_write_single_response_length())
+        if not response:
+            raise ProtocolError("timeout")
+        ok, parsed = self.parse_write_single_register_response(response, register, value)
+        if not ok:
+            raise ProtocolError(str(parsed))
+        result["response_hex"] = response.hex()
+        result["written"] = True
+        return result
+
+    @classmethod
+    def _get_battery_parameter_spec(cls, name: str) -> dict:
+        try:
+            return cls.BATTERY_PARAMETER_SPECS[name]
+        except KeyError as exc:
+            allowed = ", ".join(sorted(cls.BATTERY_PARAMETER_SPECS))
+            raise ValueError(f"Unknown XTRA2210 battery parameter '{name}'. Allowed: {allowed}") from exc
+
+    @classmethod
+    def encode_battery_parameter(cls, name: str, value: Any) -> int:
+        spec = cls._get_battery_parameter_spec(name)
+        values = spec.get("values")
+        if values is not None:
+            if isinstance(value, str):
+                key = value.strip().lower()
+                if key not in values:
+                    allowed = ", ".join(sorted(values))
+                    raise ValueError(f"Invalid value for {name}: {value!r}. Allowed: {allowed}")
+                return int(values[key])
+            raw_value = int(value)
+            if raw_value not in values.values():
+                raise ValueError(f"Invalid raw value for {name}: {raw_value}")
+            return raw_value
+
+        scale = int(spec["scale"])
+        raw_value = int(round(float(value) * scale))
+        if not 0 <= raw_value <= 0xFFFF:
+            raise ValueError(f"Encoded value for {name} does not fit uint16: {raw_value}")
+        return raw_value
+
+    @classmethod
+    def decode_battery_parameter(cls, name: str, raw_value: int) -> Any:
+        spec = cls._get_battery_parameter_spec(name)
+        values = spec.get("values")
+        if values is not None:
+            reverse = {raw: label for label, raw in values.items()}
+            return reverse.get(int(raw_value), int(raw_value))
+        return int(raw_value) / int(spec["scale"])
+
+    @classmethod
+    def recommended_battery_parameters(cls) -> dict:
+        return dict(cls.RECOMMENDED_BATTERY_PARAMETERS)
+
+    @staticmethod
+    def _parse_register_key(register_key: str) -> int:
+        return int(str(register_key), 16)
+
+    @staticmethod
+    def _config_register_raw_value(register: int, payload: dict) -> int:
+        if "modbus_value" in payload:
+            return int(payload["modbus_value"])
+        if "voltage" in payload:
+            return int(round(float(payload["voltage"]) * 100))
+        if "value" in payload:
+            value = payload["value"]
+            if register == 0x9002:
+                return int(round(abs(float(value)) * 100))
+            return int(value)
+        raise ValueError(f"No raw value found for XTRA2210 register 0x{register:04X}")
+
+    @classmethod
+    def load_battery_parameter_config(cls, config_path: Optional[Any] = None) -> tuple[Optional[Any], dict[int, dict]]:
+        if config_path is None:
+            candidates = sorted(CONFIGS_PATH.glob("*xtra2210*battery*params*.json"))
+            if not candidates:
+                candidates = sorted(CONFIGS_PATH.glob("*xtra2210*batery*params*.json"))
+            if not candidates:
+                return None, {}
+            config_path = candidates[0]
+
+        with open(config_path, "r", encoding="utf-8") as handle:
+            config = json.load(handle)
+
+        desired: dict[int, dict] = {}
+        for register_key, payload in config.get("registers", {}).items():
+            register = cls._parse_register_key(register_key)
+            raw_value = cls._config_register_raw_value(register, payload)
+            desired[register] = {
+                "register": register,
+                "register_hex": f"0x{register:04X}",
+                "name": payload.get("name", cls.WRITABLE_REGISTER_ALLOWLIST.get(register)),
+                "value": raw_value,
+                "unit": payload.get("unit") or ("V" if "voltage" in payload else None),
+                "source": "registers",
+            }
+
+        timers = config.get("timers", {})
+        timer_map = {
+            "equalization_time_minutes": (0x906B, "Equalization Duration", "min"),
+            "boost_time_minutes": (0x906C, "Boost Duration", "min"),
+        }
+        for key, (register, name, unit) in timer_map.items():
+            if key in timers:
+                desired[register] = {
+                    "register": register,
+                    "register_hex": f"0x{register:04X}",
+                    "name": name,
+                    "value": int(timers[key]),
+                    "unit": unit,
+                    "source": "timers",
+                }
+
+        return config_path, desired
+
+    @staticmethod
+    def _contiguous_ranges(registers: list[int]) -> list[list[int]]:
+        if not registers:
+            return []
+        ranges: list[list[int]] = [[registers[0]]]
+        for register in registers[1:]:
+            if register == ranges[-1][-1] + 1:
+                ranges[-1].append(register)
+            else:
+                ranges.append([register])
+        return ranges
+
+    def sync_battery_parameters_from_config(
+        self,
+        config_path: Optional[Any] = None,
+        dry_run: bool = False,
+    ) -> dict:
+        config_path, desired = self.load_battery_parameter_config(config_path)
+        report = {
+            "config_path": str(config_path) if config_path is not None else None,
+            "checked": 0,
+            "matched": 0,
+            "changed": [],
+            "written": [],
+            "dry_run": bool(dry_run),
+        }
+        if not desired:
+            self.logger.info("No XTRA2210 battery parameter config found in %s", CONFIGS_PATH)
+            return report
+
+        current_values: dict[int, int] = {}
+        changed_registers: list[int] = []
+        for register, expected in sorted(desired.items()):
+            if register not in self.WRITABLE_REGISTER_ALLOWLIST:
+                raise ValueError(f"Refusing to manage non-allowlisted XTRA2210 register 0x{register:04X}")
+            current = self.read_holding_registers_raw(register, 1)[0]
+            current_values[register] = current
+            expected_value = int(expected["value"])
+            report["checked"] += 1
+            if current == expected_value:
+                report["matched"] += 1
+                self.logger.info(
+                    "XTRA2210 battery parameter matches: register=0x%04X name=%s value=%s",
+                    register,
+                    expected.get("name"),
+                    current,
+                )
+                continue
+
+            changed_registers.append(register)
+            change = {
+                "register": register,
+                "register_hex": f"0x{register:04X}",
+                "name": expected.get("name"),
+                "before": current,
+                "after": expected_value,
+                "unit": expected.get("unit"),
+            }
+            report["changed"].append(change)
+            self.logger.warning(
+                "XTRA2210 battery parameter mismatch: register=0x%04X name=%s current=%s desired=%s",
+                register,
+                expected.get("name"),
+                current,
+                expected_value,
+            )
+
+        if not changed_registers:
+            self.logger.info(
+                "All XTRA2210 battery parameters match %s (%s checked)",
+                config_path,
+                report["checked"],
+            )
+            return report
+
+        block_registers = sorted(register for register in desired if 0x9000 <= register <= 0x900E)
+        timer_registers = sorted(register for register in desired if 0x906B <= register <= 0x906C)
+        write_ranges: list[list[int]] = []
+        if any(register in changed_registers for register in block_registers):
+            expected_block = list(range(0x9000, 0x900F))
+            if block_registers == expected_block:
+                write_ranges.append(expected_block)
+            else:
+                write_ranges.extend(self._contiguous_ranges([r for r in block_registers if r in changed_registers]))
+        if any(register in changed_registers for register in timer_registers):
+            write_ranges.extend(self._contiguous_ranges(timer_registers))
+
+        for register_range in write_ranges:
+            start_reg = register_range[0]
+            values = [int(desired[register]["value"]) for register in register_range]
+            write_result = self.write_holding_registers(
+                start_reg,
+                values,
+                dry_run=dry_run,
+                confirm=not dry_run,
+            )
+            affected = [change for change in report["changed"] if change["register"] in register_range]
+            report["written"].append(
+                {
+                    "start_register": start_reg,
+                    "start_register_hex": f"0x{start_reg:04X}",
+                    "count": len(values),
+                    "affected": affected,
+                    "write_result": write_result,
+                }
+            )
+            if not dry_run:
+                verify_values = self.read_holding_registers_raw(start_reg, len(values))
+                for offset, verify in enumerate(verify_values):
+                    register = start_reg + offset
+                    expected_value = int(desired[register]["value"])
+                    if verify != expected_value:
+                        raise ProtocolError(
+                            f"XTRA2210 register 0x{register:04X} verification failed: "
+                            f"read {verify}, expected {expected_value}"
+                        )
+                self.logger.info(
+                    "XTRA2210 battery parameter block updated: start=0x%04X count=%s values=%s",
+                    start_reg,
+                    len(values),
+                    values,
+                )
+
+        return report
+
+    def build_battery_parameter_write_plan(self, parameters: Optional[dict] = None) -> list[dict]:
+        parameters = dict(parameters or self.RECOMMENDED_BATTERY_PARAMETERS)
+        plan = []
+        for name, value in parameters.items():
+            spec = self._get_battery_parameter_spec(name)
+            raw_value = self.encode_battery_parameter(name, value)
+            register = int(spec["register"])
+            item = self.write_single_holding_register(register, raw_value, dry_run=True)
+            item.update(
+                {
+                    "parameter": name,
+                    "configured_value": value,
+                    "decoded_value": self.decode_battery_parameter(name, raw_value),
+                    "unit": spec.get("unit"),
+                }
+            )
+            plan.append(item)
+        return plan
+
+    def write_battery_parameters(
+        self,
+        parameters: Optional[dict] = None,
+        dry_run: bool = True,
+        confirm: bool = False,
+    ) -> list[dict]:
+        parameters = dict(parameters or self.RECOMMENDED_BATTERY_PARAMETERS)
+        results = []
+        for name, value in parameters.items():
+            spec = self._get_battery_parameter_spec(name)
+            raw_value = self.encode_battery_parameter(name, value)
+            register = int(spec["register"])
+            result = self.write_single_holding_register(
+                register,
+                raw_value,
+                dry_run=dry_run,
+                confirm=confirm,
+            )
+            result.update(
+                {
+                    "parameter": name,
+                    "configured_value": value,
+                    "decoded_value": self.decode_battery_parameter(name, raw_value),
+                    "unit": spec.get("unit"),
+                }
+            )
+            results.append(result)
+        return results
 
     def read_register_block(self, start_reg: int, reg_count: int, description: str = "", function_code: int = 0x04) -> Tuple[bool, Any]:
         if function_code != 0x04:
@@ -415,6 +911,26 @@ class XTRA2210LowLevel:
                 self.inter_frame_delay,
                 self.port_candidates,
             )
+            config_path, desired = self.load_battery_parameter_config()
+            if desired:
+                self.logger.info("Applying XTRA2210 battery parameter config from %s", config_path)
+                was_open = self.is_open and self.serial_port is not None and self.serial_port.is_open
+                if not was_open and not self.open():
+                    raise TransportError(self.last_error or "Unable to open serial transport")
+                try:
+                    self.battery_parameter_sync_report = self.sync_battery_parameters_from_config(config_path)
+                finally:
+                    if not was_open:
+                        self.close()
+            else:
+                self.battery_parameter_sync_report = {
+                    "config_path": None,
+                    "checked": 0,
+                    "matched": 0,
+                    "changed": [],
+                    "written": [],
+                    "dry_run": False,
+                }
             return True
         except Exception as exc:
             self.is_initialized = False
