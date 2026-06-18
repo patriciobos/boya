@@ -94,6 +94,32 @@ class BaseHandlerFSM:
     def handle_message(self, message: Message):
         pass
 
+    def _ignore_scheduler_while_error(self, message: Message) -> bool:
+        """Handle allowed ERROR messages and ignore scheduler work during ERROR."""
+        if self.state != State.ERROR:
+            return False
+        params = getattr(message, "params", {}) or {}
+        if message.id == MessageID.SIG_INIT:
+            self.set_state(State.INIT, self.status_queue)
+            return True
+        if message.id == MessageID.SIG_DEINIT:
+            self.set_state(State.DISABLE, self.status_queue)
+            return True
+        blocked_messages = {
+            MessageID.SIG_ACQUIRE,
+            MessageID.SIG_PROCESS,
+            MessageID.SIG_TIMEOUT,
+            MessageID.SIG_TRANSMIT,
+        }
+        if params.get("origin") == "Scheduler" or message.id in blocked_messages:
+            self.logger.warning(
+                "Ignoring operational message while in ERROR: %s | Params: %s",
+                message.id.value,
+                params,
+            )
+            return True
+        return False
+
     # --------------------------------------------------------------
     # Runtime loop
     # --------------------------------------------------------------
@@ -112,6 +138,19 @@ class BaseHandlerFSM:
                         msg.id.value,
                         msg.params,
                     )
+                    if self.state == State.ERROR and msg.id in {
+                        MessageID.SIG_ACQUIRE,
+                        MessageID.SIG_PROCESS,
+                        MessageID.SIG_TIMEOUT,
+                        MessageID.SIG_TRANSMIT,
+                    }:
+                        self.logger.warning(
+                            "Run loop ignored operational message while in ERROR: %s | Params: %s",
+                            msg.id.value,
+                            msg.params,
+                        )
+                        self.update()
+                        continue
                     self.handle_message(msg)
                 else:
                     time.sleep(0.1)

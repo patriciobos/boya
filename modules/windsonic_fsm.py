@@ -81,6 +81,9 @@ class WindsonicHandlerFSM(BaseHandlerFSM):
             self.logger.info("Windsonic config updated: samples=%s spacing=%s", self.ll.samples, self.ll.spacing)
 
     def handle_message(self, message: Message):
+        if self._ignore_scheduler_while_error(message):
+            return
+
         params = getattr(message, "params", {}) or {}
         if self.state == State.DISABLE:
             if message.id == MessageID.SIG_INIT:

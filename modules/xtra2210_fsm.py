@@ -56,6 +56,9 @@ class XTRA2210HandlerFSM(BaseHandlerFSM):
         }
 
     def handle_message(self, message: Message):
+        if self._ignore_scheduler_while_error(message):
+            return
+
         if self.state == State.DISABLE:
             if message.id == MessageID.SIG_INIT:
                 self.set_state(State.INIT, self.status_queue)

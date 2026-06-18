@@ -118,6 +118,16 @@ La forma recomendada para ensayos repetibles es declarar los modulos mockeados e
 
 Los mocks configurados siguen el flujo normal de sus FSMs y quedan identificados en logs, readings y `system_status.json` como `hardware mock`. El sistema valida configuraciones ambiguas, por ejemplo mezclar `USE_LL_MOCKS=1` global con una lista parcial en `mock_modules`.
 
+Para AHT10, el FSM reintenta hasta 3 veces cuando una lectura queda fuera del rango plausible del sensor o salta bruscamente respecto de la ultima lectura valida. Si todos los intentos siguen siendo no plausibles, registra el ultimo valor obtenido y deja un warning en el log. Los umbrales configurables en `config.json` son:
+
+```json
+{
+  "aht10_max_temperature_step_c": 5.0,
+  "aht10_max_humidity_step_rh": 35.0,
+  "aht10_max_acquire_attempts": 3
+}
+```
+
 ## Scheduler central
 
 El unico scheduler activo es el scheduler central de `main.py`. Los FSMs no tienen schedulers internos.
@@ -194,9 +204,11 @@ En los bitmaps, `0` significa OK y `1` significa error. Orden de bits:
 La deteccion de errores se basa en `system_status.json`: estado `ERROR`, ultimo resultado `error` o detalles con errores.
 
 
-### AudioProc binario
+### AudioProc JSON y transmision binaria
 
-En la cuarta hora del ciclo, el scheduler envia a Iridium `mode="audio"`. La FSM de Iridium busca el ultimo `output_file` valido en `data/audioProc_readings.jsonl`, carga el JSON `data/audio_proc/audioProc_*.json` y transmite un payload binario con:
+AudioProc persiste el resultado procesado como JSON en `data/audio_proc/audioProc_*.json`. No guarda archivos `.dat` de salida.
+
+En la cuarta hora del ciclo, el scheduler envia a Iridium `mode="audio"`. La FSM de Iridium busca el ultimo `output_file` valido en `data/audioProc_readings.jsonl`, carga el JSON `data/audio_proc/audioProc_*.json` y arma en memoria un payload binario para transmitir con:
 
 - `message_type = 0x02`
 - 2 bytes de status (`fsm_status`, `ll_status`)
@@ -206,6 +218,8 @@ En la cuarta hora del ciclo, el scheduler envia a Iridium `mode="audio"`. La FSM
 El payload de audio se considera valido solo si tiene exactamente tantas filas como bandas de frecuencia esperadas por canal. Para `192000 Hz`, la cantidad esperada actual es 49 bandas por canal.
 
 El Router no dispara transmisiones Iridium al terminar AudioProc; solo registra el ultimo resultado. Las transmisiones satelitales quedan controladas por el scheduler central en horarios regulares.
+
+Los tests de AudioProc usan el WAV fixture en `test/test_recordings/`, reescriben `test/test_proc/audioProc_actual.json` y comparan sus potencias contra `test/test_proc/audioProc_expected.json`.
 
 Para pruebas sin visibilidad satelital, `config.json` puede dejar:
 

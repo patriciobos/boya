@@ -114,6 +114,9 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
         return data
 
     def handle_message(self, message: Message):
+        if self._ignore_scheduler_while_error(message):
+            return
+
         params = getattr(message, "params", {}) or {}
 
         if self.state == State.DISABLE:

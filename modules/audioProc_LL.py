@@ -43,7 +43,7 @@ def _trapz(y, x):
 # Keep the same filename, but construct it relative to repository root so it works
 # on Windows and Linux. If the file isn't present, TEST_WAV_PATH will be None.
 BASE_DIR = Path(__file__).resolve().parents[1]
-_candidate = BASE_DIR / 'test' / 'recordings' / 'test_recordings' / '20180824_8105_20m_daspre_cap_2.wav'
+_candidate = BASE_DIR / 'test' / 'test_recordings' / '20180824_8105_20m_daspre_cap_2.wav'
 
 TEST_WAV_PATH = str(_candidate) if _candidate.exists() else None
 
@@ -60,8 +60,9 @@ class AudioProcLowLevel:
         """
         self.logger = get_logger("audioProc_LL")
         self.output_path = None
+        self.output_dir: Optional[Path | str] = None
+        self.output_filename: Optional[str] = None
         self.test_wav_path = None
-        self.write_csv_output = False
 
         self.is_initialized: bool = False
         self.is_open: bool = False
@@ -98,7 +99,6 @@ class AudioProcLowLevel:
             self.close()
             self.output_path = None
             self.test_wav_path = self.test_wav_path or TEST_WAV_PATH
-            self.write_csv_output = False
             self.is_initialized = True
             self.is_open = False
             self.last_error = None
@@ -195,7 +195,7 @@ class AudioProcLowLevel:
             self.close()
             self.output_path = None
             self.test_wav_path = None
-            self.write_csv_output = False
+            self.output_filename = None
             self.is_initialized = False
             self.is_open = False
             self.last_error = None
@@ -647,10 +647,11 @@ class AudioProcLowLevel:
         self.logger.info(f"Generating JSON output file for: {wav_path}")
 
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        output_dir = os.path.join(base_dir, "data", "audio_proc")
+        output_dir = Path(self.output_dir) if self.output_dir is not None else Path(base_dir) / "data" / "audio_proc"
         os.makedirs(output_dir, exist_ok=True)
         timestamp_token, timestamp = self._output_timestamp_from_wav(wav_path)
-        output_path = os.path.join(output_dir, f"audioProc_{timestamp_token}.json")
+        output_filename = self.output_filename or f"audioProc_{timestamp_token}.json"
+        output_path = output_dir / output_filename
 
         payload = {
             "timestamp": timestamp,
@@ -660,91 +661,20 @@ class AudioProcLowLevel:
             json.dump(payload, handle, separators=(",", ":"), ensure_ascii=False)
             handle.write("\n")
         self.logger.info(f"JSON file generated: {output_path}")
-        return output_path
-
-    def generate_output(self, rel_powers, wav_path):
-        """
-        Writes rel_powers data to a binary file.
-        If write_csv_output is True, also generates a CSV file with relative powers
-        (without rounding or limiting to uint8).
-        
-        Args:
-            rel_powers (numpy.ndarray): Array of relative powers in dB.
-                                       If mono: 1D array of N_bands elements.
-                                       If stereo: 2D array of shape (N_bands, 2).
-            wav_path (str): Path to original WAV file (used to generate output filename).
-            
-        Returns:
-            str: Path to generated binary file.
-        """
-        self.logger.info(f"Generating binary output file for: {wav_path}")
-        
-        # Get base name of WAV file (without extension)
-        wav_basename = os.path.splitext(os.path.basename(wav_path))[0]
-        
-        # Determine output directory ("data" folder at repository root)
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        output_dir = os.path.join(base_dir, "data")
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Generate output filename
-        output_path = os.path.join(output_dir, f"{wav_basename}.dat")
-        
-        # Convert rel_powers to 1D array if it's 2D
-        if rel_powers.ndim == 2:
-            # Stereo: flatten to 1D (2*N_bands bytes)
-            rel_powers_flat = rel_powers.flatten()
-        else:
-            # Mono: already 1D (N_bands bytes)
-            rel_powers_flat = rel_powers
-        
-        # Convert to uint8: round, clip to range 0-255
-        # Replace NaN values with 255 before conversion
-        rel_powers_flat = np.where(np.isnan(rel_powers_flat), 255.0, rel_powers_flat)
-        # First round to integer
-        rel_powers_int = np.round(rel_powers_flat).astype(np.int32)
-        # Clip to range 0-255
-        rel_powers_uint8 = np.clip(rel_powers_int, 0, 255).astype(np.uint8)
-        
-        # Write binary file
-        with open(output_path, 'wb') as f:
-            f.write(rel_powers_uint8.tobytes())
-        
-        self.logger.info(f"Binary file generated: {output_path} ({len(rel_powers_uint8)} bytes)")
-        
-        # If write_csv_output is enabled, also generate CSV file
-        if self.write_csv_output:
-            csv_path = os.path.join(output_dir, f"{wav_basename}.csv")
-            
-            # Create DataFrame with relative powers (without rounding or limiting)
-            if rel_powers.ndim == 1:
-                # Mono: one column
-                df = pd.DataFrame({'rel_power_dB': rel_powers})
-            else:
-                # Stereo: two columns (one per channel)
-                df = pd.DataFrame({
-                    'rel_power_dB_ch1': rel_powers[:, 0],
-                    'rel_power_dB_ch2': rel_powers[:, 1]
-                })
-            
-            # Write CSV
-            df.to_csv(csv_path, index=False)
-            self.logger.info(f"CSV file generated: {csv_path}")
-        
-        return output_path
+        return str(output_path)
     
     def process(self, wav_path):
         """
         Main method that integrates the complete audio processing:
         1. Calculates powers in third-octave bands (BL_calculator)
         2. Calculates relative powers with respect to reference (rel_band_power_calculator)
-        3. Generates binary output file (generate_output)
+        3. Generates JSON output file (generate_json_output)
         
         Args:
             wav_path (str): Path to WAV file to process.
             
         Returns:
-            str: Path to generated binary file in "data" folder.
+            str: Path to generated JSON file in data/audio_proc.
                  None if there is an error during processing.
         """
         self.logger.info(f"Starting complete processing of file: {wav_path}")
@@ -797,105 +727,32 @@ class AudioProcLowLevel:
             self._set_error(error_msg)
             return False, report
 
+        is_in_test_recordings = False
+        expected_json_path = None
+
         try:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            test_recordings_dir = os.path.join(base_dir, "test", "recordings", "test_recordings")
-            test_data_dir = os.path.join(base_dir, "data", "test_data")
-            os.makedirs(test_recordings_dir, exist_ok=True)
-            os.makedirs(test_data_dir, exist_ok=True)
+            test_recordings_dir = os.path.join(base_dir, "test", "test_recordings")
+            test_proc_dir = os.path.join(base_dir, "test", "test_proc")
 
             abs_wav = os.path.abspath(wav_path)
             abs_tr = os.path.abspath(test_recordings_dir)
-            is_in_test_recordings = False
             try:
                 is_in_test_recordings = os.path.commonpath([abs_wav, abs_tr]) == abs_tr
             except Exception:
                 is_in_test_recordings = False
 
+            expected_json_path = os.path.join(test_proc_dir, "audioProc_expected.json")
             if is_in_test_recordings:
-                ref_csv = os.path.join(test_data_dir, os.path.splitext(os.path.basename(wav_path))[0] + ".csv")
-                if os.path.exists(ref_csv):
-                    self.logger.info(f"Found external reference CSV for comparison: {ref_csv}")
-                    measured = self.BL_calculator(wav_path)
-
-                    try:
-                        external = np.loadtxt(ref_csv, delimiter=',')
-                    except Exception as e:
-                        msg = f"Failed to load reference CSV '{ref_csv}': {e}"
-                        self.logger.error(msg)
-                        report["errors"].append(msg)
-                        self._set_error(msg)
-                        return False, report
-
-                    if measured.ndim == 2 and external.ndim == 1:
-                        if external.shape[0] == measured.shape[0]:
-                            external = np.tile(external.reshape(-1, 1), (1, measured.shape[1]))
-                        else:
-                            msg = "Reference CSV shape does not match measured bands."
-                            self.logger.error(msg)
-                            report["errors"].append(msg)
-                            self._set_error(msg)
-                            return False, report
-                    elif measured.ndim == 1 and external.ndim == 2:
-                        if external.shape[1] == 1:
-                            external = external.flatten()
-                        else:
-                            msg = "Reference CSV shape does not match measured bands."
-                            self.logger.error(msg)
-                            report["errors"].append(msg)
-                            self._set_error(msg)
-                            return False, report
-
-                    if measured.shape != external.shape:
-                        msg = f"Measured bands shape {measured.shape} does not match reference shape {external.shape}."
-                        self.logger.error(msg)
-                        report["errors"].append(msg)
-                        self._set_error(msg)
-                        return False, report
-
-                    measured_arr = np.array(measured)
-                    external_arr = np.array(external)
-                    finite_mask = np.isfinite(measured_arr) & np.isfinite(external_arr)
-                    if not np.any(finite_mask):
-                        msg = "No comparable band values (all NaN or non-finite) between measured and reference."
-                        self.logger.error(msg)
-                        report["errors"].append(msg)
-                        self._set_error(msg)
-                        return False, report
-
-                    diffs = np.abs(measured_arr - external_arr)
-                    diffs_masked = np.where(finite_mask, diffs, 0.0)
-
-                    failing = np.argwhere(diffs_masked >= 1.0)
-                    if failing.size == 0:
-                        msg = "External comparison: all bands within 1 dB."
-                        self.logger.info(msg)
-                        report["details"]["comparison"] = msg
-                    else:
-                        details = []
-                        for idx in failing:
-                            if measured_arr.ndim == 1:
-                                i = int(idx[0])
-                                details.append(
-                                    f"band {i}: measured={measured_arr[i]:.2f} dB, ref={external_arr[i]:.2f} dB, diff={diffs[i]:.2f} dB"
-                                )
-                            else:
-                                i, ch = int(idx[0]), int(idx[1])
-                                details.append(
-                                    f"band {i} ch{ch+1}: measured={measured_arr[i,ch]:.2f} dB, ref={external_arr[i,ch]:.2f} dB, diff={diffs[i,ch]:.2f} dB"
-                                )
-                        err_msg = "External comparison failed for bands: " + "; ".join(details)
-                        self.logger.error(err_msg)
-                        report["errors"].append(err_msg)
-                        self._set_error(err_msg)
-                        return False, report
+                report["details"]["expected_output_path"] = expected_json_path
+                self.output_dir = test_proc_dir
+                self.output_filename = "audioProc_actual.json"
 
         except Exception as e:
             self.logger.exception(f"Error during external comparison setup: {e}")
             report["details"]["comparison_setup_error"] = str(e)
 
         try:
-            self.write_csv_output = True
             self.logger.info(f"Executing process with file: {wav_path}")
             output_path = self.process(wav_path)
 
@@ -907,7 +764,7 @@ class AudioProcLowLevel:
                 return False, report
 
             if not os.path.exists(output_path):
-                error_msg = f"Binary output file was not generated: {output_path}"
+                error_msg = f"JSON output file was not generated: {output_path}"
                 self.logger.error(error_msg)
                 report["errors"].append(error_msg)
                 self._set_error(error_msg)
@@ -918,7 +775,39 @@ class AudioProcLowLevel:
             report["device_present"] = True
             report["details"]["output_path"] = output_path
             report["details"]["message"] = success_msg
-            self.write_csv_output = False
+
+            if is_in_test_recordings:
+                if expected_json_path is None or not os.path.exists(expected_json_path):
+                    error_msg = f"AudioProc expected pattern was not found: {expected_json_path}"
+                    self.logger.error(error_msg)
+                    report["errors"].append(error_msg)
+                    self._set_error(error_msg)
+                    return False, report
+
+                actual_payload = json.loads(Path(output_path).read_text(encoding="utf-8"))
+                expected_payload = json.loads(Path(expected_json_path).read_text(encoding="utf-8"))
+                actual = np.asarray(actual_payload["relative_band_power_db"], dtype=float)
+                expected = np.asarray(expected_payload["relative_band_power_db"], dtype=float)
+                if actual.shape != expected.shape:
+                    error_msg = f"AudioProc expected shape {expected.shape} does not match actual shape {actual.shape}"
+                    self.logger.error(error_msg)
+                    report["errors"].append(error_msg)
+                    self._set_error(error_msg)
+                    return False, report
+
+                if not np.allclose(actual, expected, rtol=0.0, atol=0.001, equal_nan=True):
+                    diffs = np.abs(actual - expected)
+                    idx = np.unravel_index(int(np.nanargmax(diffs)), diffs.shape)
+                    error_msg = (
+                        "AudioProc output differs from expected pattern: "
+                        f"index={idx}, actual={actual[idx]:.3f}, expected={expected[idx]:.3f}, diff={diffs[idx]:.3f}"
+                    )
+                    self.logger.error(error_msg)
+                    report["errors"].append(error_msg)
+                    self._set_error(error_msg)
+                    return False, report
+
+                report["details"]["comparison"] = "AudioProc JSON output matches expected pattern."
             return True, report
 
         except Exception as e:

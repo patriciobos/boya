@@ -79,11 +79,6 @@ class centralScheduler:
                 continue
             self.next_run[name] = self._aligned_next_run(now, interval)
 
-        # Behringer retry bookkeeping
-        self.behringer_retries: int = 0
-        self.behringer_last_attempt: datetime | None = None
-        self.max_behringer_retries = 2
-
     def start(self):
         self.thread.start()
 
@@ -93,20 +88,8 @@ class centralScheduler:
             self.thread.join()
 
     def record_action_result(self, origin: str, message: Message):
-        # Used to track Behringer failures for retries
-        try:
-            if origin == "Behringer" and message.id == MessageID.ACTION_RESULT:
-                result = message.params.get("result")
-                action = message.params.get("action")
-                if action == "acquire":
-                    if result == "error":
-                        # schedule immediate retry if under limit
-                        self.behringer_retries += 1
-                    else:
-                        # reset on success
-                        self.behringer_retries = 0
-        except Exception:
-            pass
+        # Error recovery is handled by ErrorRecoveryManager on state changes.
+        return None
 
     def _aligned_next_run(self, now: datetime, interval_seconds: int) -> datetime:
         """Return the next run aligned to regular slots from midnight UTC-3."""
@@ -152,15 +135,51 @@ class centralScheduler:
                     # increment next_run from the regular slot, not from current time, to avoid drift
                     self.next_run[name] = self._advance_next_run(nr, now, interval)
 
-            # Behringer retries: if retries >0 and <= max, trigger an immediate SIG_ACQUIRE
-            if self.behringer_retries and self.behringer_retries <= self.max_behringer_retries:
-                entry = self.fsms.get("Behringer")
-                if entry and entry.get("queue"):
-                    # send immediate retry
-                    entry.get("queue").put(Message(MessageID.SIG_ACQUIRE))
-                    self.behringer_retries = 0  # counted as dispatched; further failures will increment again
-
             time.sleep(1)
+
+
+class ErrorRecoveryManager:
+    def __init__(self, fsms: dict[str, dict], max_attempts: int = 3):
+        self.fsms = fsms
+        self.max_attempts = max_attempts
+        self.attempts: dict[str, int] = {}
+        self.irrecoverable: set[str] = set()
+
+    def handle_state(self, name: str, state_name: str, logger, status_report: StatusReport | None = None) -> None:
+        if state_name == State.IDLE.name:
+            self.attempts.pop(name, None)
+            self.irrecoverable.discard(name)
+            return
+
+        if state_name != State.ERROR.name or name in self.irrecoverable:
+            return
+
+        attempts = self.attempts.get(name, 0)
+        if attempts >= self.max_attempts:
+            self.irrecoverable.add(name)
+            details = {
+                "origin": name,
+                "state": State.ERROR.name,
+                "action": "recover",
+                "result": "error",
+                "error": "Module failed irrecoverably",
+                "recovery_attempts": attempts,
+            }
+            logger.error("[%s] Module failed irrecoverably after %s recovery attempts", name, attempts)
+            if status_report is not None:
+                status_report.update(name, State.ERROR.name, "recover", "error", details)
+            return
+
+        entry = self.fsms.get(name)
+        queue = entry.get("queue") if entry else None
+        if not queue:
+            logger.error("[%s] Cannot recover module: queue is not available", name)
+            return
+
+        attempts += 1
+        self.attempts[name] = attempts
+        logger.warning("[%s] ERROR reported; sending SIG_INIT recovery attempt %s/%s", name, attempts, self.max_attempts)
+        queue.put(Message(MessageID.SIG_INIT, {"origin": "main", "recovery_attempt": attempts}))
 
 if __name__ == "__main__":
     logger = get_logger("main")
@@ -207,6 +226,7 @@ if __name__ == "__main__":
     # Start central scheduler
     central_scheduler = centralScheduler(fsms)
     central_scheduler.start()
+    error_recovery = ErrorRecoveryManager(fsms)
 
     status_report = StatusReport()
     try:
@@ -220,6 +240,7 @@ if __name__ == "__main__":
                             state_name = message.params["state"]
                             logger.info(f"[{name}] Nuevo estado: {state_name}")
                             status_report.update(name, state_name, None, None, {})
+                            error_recovery.handle_state(name, state_name, logger, status_report)
                         elif message.id == MessageID.ACTION_RESULT:
                             state = message.params["state"]
                             action = message.params["action"]

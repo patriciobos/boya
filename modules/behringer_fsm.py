@@ -62,7 +62,23 @@ class BehringerHandlerFSM(BaseHandlerFSM):
             self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
     def handle_message(self, message: Message):
+        if self._ignore_scheduler_while_error(message):
+            return
+
         params = getattr(message, "params", {}) or {}
+        if self.state == State.ERROR and message.id in (
+            MessageID.SIG_ACQUIRE,
+            MessageID.SIG_PROCESS,
+            MessageID.SIG_TIMEOUT,
+            MessageID.SIG_TRANSMIT,
+        ):
+            self.logger.warning(
+                "Behringer explicit ERROR guard ignored operational message: %s | Params: %s",
+                message.id.value,
+                params,
+            )
+            return
+
         if self.state == State.DISABLE:
             if message.id == MessageID.SIG_INIT:
                 self.set_state(State.INIT, self.status_queue)

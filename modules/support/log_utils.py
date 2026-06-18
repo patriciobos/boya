@@ -40,7 +40,7 @@ def get_logger(name: str, log_file: Optional[str] = None, level=logging.INFO) ->
 
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    formatter = UTCMinus3Formatter('%(asctime)s %(timezone_label)s [%(name)s] %(levelname)s: %(message)s')
+    formatter = UTCMinus3Formatter('%(asctime)s %(timezone_label)s [%(process)d] [%(name)s] %(levelname)s: %(message)s')
 
     # Handler de archivo
     if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == os.path.abspath(log_file) for h in logger.handlers):

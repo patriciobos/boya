@@ -68,6 +68,10 @@ class CRCError(AHT10Error):
 class AHT10LowLevel:
     DEFAULT_ADDRESS = 0x38
     DEFAULT_BUS = 1
+    MIN_PLAUSIBLE_TEMP_C = -40.0
+    MAX_PLAUSIBLE_TEMP_C = 85.0
+    MIN_PLAUSIBLE_RH = 0.0
+    MAX_PLAUSIBLE_RH = 100.0
     INIT_CMD = bytes([0xE1, 0x08, 0x00])
     SOFT_RESET_CMD = bytes([0xBA])
     TRIGGER_CMD = bytes([0xAC, 0x33, 0x00])
@@ -369,7 +373,10 @@ class AHT10LowLevel:
         rh = (hum_raw * 100.0) / float(1 << 20)
         temp_c = (temp_raw * 200.0) / float(1 << 20) - 50.0
 
-        if not (-40.0 <= temp_c <= 125.0) or not (0.0 <= rh <= 100.0):
+        if not (
+            self.MIN_PLAUSIBLE_TEMP_C <= temp_c <= self.MAX_PLAUSIBLE_TEMP_C
+            and self.MIN_PLAUSIBLE_RH <= rh <= self.MAX_PLAUSIBLE_RH
+        ):
             self.logger.warning(
                 "Parsed AHT10 values out of expected range: temp=%s humidity=%s raw=%r",
                 temp_c,
@@ -556,7 +563,10 @@ class AHT10LowLevel:
                     "raw": [int(x) for x in raw],
                     "temperature_c": temp_c,
                     "humidity_rh": rh,
-                    "plausible": (-40.0 <= temp_c <= 85.0) and (0.0 <= rh <= 100.0),
+                    "plausible": (
+                        self.MIN_PLAUSIBLE_TEMP_C <= temp_c <= self.MAX_PLAUSIBLE_TEMP_C
+                        and self.MIN_PLAUSIBLE_RH <= rh <= self.MAX_PLAUSIBLE_RH
+                    ),
                 }
                 measurements.append(measurement)
                 if measurement["plausible"]:

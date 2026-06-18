@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from modules.audioProc_LL import AudioProcLowLevel, TEST_WAV_PATH
+from modules.audioProc_LL import AudioProcLowLevel, PROJECT_ROOT, TEST_WAV_PATH
 
 
 def test_audio_proc_processes_real_fixture_wav():
@@ -14,10 +14,13 @@ def test_audio_proc_processes_real_fixture_wav():
     ll = AudioProcLowLevel()
     assert ll.init() is True
 
-    output_path = Path(ll.process(TEST_WAV_PATH))
+    passed, report = ll.full_test()
 
-    assert output_path.parent.name == "audio_proc"
-    assert output_path.name.startswith("audioProc_")
+    assert passed is True, report
+    assert report["details"]["comparison"] == "AudioProc JSON output matches expected pattern."
+
+    output_path = Path(report["details"]["output_path"])
+    assert output_path == PROJECT_ROOT / "test" / "test_proc" / "audioProc_actual.json"
     assert output_path.suffix == ".json"
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from multiprocessing import Queue
 from queue import Empty
 
-from main import centralScheduler
+from main import ErrorRecoveryManager, centralScheduler
 from modules.support.base_fsm import Message, MessageID
 from modules.support.system_config import UTC_MINUS_3, now_utc_minus_3
 
@@ -38,7 +38,7 @@ def test_central_scheduler_sends_timeout_to_scheduled_fsm():
         scheduler.stop()
 
 
-def test_central_scheduler_retries_behringer_on_failure():
+def test_central_scheduler_does_not_retry_behringer_immediately_on_failure():
     behringer_queue = Queue()
     fsms = {"Behringer": {"queue": behringer_queue}}
 
@@ -52,8 +52,11 @@ def test_central_scheduler_retries_behringer_on_failure():
 
     scheduler.start()
     try:
-        message = behringer_queue.get(timeout=3)
-        assert message.id == MessageID.SIG_ACQUIRE
+        try:
+            message = behringer_queue.get(timeout=0.5)
+        except Empty:
+            message = None
+        assert message is None
     finally:
         scheduler.stop()
 
@@ -118,3 +121,43 @@ def test_central_scheduler_advances_without_drift():
     next_run = scheduler._advance_next_run(previous, now, 600)
 
     assert next_run == datetime(2026, 6, 9, 10, 30, tzinfo=UTC_MINUS_3)
+
+
+class CapturingLogger:
+    def __init__(self):
+        self.warnings = []
+        self.errors = []
+
+    def warning(self, message, *args):
+        self.warnings.append(message % args)
+
+    def error(self, message, *args):
+        self.errors.append(message % args)
+
+
+class CapturingStatusReport:
+    def __init__(self):
+        self.updates = []
+
+    def update(self, *args):
+        self.updates.append(args)
+
+
+def test_error_recovery_manager_sends_sig_init_and_marks_irrecoverable():
+    queue = Queue()
+    logger = CapturingLogger()
+    status_report = CapturingStatusReport()
+    recovery = ErrorRecoveryManager({"AHT10": {"queue": queue}}, max_attempts=3)
+
+    for expected_attempt in (1, 2, 3):
+        recovery.handle_state("AHT10", "ERROR", logger, status_report)
+        message = queue.get(timeout=1)
+        assert message.id == MessageID.SIG_INIT
+        assert message.params == {"origin": "main", "recovery_attempt": expected_attempt}
+
+    recovery.handle_state("AHT10", "ERROR", logger, status_report)
+
+    assert "AHT10" in recovery.irrecoverable
+    assert logger.errors[-1] == "[AHT10] Module failed irrecoverably after 3 recovery attempts"
+    assert status_report.updates[-1][0:4] == ("AHT10", "ERROR", "recover", "error")
+    assert status_report.updates[-1][4]["error"] == "Module failed irrecoverably"

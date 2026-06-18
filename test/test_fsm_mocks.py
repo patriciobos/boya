@@ -91,6 +91,41 @@ def test_audio_proc_fsm_uses_mock_and_self_tests_with_mock(monkeypatch):
     assert report["final_state"] == "IDLE"
 
 
+@pytest.mark.parametrize(
+    ("module_name", "handler_name"),
+    [
+        ("AHT10", "AHT10HandlerFSM"),
+        ("AIS", "AISHandlerFSM"),
+        ("AudioProc", "AudioProcHandlerFSM"),
+        ("Behringer", "BehringerHandlerFSM"),
+        ("Iridium", "IridiumHandlerFSM"),
+        ("MPU6050", "MPU6050HandlerFSM"),
+        ("Windsonic", "WindsonicHandlerFSM"),
+        ("XTRA2210", "XTRA2210HandlerFSM"),
+    ],
+)
+def test_fsm_in_error_ignores_scheduler_but_accepts_recovery_init(monkeypatch, module_name, handler_name):
+    modules = _reload_modules_with_mocks(monkeypatch)
+    fsm = getattr(modules[module_name], handler_name)()
+    status_queue = Queue()
+    fsm.status_queue = status_queue
+    fsm.state = State.ERROR
+    fsm._last_state = State.ERROR
+    fsm._on_entry_flag = False
+
+    fsm.handle_message(Message(MessageID.SIG_TIMEOUT, {"origin": "Scheduler"}))
+    assert fsm.state == State.ERROR
+
+    fsm.handle_message(Message(MessageID.SIG_ACQUIRE, {"origin": "Scheduler", "retry": True}))
+    assert fsm.state == State.ERROR
+
+    fsm.handle_message(Message(MessageID.SIG_ACQUIRE))
+    assert fsm.state == State.ERROR
+
+    fsm.handle_message(Message(MessageID.SIG_INIT, {"origin": "main", "recovery_attempt": 1}))
+    assert fsm.state == State.INIT
+
+
 def test_audio_proc_fsm_process_with_mock_logs_output(monkeypatch, tmp_path):
     modules = _reload_modules_with_mocks(monkeypatch)
 
@@ -649,6 +684,69 @@ def test_aht10_fsm_acquire_with_mock(monkeypatch):
     assert fsm.data_logger.sources[-1] == "hardware mock"
 
     fsm.ll.deinit()
+
+
+def test_aht10_fsm_retries_and_logs_implausible_temperature_jump(monkeypatch, caplog):
+    modules = _reload_modules_with_mocks(monkeypatch)
+
+    class JumpingAHT10LowLevel:
+        MIN_PLAUSIBLE_TEMP_C = -40.0
+        MAX_PLAUSIBLE_TEMP_C = 85.0
+        MIN_PLAUSIBLE_RH = 0.0
+        MAX_PLAUSIBLE_RH = 100.0
+
+        def __init__(self):
+            self.measurements = [(22.74, 44.2), (34.3, 24.9), (34.3, 24.9), (34.3, 24.9)]
+            self.reads = 0
+
+        def init(self):
+            return True
+
+        def full_test(self):
+            return True, {"errors": []}
+
+        def read_measurement_raw(self, timeout=2.0, retry_on_null=True):
+            self.reads += 1
+            return b"\x00\x01\x02\x03\x04\x05"
+
+        def parse(self, raw):
+            return self.measurements.pop(0)
+
+        def deinit(self):
+            return True
+
+    fsm = modules["AHT10"].AHT10HandlerFSM()
+    status_queue = Queue()
+    fsm.status_queue = status_queue
+    fsm.data_logger = CapturingDataLogger()
+    fsm.ll = JumpingAHT10LowLevel()
+
+    fsm.handle_message(Message(MessageID.SIG_INIT))
+    assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
+    assert fsm.state == State.IDLE
+
+    fsm.handle_message(Message(MessageID.SIG_ACQUIRE))
+    assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
+    assert fsm.state == State.IDLE
+    assert fsm.data_logger.entries == [{"temperature_c": 22.74, "humidity_rh": 44.2}]
+    fsm.update()
+
+    fsm.handle_message(Message(MessageID.SIG_ACQUIRE))
+    assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
+    assert fsm.state == State.IDLE
+    assert fsm.ll.reads == 4
+    assert fsm.data_logger.entries == [
+        {"temperature_c": 22.74, "humidity_rh": 44.2},
+        {"temperature_c": 34.3, "humidity_rh": 24.9},
+    ]
+
+    acquire_results = [
+        msg[1].params for msg in _drain_status_queue(status_queue)
+        if msg[1].id == MessageID.ACTION_RESULT and msg[1].params.get("action") == "acquire"
+    ]
+    assert acquire_results[-1]["result"] == "ok"
+    assert "temperature jump is not plausible" in caplog.text
+    assert "logging last AHT10 value anyway" in caplog.text
 
 
 def test_ais_fsm_acquire_with_mock(monkeypatch):

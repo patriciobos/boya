@@ -118,7 +118,7 @@ mkdir -p "$LOG_DIR"
 stop_existing_main
 
 cd "$ROOT_DIR"
-nohup "$PYTHON_BIN" main.py >> "$LOG_FILE" 2>&1 &
+PYTHONDONTWRITEBYTECODE=1 nohup "$PYTHON_BIN" -B main.py >> "$LOG_FILE" 2>&1 &
 new_pid="$!"
 printf '%s\n' "$new_pid" > "$PID_FILE"
 
