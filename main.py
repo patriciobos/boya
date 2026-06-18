@@ -1,6 +1,7 @@
 from multiprocessing import Process, Queue
 from time import sleep
 import os
+import signal
 
 from modules.aht10_fsm import AHT10HandlerFSM
 from modules.ais_fsm import AISHandlerFSM
@@ -163,6 +164,15 @@ class centralScheduler:
 
 if __name__ == "__main__":
     logger = get_logger("main")
+    shutdown_requested = threading.Event()
+
+    def request_shutdown(signum, _frame):
+        logger.warning("Señal %s recibida. Finalizando FSMs...", signum)
+        shutdown_requested.set()
+
+    signal.signal(signal.SIGTERM, request_shutdown)
+    signal.signal(signal.SIGINT, request_shutdown)
+
     mock_config = validate_mock_configuration()
     mock_modules = get_mocked_module_names()
     if mock_modules:
@@ -200,7 +210,7 @@ if __name__ == "__main__":
 
     status_report = StatusReport()
     try:
-        while True:
+        while not shutdown_requested.is_set():
             for fsm_id, fsm in list(fsms.items()):
                 try:
                     msg = fsm["status_queue"].get_nowait()
@@ -237,8 +247,16 @@ if __name__ == "__main__":
             sleep(1)
 
     except KeyboardInterrupt:
-        logger.warning("Interrupción detectada. Finalizando FSMs...")
+        shutdown_requested.set()
+    finally:
+        logger.warning("Finalizando scheduler y FSMs...")
+        central_scheduler.stop()
         for fsm in fsms.values():
-            fsm["process"].terminate()
-            fsm["process"].join()
+            process = fsm["process"]
+            if process.is_alive():
+                process.terminate()
+            process.join(timeout=5)
+            if process.is_alive():
+                process.kill()
+                process.join()
         logger.info("Todos los FSMs han sido detenidos correctamente.")

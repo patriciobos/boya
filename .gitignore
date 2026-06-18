@@ -82,6 +82,7 @@ docs/_build/
 # Runtime logs and reports
 main.pid
 logs/*.log
+logs/*.out
 logs/*.json
 logs/*.jsonl
 logs/*.tmp
