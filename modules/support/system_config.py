@@ -8,7 +8,7 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIGS_PATH = PROJECT_ROOT / "configs"
 CONFIG_PATH = CONFIGS_PATH / "config.json"
-MOCKS_CONFIG_PATH = CONFIGS_PATH / "mocks.json"
+MOCKS_CONFIG_PATH = CONFIGS_PATH / "mock_modules.json"
 SCHEDULER_PATH = CONFIGS_PATH / "scheduler.json"
 UTC_MINUS_3_LABEL = "UTC-3"
 UTC_MINUS_3 = timezone(timedelta(hours=-3), UTC_MINUS_3_LABEL)
@@ -114,7 +114,7 @@ def normalize_module_names(value: Any, field_name: str = "modules") -> list[str]
 def get_configured_mock_modules() -> list[str]:
     mocks_value = get_mocks_config_value("mock_modules", None)
     if mocks_value is None:
-        # Backward compatibility for older deployments; prefer configs/mocks.json.
+        # Backward compatibility for older deployments; prefer configs/mock_modules.json.
         mocks_value = get_config_value("mock_modules", [])
     return normalize_module_names(mocks_value, "mock_modules")
 

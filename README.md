@@ -29,7 +29,8 @@ Archivos principales:
 - `config.json`: configuracion general, por ejemplo `data_dir` y `logs_dir`.
 - `scheduler.json`: intervalos del scheduler central.
 - `data/`: mediciones y salidas generadas.
-- `logs/`: logs y reportes de ejecucion.
+- `logs/`: logs de ejecucion de `main.py` y modulos en runtime.
+- `test/reports/`: reportes generados por tests operacionales/hardware.
 - `support/`: tablas, calibraciones y datos de referencia.
 - `docs/`: manuales de hardware.
 
@@ -61,6 +62,18 @@ Para comandos de test se recomienda usar la venv explicitamente. La suite local 
 PYTHONPATH=. .venv/bin/python -m pytest -m "not hardware" -q
 ```
 
+Para ejecutar los self-tests low-level como scripts contra hardware real y generar reportes:
+
+```bash
+scripts/run_ll_scripts.sh
+```
+
+Ese wrapper ejecuta `test/test_run_ll_scripts.py` con `RUN_HARDWARE_TESTS=1` por defecto y escribe:
+
+- `test/reports/ll_scripts_run.log`
+- `test/reports/ll_scripts_summary.log`
+- `test/reports/ll_scripts_report.json`
+
 ## Ejecucion
 
 Con hardware real:
@@ -68,6 +81,20 @@ Con hardware real:
 ```bash
 PYTHONPATH=. .venv/bin/python main.py
 ```
+
+Para uso operativo, iniciar `main.py` con limpieza previa de procesos anteriores y salida en `logs/main.out`:
+
+```bash
+scripts/start_main.sh
+```
+
+Detener ordenadamente `main.py` y sus subprocesos asociados:
+
+```bash
+scripts/stop_main.sh
+```
+
+`stop_main.sh` envia `SIGTERM`, espera la salida, fuerza con `SIGKILL` solo si quedan procesos vivos, limpia `main.pid` si queda obsoleto y verifica que no haya variables `USE_LL_MOCKS`/`USE_MOCK_*` exportadas en su entorno o en procesos `main.py` remanentes.
 
 Con mocks low-level:
 
@@ -81,10 +108,12 @@ Tambien se puede mockear un modulo individual:
 USE_MOCK_AHT10=1 PYTHONPATH=. .venv/bin/python main.py
 ```
 
-La forma recomendada para ensayos repetibles es declarar los modulos mockeados en `config.json`:
+La forma recomendada para ensayos repetibles es declarar los modulos mockeados en `configs/mock_modules.json`:
 
 ```json
-"mock_modules": ["Windsonic", "Iridium", "AIS", "XTRA2210"]
+{
+  "mock_modules": ["Windsonic", "Iridium", "AIS", "XTRA2210"]
+}
 ```
 
 Los mocks configurados siguen el flujo normal de sus FSMs y quedan identificados en logs, readings y `system_status.json` como `hardware mock`. El sistema valida configuraciones ambiguas, por ejemplo mezclar `USE_LL_MOCKS=1` global con una lista parcial en `mock_modules`.

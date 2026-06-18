@@ -134,7 +134,7 @@ def _use_temp_config(monkeypatch, tmp_path, config):
 def _use_temp_mocks_config(monkeypatch, tmp_path, config):
     import modules.support.system_config as system_config
 
-    mocks_config_path = tmp_path / "mocks.json"
+    mocks_config_path = tmp_path / "mock_modules.json"
     mocks_config_path.write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.setattr(system_config, "MOCKS_CONFIG_PATH", mocks_config_path)
     monkeypatch.setattr(system_config, "_default_mocks_config", None)
@@ -183,7 +183,7 @@ def test_mock_modules_fallback_to_main_config_when_mocks_config_missing(monkeypa
     _use_temp_config(monkeypatch, tmp_path, {"mock_modules": ["AIS"]})
 
     import modules.support.system_config as system_config
-    monkeypatch.setattr(system_config, "MOCKS_CONFIG_PATH", tmp_path / "missing_mocks.json")
+    monkeypatch.setattr(system_config, "MOCKS_CONFIG_PATH", tmp_path / "missing_mock_modules.json")
     monkeypatch.setattr(system_config, "_default_mocks_config", None)
 
     assert system_config.get_configured_mock_modules() == ["AIS"]

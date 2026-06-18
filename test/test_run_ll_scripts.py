@@ -249,7 +249,7 @@ def test_run_all_ll_scripts_and_report(tmp_path):
 
     _print_summary(results)
 
-    report_file, summary_file = _write_reports(results, REPO_ROOT / "logs")
+    report_file, summary_file = _write_reports(results, REPO_ROOT / "test" / "reports")
 
     failed = [r for r in results if not r["success"]]
     if failed:
