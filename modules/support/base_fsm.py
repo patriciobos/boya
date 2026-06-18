@@ -1,6 +1,7 @@
 from enum import Enum, auto
 from dataclasses import dataclass, field
 from multiprocessing import Queue
+from queue import Empty
 import time
 from typing import Any, Dict, Optional
 import json
@@ -131,8 +132,12 @@ class BaseHandlerFSM:
 
         try:
             while self.running:
-                if not queue.empty():
-                    msg = queue.get()
+                try:
+                    msg = queue.get(timeout=0.1)
+                except Empty:
+                    msg = None
+
+                if msg is not None:
                     self.logger.info(
                         "Received: %s | Params: %s",
                         msg.id.value,
@@ -152,8 +157,6 @@ class BaseHandlerFSM:
                         self.update()
                         continue
                     self.handle_message(msg)
-                else:
-                    time.sleep(0.1)
 
                 self.update()
 
@@ -214,8 +217,11 @@ def run_fsm_self_test(
     }
 
     def drain_status():
-        while not status_queue.empty():
-            name, message = status_queue.get()
+        while True:
+            try:
+                name, message = status_queue.get_nowait()
+            except Empty:
+                break
             report["messages"].append({
                 "name": name,
                 "id": message.id.value,
@@ -227,8 +233,11 @@ def run_fsm_self_test(
 
         start = time.time()
         while time.time() - start < init_timeout_s:
-            if not queue.empty():
-                msg = queue.get()
+            try:
+                msg = queue.get_nowait()
+            except Empty:
+                msg = None
+            if msg is not None:
                 fsm.handle_message(msg)
 
             fsm.update()
@@ -245,8 +254,11 @@ def run_fsm_self_test(
 
             start = time.time()
             while time.time() - start < timeout_s:
-                if not queue.empty():
-                    msg = queue.get()
+                try:
+                    msg = queue.get_nowait()
+                except Empty:
+                    msg = None
+                if msg is not None:
                     fsm.handle_message(msg)
 
                 fsm.update()
