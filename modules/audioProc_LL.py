@@ -729,6 +729,8 @@ class AudioProcLowLevel:
 
         is_in_test_recordings = False
         expected_json_path = None
+        original_output_dir = self.output_dir
+        original_output_filename = self.output_filename
 
         try:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -816,6 +818,9 @@ class AudioProcLowLevel:
             report["errors"].append(error_msg)
             self._set_error(error_msg)
             return False, report
+        finally:
+            self.output_dir = original_output_dir
+            self.output_filename = original_output_filename
 
     
 

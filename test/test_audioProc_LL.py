@@ -22,6 +22,8 @@ def test_audio_proc_processes_real_fixture_wav():
     output_path = Path(report["details"]["output_path"])
     assert output_path == PROJECT_ROOT / "test" / "test_proc" / "audioProc_actual.json"
     assert output_path.suffix == ".json"
+    assert ll.output_dir is None
+    assert ll.output_filename is None
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert set(payload) == {"timestamp", "relative_band_power_db"}

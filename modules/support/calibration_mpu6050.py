@@ -9,6 +9,8 @@ from pathlib import Path
 
 THIS_FILE = Path(__file__).resolve()
 MODULES_DIR = THIS_FILE.parent.parent
+PROJECT_ROOT = MODULES_DIR.parent
+DEFAULT_CALIBRATION_PATH = PROJECT_ROOT / "support" / "mpu6050_calibration.json"
 if str(MODULES_DIR) not in sys.path:
     sys.path.insert(0, str(MODULES_DIR))
 
@@ -61,7 +63,7 @@ def main(argv=None) -> int:
         "--output",
         "-o",
         type=Path,
-        default=Path("mpu6050_calibration.json"),
+        default=DEFAULT_CALIBRATION_PATH,
         help="Output JSON file",
     )
     args = parser.parse_args(argv)
