@@ -177,7 +177,7 @@ Con esta configuracion, el scheduler agenda activaciones en horas regulares UTC-
 
 - Sensores cada 10 minutos: `:00`, `:10`, `:20`, etc.
 - Behringer cada 4 horas: `00:00`, `04:00`, `08:00`, `12:00`, `16:00`, `20:00`.
-- Iridium cada hora exacta, con ciclo de 4 horas: `alive`, `alive`, `alive`, `audio`.
+- Iridium cada hora exacta, con ciclo de 4 horas: `system_status`, `system_status`, `system_status`, `audio`. El modo `alive` se acepta como alias operativo legacy y transmite el mismo `MSG_SYSTEM_STATUS`.
 - AudioProc no se agenda directamente: procesa cuando Behringer entrega un archivo.
 
 El scheduler incrementa desde el slot programado, no desde la hora real de ejecucion, para evitar drift si el loop se demora.
@@ -186,33 +186,37 @@ El scheduler incrementa desde el slot programado, no desde la hora real de ejecu
 
 Iridium funciona como gateway satelital. La FSM de Iridium decide que transmitir y usa `modules/support/iridium_protocol.py` para codificar payloads binarios; el low-level `iridium_LL.py` queda limitado al transporte AT/SBD.
 
-### Alive binario
+### System Status binario
 
-El scheduler central envia Iridium cada hora exacta UTC-3. En las primeras tres horas del ciclo envia `alive`; en la cuarta envia `audio`:
+El scheduler central envia Iridium cada hora exacta UTC-3. En las primeras tres horas del ciclo envia estado de sistema; en la cuarta envia `audio`:
 
 ```python
+Message(MessageID.SIG_TRANSMIT, {"mode": "system_status", "origin": "Scheduler"})
 Message(MessageID.SIG_TRANSMIT, {"mode": "alive", "origin": "Scheduler"})
 Message(MessageID.SIG_TRANSMIT, {"mode": "audio", "origin": "Scheduler"})
 ```
 
-La FSM arma un payload binario de 16 bytes leyendo:
+La FSM arma un payload binario `MSG_SYSTEM_STATUS` de 11 bytes leyendo:
 
 - `logs/system_status.json`: estado operativo de FSMs y low-levels.
-- `data/ais_readings.jsonl`: ultima posicion GPS disponible (`gps_fix`, `lat`, `lon`).
+- `data/xtra2210_readings.jsonl`: ultima medicion de bateria disponible.
+- configuracion y estado del storage guard para `/storage/boya/recordings`.
+- `/proc/uptime`: minutos desde boot.
 
-Formato del payload `alive`, big-endian, sin version:
+Formato del payload `MSG_SYSTEM_STATUS`, big-endian. El `message_type = 0x01` implica la version del layout:
 
 | Campo | Tipo | Bytes | Descripcion |
 | --- | --- | ---: | --- |
-| `message_type` | `uint8` | 1 | `0x01` para alive |
-| `timestamp_utc` | `uint32` | 4 | epoch seconds UTC |
-| `fsm_status` | `uint8` | 1 | bitmap de estado FSM |
-| `ll_status` | `uint8` | 1 | bitmap de estado low-level |
-| `gps_fix` | `uint8` | 1 | `0` sin fix, `1` con fix |
-| `lat` | `int32` | 4 | grados `* 1e7`; `0x7FFFFFFF` sin fix |
-| `lon` | `int32` | 4 | grados `* 1e7`; `0x7FFFFFFF` sin fix |
+| `message_type` | `uint8` | 1 | `0x01` para `MSG_SYSTEM_STATUS` |
+| `fsm_ok_bitmap` | `uint8` | 1 | 1 bit por FSM esperada; `1 = OK` |
+| `ll_ok_bitmap` | `uint8` | 1 | 1 bit por modulo LL esperado; `1 = OK` |
+| `status_flags` | `uint8` | 1 | flags globales |
+| `battery_voltage_mv` | `uint16` | 2 | mV; `65535` unknown |
+| `battery_soc_percent` | `uint8` | 1 | 0-100; `255` unknown |
+| `storage_free_gib_x10` | `uint16` | 2 | GiB libres `* 10`; `65535` unknown/saturated |
+| `uptime_minutes` | `uint16` | 2 | minutos desde boot; `65535` unknown/saturated |
 
-En los bitmaps, `0` significa OK y `1` significa error. Orden de bits:
+Orden de bits para `fsm_ok_bitmap` y `ll_ok_bitmap`:
 
 | Bit | Modulo |
 | ---: | --- |
@@ -225,7 +229,37 @@ En los bitmaps, `0` significa OK y `1` significa error. Orden de bits:
 | 6 | Windsonic |
 | 7 | XTRA2210 |
 
-La deteccion de errores se basa en `system_status.json`: estado `ERROR`, ultimo resultado `error` o detalles con errores.
+Desde tierra, las condiciones agregadas se derivan con las mascaras esperadas:
+
+```python
+any_fsm_not_ok = (fsm_ok_bitmap & expected_fsm_mask) != expected_fsm_mask
+any_ll_not_ok = (ll_ok_bitmap & expected_ll_mask) != expected_ll_mask
+```
+
+Flags globales:
+
+| Bit | Mascara | Flag |
+| ---: | ---: | --- |
+| 0 | `0x01` | `STORAGE_UNAVAILABLE` |
+| 1 | `0x02` | `STORAGE_NOT_WRITABLE` |
+| 2 | `0x04` | `STORAGE_WARNING` |
+| 3 | `0x08` | `STORAGE_CRITICAL` |
+| 4 | `0x10` | `STORAGE_QUOTA_EXCEEDED` |
+| 5 | `0x20` | `BATTERY_WARNING` |
+| 6 | `0x40` | `BATTERY_CRITICAL` |
+| 7 | `0x80` | `LAST_ACQUISITION_INCOMPLETE` |
+
+`STORAGE_CRITICAL` implica `STORAGE_WARNING`; `BATTERY_CRITICAL` implica `BATTERY_WARNING`. La ausencia de medicion de bateria usa sentinels y no activa warning/critical por si sola.
+
+Para decodificar payloads recibidos:
+
+```bash
+PYTHONPATH=. python scripts/decode_iridium_message.py --hex "..."
+PYTHONPATH=. python scripts/decode_iridium_message.py --base64 "..."
+PYTHONPATH=. python scripts/decode_iridium_message.py --file payload.bin
+```
+
+El script imprime JSON y delega el protocolo binario a `modules/support/iridium_protocol.py`.
 
 
 ### AudioProc JSON y transmision binaria
