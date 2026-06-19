@@ -234,10 +234,23 @@ AudioProc persiste el resultado procesado como JSON en `data/audio_proc/audioPro
 
 En la cuarta hora del ciclo, el scheduler envia a Iridium `mode="audio"`. La FSM de Iridium busca el ultimo `output_file` valido en `data/audioProc_readings.jsonl`, carga el JSON `data/audio_proc/audioProc_*.json` y arma en memoria un payload binario para transmitir con:
 
-- `message_type = 0x02`
-- 2 bytes de status (`fsm_status`, `ll_status`)
-- cantidad de valores de audio
-- un byte por banda de frecuencia y por canal, codificado como dB `int8` (`None` se codifica como `-128`)
+- `message_type`: identifica canalidad y packing.
+- `timestamp_utc`: `uint32`, epoch seconds UTC.
+- datos de `relative_band_power_db`, sin eje de frecuencia ni cantidad de bandas dentro del payload.
+- `crc16_ccitt_false`: `uint16` big-endian al final.
+
+Tipos de mensaje de audio:
+
+| Tipo | Canalidad | Packing |
+| ---: | --- | --- |
+| `0x03` | mono | `DELTA_PREVIOUS_INT8` |
+| `0x04` | stereo | `DELTA_PREVIOUS_INT8` |
+| `0x05` | mono | `ABS_INT16` |
+| `0x06` | stereo | `ABS_INT16` |
+
+Los valores se cuantizan en decimas de dB con `np.rint(value_db * 10)`. El packing preferido es `DELTA_PREVIOUS_INT8`: por canal envia el primer valor como `int16` big-endian y luego las diferencias contra el valor anterior como `int8`; `-128` queda reservado y no se usa como delta. Si algun canal tiene valores invalidos, valores fuera del rango `int16`, o algun delta fuera de `[-127, 127]`, todo el mensaje cae a `ABS_INT16`.
+
+En `ABS_INT16`, cada banda se envia como `int16` big-endian. `None`, `NaN` e infinitos se codifican como `-32768`; los valores finitos fuera de rango se saturan a `[-32767, 32767]`. Para `N` bandas, el payload de audio ocupa `2 + (N - 1)` bytes en mono delta, `2 * (2 + (N - 1))` en stereo delta, `2 * N` en mono ABS y `4 * N` en stereo ABS.
 
 El payload de audio se considera valido solo si tiene exactamente tantas filas como bandas de frecuencia esperadas por canal. Para `192000 Hz`, la cantidad esperada actual es 49 bandas por canal.
 

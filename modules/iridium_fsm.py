@@ -6,11 +6,10 @@ from modules.support.iridium_protocol import (
     ALIVE_PAYLOAD_SIZE,
     AUDIOPROC_CRC_SIZE,
     AUDIOPROC_HEADER_SIZE,
-    MESSAGE_TYPE_AUDIO_MONO,
-    MESSAGE_TYPE_AUDIO_STEREO,
     build_alive_payload,
     build_audio_proc_payload,
     build_status_bitmaps,
+    decode_audio_proc_payload,
     expected_audio_band_count,
     status_details,
 )
@@ -160,21 +159,24 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             expected_band_count=expected_bands,
         )
         message_type = payload[0]
-        channel_count = 1 if message_type == MESSAGE_TYPE_AUDIO_MONO else 2
-        audio_value_count = max(0, len(payload) - AUDIOPROC_HEADER_SIZE - AUDIOPROC_CRC_SIZE)
+        decoded = decode_audio_proc_payload(payload, expected_band_count=expected_bands)
+        audio_payload_bytes = max(0, len(payload) - AUDIOPROC_HEADER_SIZE - AUDIOPROC_CRC_SIZE)
+        channel_count = decoded["channel_count"]
         details = {
             "message_type": "audioProc",
             "message_type_byte": message_type,
+            "packing": decoded["packing"],
             "payload_size_bytes": len(payload),
             "header_size_bytes": AUDIOPROC_HEADER_SIZE,
             "crc_size_bytes": AUDIOPROC_CRC_SIZE,
             "frequency_band_count": expected_bands,
             "channel_count": channel_count,
-            "audio_value_count": audio_value_count,
-            "bytes_per_channel": expected_bands,
+            "audio_payload_size_bytes": audio_payload_bytes,
+            "audio_value_count": expected_bands * channel_count,
+            "bytes_per_channel": audio_payload_bytes // channel_count if channel_count else 0,
             "audio_output": (audio or {}).get("output") or audio_data.get("output"),
             "audio_timestamp": audio_data["timestamp"],
-            "encoding": "int8_db_null_-128_crc16_ccitt_false",
+            "encoding": "relative_band_power_db_q0.1_crc16_ccitt_false",
         }
         return payload, details
 

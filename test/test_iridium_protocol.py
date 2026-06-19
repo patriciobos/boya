@@ -1,22 +1,36 @@
 from datetime import datetime, timezone
 
+import math
+import struct
+
 from modules.support.iridium_protocol import (
     ALIVE_PAYLOAD_SIZE,
+    AUDIOPROC_ABS_INT16_SENTINEL,
     AUDIOPROC_CRC_SIZE,
     AUDIOPROC_HEADER_SIZE,
-    AUDIOPROC_NULL_DB,
+    AUDIO_PACKING_ABS_INT16,
+    AUDIO_PACKING_DELTA_PREVIOUS_INT8,
     MESSAGE_TYPE_ALIVE,
-    MESSAGE_TYPE_AUDIO_MONO,
-    MESSAGE_TYPE_AUDIO_STEREO,
+    MESSAGE_TYPE_AUDIO_MONO_ABS_INT16,
+    MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8,
+    MESSAGE_TYPE_AUDIO_STEREO_ABS_INT16,
+    MESSAGE_TYPE_AUDIO_STEREO_DELTA_PREVIOUS_INT8,
     NO_COORD,
     build_alive_payload,
     build_audio_proc_payload,
     build_status_bitmaps,
+    can_pack_delta_previous_int8,
     decode_alive_payload,
     decode_audio_proc_payload,
+    encode_audio_db_value,
     expected_audio_band_count,
     module_bit,
+    pack_abs_int16_channel,
+    pack_delta_previous_int8_channel,
+    quantize_db_tenths,
     status_details,
+    unpack_abs_int16_channel,
+    unpack_delta_previous_int8_channel,
 )
 
 
@@ -84,23 +98,68 @@ def test_status_details_includes_binary_status_bytes():
     assert details["status_bytes_binary"] == "10100000 00000101"
 
 
-def test_build_audio_proc_payload_encodes_mono_audio_with_timestamp_and_crc():
+def assert_rows_close(actual, expected):
+    assert len(actual) == len(expected)
+    for actual_row, expected_row in zip(actual, expected):
+        assert len(actual_row) == len(expected_row)
+        for actual_value, expected_value in zip(actual_row, expected_row):
+            if expected_value is None:
+                assert actual_value is None
+            else:
+                assert actual_value is not None
+                assert abs(actual_value - expected_value) <= 0.05
+
+
+def test_quantize_db_tenths_uses_numpy_rint_and_marks_invalid():
+    values = [1.23, 1.25, -3.7, None, float("nan"), float("inf")]
+
+    assert quantize_db_tenths(values) == [12, 12, -37, None, None, None]
+    assert encode_audio_db_value(4000.0) == 32767
+    assert encode_audio_db_value(-4000.0) == -32767
+    assert encode_audio_db_value(None) == AUDIOPROC_ABS_INT16_SENTINEL
+
+
+def test_delta_previous_int8_channel_round_trip():
+    q_values = quantize_db_tenths([1.2, 1.5, 1.8, 1.7])
+
+    assert can_pack_delta_previous_int8(q_values) is True
+    packed = pack_delta_previous_int8_channel(q_values)
+
+    assert len(packed) == 2 + (len(q_values) - 1)
+    assert packed[:2] == struct.pack(">h", 12)
+    assert unpack_delta_previous_int8_channel(packed, len(q_values)) == [1.2, 1.5, 1.8, 1.7]
+
+
+def test_abs_int16_channel_round_trip_with_sentinel_and_big_endian():
+    q_values = quantize_db_tenths([None, -3.7, 1.2, math.inf, 4000.0])
+    packed = pack_abs_int16_channel(q_values)
+
+    assert len(packed) == 2 * len(q_values)
+    assert packed[:2] == struct.pack(">h", AUDIOPROC_ABS_INT16_SENTINEL)
+    assert packed[2:4] == struct.pack(">h", -37)
+    assert packed[-2:] == struct.pack(">h", 32767)
+    assert unpack_abs_int16_channel(packed, len(q_values)) == [None, -3.7, 1.2, None, 3276.7]
+
+
+def test_build_audio_proc_payload_prefers_mono_delta_with_timestamp_and_crc():
     timestamp = datetime(2026, 6, 13, 11, 0, 8, tzinfo=timezone.utc)
+    bands = [[1.2], [1.5], [1.8], [1.7]]
+
     payload = build_audio_proc_payload(
         timestamp=timestamp,
-        relative_band_power_db=[[None], [62.7], [-200], [200]],
+        relative_band_power_db=bands,
         expected_band_count=4,
     )
 
-    assert len(payload) == AUDIOPROC_HEADER_SIZE + 4 + AUDIOPROC_CRC_SIZE
-    assert payload[0] == MESSAGE_TYPE_AUDIO_MONO
-    assert payload[AUDIOPROC_HEADER_SIZE] == (AUDIOPROC_NULL_DB & 0xFF)
-    decoded = decode_audio_proc_payload(payload)
-    assert decoded["message_type"] == MESSAGE_TYPE_AUDIO_MONO
+    assert len(payload) == AUDIOPROC_HEADER_SIZE + 2 + 3 + AUDIOPROC_CRC_SIZE
+    assert payload[0] == MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8
+    decoded = decode_audio_proc_payload(payload, expected_band_count=4)
+    assert decoded["message_type"] == MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8
+    assert decoded["packing"] == AUDIO_PACKING_DELTA_PREVIOUS_INT8
     assert decoded["timestamp"] == timestamp
     assert decoded["channel_count"] == 1
     assert decoded["band_count"] == 4
-    assert decoded["relative_band_power_db"] == [[None], [63], [-127], [127]]
+    assert_rows_close(decoded["relative_band_power_db"], bands)
 
 
 def test_audio_proc_payload_validates_frequency_bands_per_channel():
@@ -117,16 +176,44 @@ def test_audio_proc_payload_validates_frequency_bands_per_channel():
         timestamp=0, relative_band_power_db=stereo_bands, expected_band_count=expected_bands
     )
 
-    assert len(mono_payload) == AUDIOPROC_HEADER_SIZE + expected_bands + AUDIOPROC_CRC_SIZE
-    assert len(stereo_payload) == AUDIOPROC_HEADER_SIZE + 2 * expected_bands + AUDIOPROC_CRC_SIZE
-    assert mono_payload[0] == MESSAGE_TYPE_AUDIO_MONO
-    assert stereo_payload[0] == MESSAGE_TYPE_AUDIO_STEREO
-    assert decode_audio_proc_payload(mono_payload)["band_count"] == expected_bands
-    decoded_stereo = decode_audio_proc_payload(stereo_payload)
+    assert len(mono_payload) == AUDIOPROC_HEADER_SIZE + 2 + (expected_bands - 1) + AUDIOPROC_CRC_SIZE
+    assert len(stereo_payload) == AUDIOPROC_HEADER_SIZE + 2 * (2 + (expected_bands - 1)) + AUDIOPROC_CRC_SIZE
+    assert mono_payload[0] == MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8
+    assert stereo_payload[0] == MESSAGE_TYPE_AUDIO_STEREO_DELTA_PREVIOUS_INT8
+    assert decode_audio_proc_payload(mono_payload, expected_band_count=expected_bands)["band_count"] == expected_bands
+    decoded_stereo = decode_audio_proc_payload(stereo_payload, expected_band_count=expected_bands)
     assert decoded_stereo["band_count"] == expected_bands
     assert decoded_stereo["channel_count"] == 2
-    assert decoded_stereo["relative_band_power_db"][0] == [0, 100]
-    assert stereo_payload[AUDIOPROC_HEADER_SIZE:AUDIOPROC_HEADER_SIZE + expected_bands] == bytes(range(expected_bands))
+    assert decoded_stereo["packing"] == AUDIO_PACKING_DELTA_PREVIOUS_INT8
+    assert decoded_stereo["relative_band_power_db"][0] == [0.0, 100.0]
+    first_channel = stereo_payload[AUDIOPROC_HEADER_SIZE:AUDIOPROC_HEADER_SIZE + 2 + (expected_bands - 1)]
+    assert first_channel[:2] == struct.pack(">h", 0)
+    assert first_channel[2:] == bytes([10] * (expected_bands - 1))
+
+
+def test_audio_proc_payload_falls_back_globally_to_abs_when_any_delta_is_too_large():
+    bands = [[0.0, 10.0], [1.0, 40.0], [2.0, 41.0]]
+
+    payload = build_audio_proc_payload(timestamp=0, relative_band_power_db=bands, expected_band_count=3)
+
+    assert payload[0] == MESSAGE_TYPE_AUDIO_STEREO_ABS_INT16
+    assert len(payload) == AUDIOPROC_HEADER_SIZE + 4 * 3 + AUDIOPROC_CRC_SIZE
+    decoded = decode_audio_proc_payload(payload, expected_band_count=3)
+    assert decoded["packing"] == AUDIO_PACKING_ABS_INT16
+    assert_rows_close(decoded["relative_band_power_db"], bands)
+
+
+def test_audio_proc_payload_abs_mono_encodes_invalid_sentinel_and_saturates():
+    bands = [[None], [float("nan")], [float("inf")], [4000.0], [-4000.0]]
+
+    payload = build_audio_proc_payload(timestamp=0, relative_band_power_db=bands, expected_band_count=5)
+
+    assert payload[0] == MESSAGE_TYPE_AUDIO_MONO_ABS_INT16
+    assert len(payload) == AUDIOPROC_HEADER_SIZE + 2 * 5 + AUDIOPROC_CRC_SIZE
+    body = payload[AUDIOPROC_HEADER_SIZE:-AUDIOPROC_CRC_SIZE]
+    assert body[:2] == struct.pack(">h", AUDIOPROC_ABS_INT16_SENTINEL)
+    decoded = decode_audio_proc_payload(payload, expected_band_count=5)
+    assert decoded["relative_band_power_db"] == [[None], [None], [None], [3276.7], [-3276.7]]
 
 
 def test_audio_proc_payload_rejects_wrong_band_count():

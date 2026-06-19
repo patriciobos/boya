@@ -487,19 +487,21 @@ def test_iridium_fsm_logs_audio_binary_when_transmit_disabled(monkeypatch, tmp_p
     assert action_results[-1].params["result"] == "ok"
     details = action_results[-1].params["details"]
     assert details["audio"]["message_type"] == "audioProc"
-    assert details["audio"]["message_type_byte"] == 0x03
+    assert details["audio"]["message_type_byte"] == 0x05
+    assert details["audio"]["packing"] == "ABS_INT16"
     assert details["audio"]["frequency_band_count"] == 49
     assert details["audio"]["channel_count"] == 1
     assert details["audio"]["audio_value_count"] == 49
-    assert details["audio"]["bytes_per_channel"] == 49
+    assert details["audio"]["audio_payload_size_bytes"] == 98
+    assert details["audio"]["bytes_per_channel"] == 98
     assert details["audio"]["crc_size_bytes"] == 2
     assert details["transmit"]["reason"] == "iridium_transmit_disabled"
 
     entry = json.loads((logs_path / "iridium_transmit_requests.jsonl").read_text(encoding="utf-8").splitlines()[-1])
     assert entry["mode"] == "binary"
-    assert entry["payload_size_bytes"] == 56
-    assert entry["payload_hex"].startswith("03")
-    assert entry["details"]["message_type_byte"] == 0x03
+    assert entry["payload_size_bytes"] == 105
+    assert entry["payload_hex"].startswith("05")
+    assert entry["details"]["message_type_byte"] == 0x05
     assert entry["skipped_reason"] == "iridium_transmit_disabled"
 
     fsm.ll.deinit()
@@ -559,11 +561,12 @@ def test_iridium_fsm_audio_uses_latest_audioproc_output_when_not_provided(monkey
     assert action_results[-1].params["result"] == "ok"
     assert details["audio"]["message_type"] == "audioProc"
     assert details["audio"]["message_type_byte"] == 0x03
+    assert details["audio"]["packing"] == "DELTA_PREVIOUS_INT8"
     assert details["audio"]["audio_output"] == "data/audio_proc/audioProc_latest.json"
     assert details["transmit"]["reason"] == "iridium_transmit_disabled"
 
     entry = json.loads((logs_path / "iridium_transmit_requests.jsonl").read_text(encoding="utf-8").splitlines()[-1])
-    assert entry["payload_size_bytes"] == 56
+    assert entry["payload_size_bytes"] == 57
     assert entry["details"]["audio_output"] == "data/audio_proc/audioProc_latest.json"
 
     fsm.ll.deinit()
