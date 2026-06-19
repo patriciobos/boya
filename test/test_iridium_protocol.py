@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 
+import json
 import math
+import subprocess
 import struct
+import sys
 
 from modules.support.iridium_protocol import (
     AUDIOPROC_ABS_INT16_SENTINEL,
@@ -276,6 +279,36 @@ def test_decode_message_rejects_unknown_message_type():
         assert "unknown Iridium message type" in str(exc)
     else:
         raise AssertionError("expected ValueError for unknown message type")
+
+
+def test_decode_iridium_message_script_decodes_hex_payload():
+    payload = pack_system_status(
+        fsm_ok_bitmap=0xAA,
+        ll_ok_bitmap=0x55,
+        battery_voltage_mv=12340,
+        battery_soc_percent=76,
+        storage_free_gib=12.3,
+        uptime_minutes=45,
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/decode_iridium_message.py",
+            "--hex",
+            payload.hex(),
+        ],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    decoded = json.loads(result.stdout)
+    assert decoded["message_type"] == "MSG_SYSTEM_STATUS"
+    assert decoded["fsm_ok_bitmap"] == 0xAA
+    assert decoded["ll_ok_bitmap"] == 0x55
+    assert decoded["battery"]["voltage_mv"] == 12340
+    assert decoded["storage"]["free_gib_x10"] == 123
 
 
 def test_audio_proc_payload_validates_frequency_bands_per_channel():
