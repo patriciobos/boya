@@ -21,7 +21,15 @@ import os
 import re
 import pytest
 import time
+from modules import behringer_LL as behringer_module
 from modules.behringer_LL import BehringerLowLevel
+from modules.support.storage_guard import (
+    DirectoryValidation,
+    RECORDING_SKIPPED_LOW_STORAGE,
+    RECORDING_SKIPPED_RECORDINGS_QUOTA_EXCEEDED,
+    STORAGE_ERROR_RECORDINGS_DIR_UNAVAILABLE,
+    gib_to_bytes,
+)
 
 
 def _hardware_tests_enabled():
@@ -103,18 +111,78 @@ def test_permissions():
 
 
 def test_default_recordings_dir_is_data_recordings():
-    """Verify the default Behringer recordings path is under data/recordings."""
+    """Verify the default Behringer recordings path is the guarded storage path."""
     audio = BehringerLowLevel()
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    expected_dir = os.path.join(repo_root, "data", "recordings")
-    assert os.path.abspath(audio.recordings_dir) == os.path.abspath(expected_dir)
+    assert audio.recordings_dir == "/storage/boya/recordings"
 
-def test_output_path_is_flat_utc_recordings_file():
-    """Verify recordings are named with a UTC timestamp directly under data/recordings."""
-    audio = BehringerLowLevel()
+
+def test_output_path_is_flat_utc_recordings_file(tmp_path):
+    """Verify recordings are named with a UTC timestamp directly under recordings_dir."""
+    audio = BehringerLowLevel(recordings_dir=str(tmp_path), storage_guard_enabled=False)
     output_path = audio._make_output_path()
     assert os.path.abspath(os.path.dirname(output_path)) == os.path.abspath(audio.recordings_dir)
     assert re.fullmatch(r"recording_\d{8}_\d{6}\.wav", os.path.basename(output_path))
+
+
+def test_record_rejects_unavailable_storage_before_open(monkeypatch):
+    audio = BehringerLowLevel()
+    assert audio.init() is True
+
+    def fail_open():
+        raise AssertionError("open should not be called when storage admission fails")
+
+    monkeypatch.setattr(audio, "open", fail_open)
+
+    assert audio.record(60) is False
+    assert STORAGE_ERROR_RECORDINGS_DIR_UNAVAILABLE in audio.last_error
+    assert audio.last_recording_metadata["complete"] is False
+    assert audio.last_recording_metadata["stop_reason"] == STORAGE_ERROR_RECORDINGS_DIR_UNAVAILABLE
+
+
+def test_record_rejects_when_post_reservation_breaks_hard_reserve(monkeypatch, tmp_path):
+    audio = BehringerLowLevel(recordings_dir=str(tmp_path))
+    assert audio.init() is True
+
+    monkeypatch.setattr(
+        behringer_module,
+        "validate_recordings_dir",
+        lambda recordings_dir, create=True: DirectoryValidation(ok=True, path=tmp_path, errors=[]),
+    )
+    monkeypatch.setattr(behringer_module, "get_directory_size_bytes", lambda recordings_dir: 0)
+    monkeypatch.setattr(behringer_module, "disk_free_bytes", lambda recordings_dir: gib_to_bytes(10) + 1)
+    monkeypatch.setattr(
+        audio,
+        "open",
+        lambda: (_ for _ in ()).throw(AssertionError("open should not be called when storage is low")),
+    )
+
+    assert audio.record(60) is False
+    assert RECORDING_SKIPPED_LOW_STORAGE in audio.last_error
+    assert audio.last_recording_metadata["complete"] is False
+    assert audio.last_recording_metadata["stop_reason"] == RECORDING_SKIPPED_LOW_STORAGE
+
+
+def test_record_rejects_when_recordings_quota_would_be_exceeded(monkeypatch, tmp_path):
+    audio = BehringerLowLevel(recordings_dir=str(tmp_path))
+    audio.storage_guard_max_recordings_dir_bytes = gib_to_bytes(1)
+    assert audio.init() is True
+
+    monkeypatch.setattr(
+        behringer_module,
+        "validate_recordings_dir",
+        lambda recordings_dir, create=True: DirectoryValidation(ok=True, path=tmp_path, errors=[]),
+    )
+    monkeypatch.setattr(behringer_module, "get_directory_size_bytes", lambda recordings_dir: gib_to_bytes(1))
+    monkeypatch.setattr(behringer_module, "disk_free_bytes", lambda recordings_dir: gib_to_bytes(100))
+    monkeypatch.setattr(
+        audio,
+        "open",
+        lambda: (_ for _ in ()).throw(AssertionError("open should not be called when quota is exceeded")),
+    )
+
+    assert audio.record(60) is False
+    assert RECORDING_SKIPPED_RECORDINGS_QUOTA_EXCEEDED in audio.last_error
+    assert audio.last_recording_metadata["complete"] is False
 
 @pytest.mark.hardware
 @requires_hardware

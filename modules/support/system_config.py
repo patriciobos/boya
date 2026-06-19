@@ -120,7 +120,7 @@ def get_configured_mock_modules() -> list[str]:
 
 
 def get_schedule(module_name: str, default: Any = None) -> Any:
-    # Prefer scheduler.json if present (allows separate schedule management)
+    # Prefer configs/scheduler.json if present (allows separate schedule management)
     try:
         if SCHEDULER_PATH.exists():
             with open(SCHEDULER_PATH, "r", encoding="utf-8") as handle:
