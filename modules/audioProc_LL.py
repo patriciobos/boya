@@ -421,7 +421,7 @@ class AudioProcLowLevel:
         else:  # n_channels == 2
             powers = np.zeros((n_bands_valid, 2))
         
-        # Calculate PSD using Welch with parameters from config.json
+        # Calculate PSD using Welch with parameters from configs/config.json
         for ch in range(n_channels):
             if n_channels == 1:
                 signal_data = audio.flatten()
