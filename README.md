@@ -26,13 +26,37 @@ Todas las rutas relativas se resuelven desde la raiz del repositorio.
 
 Archivos principales:
 
-- `config.json`: configuracion general, por ejemplo `data_dir` y `logs_dir`.
-- `scheduler.json`: intervalos del scheduler central.
+- `configs/config.json`: configuracion general, por ejemplo `data_dir` y `logs_dir`.
+- `configs/scheduler.json`: intervalos del scheduler central.
+- `configs/mock_modules.json`: seleccion persistente de modulos low-level simulados.
 - `data/`: mediciones y salidas generadas.
 - `logs/`: logs de ejecucion de `main.py` y modulos en runtime.
 - `test/reports/`: reportes generados por tests operacionales/hardware.
 - `support/`: tablas, calibraciones y datos de referencia.
 - `docs/`: manuales de hardware.
+
+## Archivos de configuracion
+
+Los siguientes paths se expresan desde la raiz del repositorio:
+
+- `configs/config.json`: parametros generales de adquisicion y procesamiento, directorios de datos y logs, y habilitacion de la transmision Iridium.
+- `configs/scheduler.json`: intervalos en segundos del scheduler central. Si existe, tiene prioridad sobre la clave legacy `schedules` de `configs/config.json`.
+- `configs/mock_modules.json`: lista de modulos que deben usar implementaciones low-level mock en ejecuciones repetibles.
+
+Ejecutar los comandos de esta documentacion desde la raiz del repositorio. Los modos principales son:
+
+```bash
+# Hardware real
+PYTHONPATH=. .venv/bin/python main.py
+
+# Todos los low-levels en modo mock
+USE_LL_MOCKS=1 PYTHONPATH=. .venv/bin/python main.py
+
+# Tests sin hardware
+PYTHONPATH=. .venv/bin/python -m pytest -m "not hardware" -q
+```
+
+`USE_LL_MOCKS=1` activa mocks para todos los modulos. Para un modulo individual se puede usar `USE_MOCK_<MODULO>=1`, por ejemplo `USE_MOCK_AHT10=1`, o declararlo en `configs/mock_modules.json`. No combinar `USE_LL_MOCKS=1` con una lista parcial en `configs/mock_modules.json`, porque el sistema rechaza esa configuracion ambigua.
 
 ## Entorno
 
@@ -118,7 +142,7 @@ La forma recomendada para ensayos repetibles es declarar los modulos mockeados e
 
 Los mocks configurados siguen el flujo normal de sus FSMs y quedan identificados en logs, readings y `system_status.json` como `hardware mock`. El sistema valida configuraciones ambiguas, por ejemplo mezclar `USE_LL_MOCKS=1` global con una lista parcial en `mock_modules`.
 
-Para AHT10, el FSM reintenta hasta 3 veces cuando una lectura queda fuera del rango plausible del sensor o salta bruscamente respecto de la ultima lectura valida. Si todos los intentos siguen siendo no plausibles, registra el ultimo valor obtenido y deja un warning en el log. Los umbrales configurables en `config.json` son:
+Para AHT10, el FSM reintenta hasta 3 veces cuando una lectura queda fuera del rango plausible del sensor o salta bruscamente respecto de la ultima lectura valida. Si todos los intentos siguen siendo no plausibles, registra el ultimo valor obtenido y deja un warning en el log. Los umbrales configurables en `configs/config.json` son:
 
 ```json
 {
@@ -132,7 +156,7 @@ Para AHT10, el FSM reintenta hasta 3 veces cuando una lectura queda fuera del ra
 
 El unico scheduler activo es el scheduler central de `main.py`. Los FSMs no tienen schedulers internos.
 
-`scheduler.json` define los intervalos en segundos:
+`configs/scheduler.json` define los intervalos en segundos:
 
 ```json
 {
@@ -221,13 +245,56 @@ El Router no dispara transmisiones Iridium al terminar AudioProc; solo registra 
 
 Los tests de AudioProc usan el WAV fixture en `test/test_recordings/`, reescriben `test/test_proc/audioProc_actual.json` y comparan sus potencias contra `test/test_proc/audioProc_expected.json`.
 
-Para pruebas sin visibilidad satelital, `config.json` puede dejar:
+Para pruebas sin visibilidad satelital, `configs/config.json` puede dejar:
 
 ```json
 "iridium_transmit_enabled": false
 ```
 
 Con esa opcion, Iridium arma el payload y registra cada pedido en `logs/iridium_transmit_requests.jsonl`, pero no abre sesion SBD ni intenta transmitir por modem. Para transmision real, cambiar el valor a `true`.
+
+### Politica de almacenamiento de grabaciones
+
+Las grabaciones WAV de Behringer usan una politica conservadora: nunca se borran archivos existentes para liberar espacio. Si no hay margen suficiente, se rechaza el inicio de una nueva grabacion y se conserva el estado del sistema.
+
+La configuracion esta en `configs/config.json`:
+
+```json
+{
+  "recordings_dir": "/storage/boya/recordings",
+  "bits_per_sample": 24,
+  "behringer_output_channels": 2,
+  "storage_guard_enabled": true,
+  "storage_guard_max_recordings_dir_bytes": 923417968640,
+  "storage_guard_min_free_warning_bytes": 107374182400,
+  "storage_guard_min_free_critical_bytes": 53687091200,
+  "storage_guard_hard_reserve_bytes": 10737418240,
+  "storage_guard_file_margin_factor": 1.1
+}
+```
+
+Con `storage_guard_enabled=true`, `recordings_dir` debe estar bajo `/storage`, existir o poder crearse, y ser escribible. No hay fallback silencioso a `data/recordings`.
+
+Antes de grabar, Behringer estima el tamano maximo del WAV usando:
+
+```text
+sample_rate_hz * output_channels * bytes_per_sample * duration_s + 44
+```
+
+Luego aplica el margen `storage_guard_file_margin_factor`. Para la configuracion actual (`192000 Hz`, `24 bit`, `2 canales`, `60 s`, margen `1.10`) el maximo esperado queda alrededor de `76 MB`.
+
+La admision bloquea una nueva grabacion si:
+
+- el directorio de grabaciones no esta disponible, no esta bajo `/storage` o no es escribible;
+- la configuracion de audio es invalida;
+- el uso actual del directorio mas el proximo WAV estimado supera `860 GiB`;
+- el espacio libre despues de reservar el proximo WAV quedaria por debajo de `10 GiB`.
+
+Los umbrales de `100 GiB` y `50 GiB` emiten warnings de espacio libre. El nivel critico de `50 GiB` no bloquea por si solo: el bloqueo efectivo es la reserva dura post-reserva de `10 GiB`.
+
+Durante una grabacion, si el espacio libre baja de critico se registra un warning y la grabacion continua. Si el WAV supera el tamano maximo calculado, se cierra correctamente, se conserva el archivo parcial y el resultado queda marcado como incompleto con `RECORDING_STOPPED_MAX_FILE_SIZE`.
+
+El resultado de Behringer mantiene los campos existentes y agrega metadatos opcionales bajo `recording` y `storage`, incluyendo tamano esperado, tamano maximo, espacio libre antes/despues, warnings y razon de finalizacion.
 
 
 ## Tests
