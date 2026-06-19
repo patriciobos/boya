@@ -261,6 +261,29 @@ PYTHONPATH=. python scripts/decode_iridium_message.py --file payload.bin
 
 El script imprime JSON y delega el protocolo binario a `modules/support/iridium_protocol.py`.
 
+### Transmision manual segura
+
+Para probar payloads reales sin pasar por el scheduler existe:
+
+```bash
+PYTHONPATH=. python scripts/iridium_manual_transmit.py system-status --dry-run
+PYTHONPATH=. python scripts/iridium_manual_transmit.py system-status --send --max-attempts 1
+PYTHONPATH=. python scripts/iridium_manual_transmit.py latest-audio --dry-run
+PYTHONPATH=. python scripts/iridium_manual_transmit.py latest-audio --send --max-attempts 1
+```
+
+`--dry-run` es el default: arma, valida, decodifica e imprime el payload sin abrir el modem. Solo `--send` transmite, siempre con `send_sbd_binary`; nunca envia texto, WAV ni eje de frecuencia. Los intentos quedan registrados en `logs/iridium_manual_transmit.jsonl`.
+
+Opciones utiles:
+
+```bash
+--json
+--hex-only
+--max-attempts 1
+--retry-delay-s 5.0
+--clear-after-success
+```
+
 
 ### AudioProc JSON y transmision binaria
 
