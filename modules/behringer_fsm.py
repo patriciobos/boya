@@ -7,7 +7,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
-from modules.support.system_config import PROJECT_ROOT
+from modules.support.storage_guard import STORAGE_WARNING_INVALID_DURATION_USING_DEFAULT
+from modules.support.system_config import PROJECT_ROOT, get_config_value
 
 
 def _project_relative_path(path):
@@ -34,8 +35,24 @@ class BehringerHandlerFSM(BaseHandlerFSM):
         self.ll = get_low_level_class("Behringer")()
         self._pending_params = {}
         self.status_queue = None
-        self._acquire_duration = 10
+        self._duration_warnings = []
+        self._acquire_duration = self._configured_acquire_duration()
         self.data_logger = SensorDataLogger("Behringer", include_module=False)
+
+    def _configured_acquire_duration(self) -> float:
+        raw_duration = get_config_value("duration[s]", 60)
+        try:
+            duration = float(raw_duration)
+            if duration <= 0:
+                raise ValueError("duration must be positive")
+            return duration
+        except (TypeError, ValueError):
+            self._duration_warnings = [STORAGE_WARNING_INVALID_DURATION_USING_DEFAULT]
+            self.logger.warning(
+                "Invalid duration[s] config for Behringer acquisition: %r. Using 60 seconds.",
+                raw_duration,
+            )
+            return 60.0
 
     def _emit_state_result(self, result: ResultCode, details=None):
         if self.status_queue:
@@ -134,6 +151,7 @@ class BehringerHandlerFSM(BaseHandlerFSM):
             done, success = self.ll.is_recording_done()
             if done:
                 result = ResultCode.OK if success else ResultCode.ERROR
+                recording_metadata = getattr(self.ll, "last_recording_metadata", {}) or {}
                 data = {
                     "file": _project_relative_path(self.ll.output_path),
                     "duration_s": self._pending_params.get("duration", self._acquire_duration),
@@ -141,6 +159,20 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                     "channels": getattr(self.ll, "output_channels", 1),
                     "size_bytes": _file_size_bytes(self.ll.output_path),
                 }
+                if recording_metadata:
+                    data["recording"] = recording_metadata
+                    data["storage"] = {
+                        "expected_size_bytes": recording_metadata.get("expected_size_bytes"),
+                        "max_file_size_bytes": recording_metadata.get("max_file_size_bytes"),
+                        "free_bytes_before": recording_metadata.get("free_bytes_before"),
+                        "free_bytes_after": recording_metadata.get("free_bytes_after"),
+                        "recordings_dir_used_bytes": recording_metadata.get("recordings_dir_used_bytes"),
+                        "warnings": recording_metadata.get("warnings", []),
+                    }
+                if self._duration_warnings:
+                    data.setdefault("storage", {})["warnings"] = (
+                        data.get("storage", {}).get("warnings", []) + self._duration_warnings
+                    )
                 if result == ResultCode.OK:
                     self.data_logger.log(data, source=data_source_for(self.ll))
                 self._emit_action_result("acquire", result, data=data)

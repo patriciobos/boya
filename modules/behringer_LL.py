@@ -35,7 +35,22 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.support.log_utils import get_logger
-from modules.support.system_config import compact_utc_minus_3_timestamp
+from modules.support.system_config import compact_utc_minus_3_timestamp, get_config_value
+from modules.support.storage_guard import (
+    RECORDING_INTERRUPTED,
+    RECORDING_SKIPPED_INVALID_AUDIO_CONFIG,
+    RECORDING_STOPPED_AUDIO_ERROR,
+    RECORDING_STOPPED_MAX_DURATION,
+    RECORDING_STOPPED_MAX_FILE_SIZE,
+    STORAGE_CRITICAL_LOW_FREE_SPACE,
+    disk_free_bytes,
+    estimate_recording_size,
+    evaluate_file_size_limit,
+    evaluate_free_space_warnings,
+    evaluate_storage_admission,
+    get_directory_size_bytes,
+    validate_recordings_dir,
+)
 
 # Suppress common ALSA/JACK warnings and prevent JACK server autostart.
 os.environ["PYTHONWARNINGS"] = "ignore"
@@ -63,6 +78,7 @@ class BehringerLowLevel:
     DEFAULT_FORMAT = pyaudio.paInt24
     DEFAULT_FRAMES_PER_BUFFER = 8192
     DEFAULT_DEVICE_NAME_FILTERS = ("Behringer", "USB")
+    DEFAULT_RECORDINGS_STORAGE_DIR = "/storage/boya/recordings"
     DEFAULT_RECORDINGS_DIR = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "data",
@@ -79,6 +95,8 @@ class BehringerLowLevel:
         frames_per_buffer: int = DEFAULT_FRAMES_PER_BUFFER,
         device_name_filters: Optional[Tuple[str, ...]] = None,
         recordings_dir: Optional[str] = None,
+        bits_per_sample: Optional[int] = None,
+        storage_guard_enabled: Optional[bool] = None,
     ) -> None:
         self.logger = get_logger(logger_name)
 
@@ -92,15 +110,41 @@ class BehringerLowLevel:
         self.bus_candidates: List[int] = []
         self.bus_forced: bool = False
 
-        self.sample_rate: int = int(sample_rate)
+        config_sample_rate = get_config_value("fs[Hz]", sample_rate)
+        config_output_channels = get_config_value("behringer_output_channels", output_channels)
+        config_recordings_dir = get_config_value("recordings_dir", self.DEFAULT_RECORDINGS_STORAGE_DIR)
+        config_bits_per_sample = get_config_value("bits_per_sample", bits_per_sample or 24)
+
+        self.sample_rate: int = int(config_sample_rate)
         self.channels: int = int(channels)
-        self.output_channels: int = int(output_channels)
+        self.output_channels: int = int(config_output_channels)
         self.audio_format: int = int(audio_format)
         self.frames_per_buffer: int = int(frames_per_buffer)
         self.device_name_filters: Tuple[str, ...] = tuple(
             device_name_filters or self.DEFAULT_DEVICE_NAME_FILTERS
         )
-        self.recordings_dir: str = recordings_dir or self.DEFAULT_RECORDINGS_DIR
+        self.recordings_dir: str = str(recordings_dir or config_recordings_dir)
+        self.bits_per_sample: int = int(config_bits_per_sample)
+        self.storage_guard_enabled: bool = bool(
+            get_config_value("storage_guard_enabled", True)
+            if storage_guard_enabled is None
+            else storage_guard_enabled
+        )
+        self.storage_guard_max_recordings_dir_bytes: int = int(
+            get_config_value("storage_guard_max_recordings_dir_bytes", 860 * 1024 ** 3)
+        )
+        self.storage_guard_min_free_warning_bytes: int = int(
+            get_config_value("storage_guard_min_free_warning_bytes", 100 * 1024 ** 3)
+        )
+        self.storage_guard_min_free_critical_bytes: int = int(
+            get_config_value("storage_guard_min_free_critical_bytes", 50 * 1024 ** 3)
+        )
+        self.storage_guard_hard_reserve_bytes: int = int(
+            get_config_value("storage_guard_hard_reserve_bytes", 10 * 1024 ** 3)
+        )
+        self.storage_guard_file_margin_factor: float = float(
+            get_config_value("storage_guard_file_margin_factor", 1.10)
+        )
 
         self.audio_interface: Optional[pyaudio.PyAudio] = None
         self.device_index: Optional[int] = None
@@ -114,6 +158,11 @@ class BehringerLowLevel:
         self.duration: Optional[float] = None
         self.frames_queue: "queue.Queue[bytes]" = queue.Queue()
         self.output_path: Optional[str] = None
+        self.max_file_size_bytes: Optional[int] = None
+        self.expected_size_bytes: Optional[int] = None
+        self.recording_warnings: List[str] = []
+        self.last_recording_metadata: Dict[str, Any] = {}
+        self.last_storage_admission = None
 
     def _set_error(self, msg: str) -> None:
         self.last_error = msg
@@ -327,6 +376,98 @@ class BehringerLowLevel:
         timestamp = compact_utc_minus_3_timestamp()
         return os.path.join(self.recordings_dir, f"recording_{timestamp}.wav")
 
+    def _estimate_recording_size(self, duration: int | float):
+        return estimate_recording_size(
+            sample_rate_hz=self.sample_rate,
+            bits_per_sample=self.bits_per_sample,
+            channels=self.output_channels,
+            duration_s=duration,
+            margin_factor=self.storage_guard_file_margin_factor,
+        )
+
+    def _evaluate_storage_admission(self, duration: int | float):
+        try:
+            size = self._estimate_recording_size(duration)
+        except Exception as exc:
+            self.logger.error("Invalid audio sizing configuration: %s", exc)
+            return evaluate_storage_admission(
+                recordings_dir_used_bytes=0,
+                free_bytes=0,
+                expected_size_bytes=0,
+                max_file_size_bytes=0,
+                max_recordings_dir_bytes=self.storage_guard_max_recordings_dir_bytes,
+                min_free_warning_bytes=self.storage_guard_min_free_warning_bytes,
+                min_free_critical_bytes=self.storage_guard_min_free_critical_bytes,
+                hard_reserve_bytes=self.storage_guard_hard_reserve_bytes,
+                directory_errors=[RECORDING_SKIPPED_INVALID_AUDIO_CONFIG],
+            )
+
+        validation = validate_recordings_dir(self.recordings_dir, create=True)
+        if not validation.ok:
+            return evaluate_storage_admission(
+                recordings_dir_used_bytes=0,
+                free_bytes=0,
+                expected_size_bytes=size.expected_wav_bytes,
+                max_file_size_bytes=size.max_file_size_bytes,
+                max_recordings_dir_bytes=self.storage_guard_max_recordings_dir_bytes,
+                min_free_warning_bytes=self.storage_guard_min_free_warning_bytes,
+                min_free_critical_bytes=self.storage_guard_min_free_critical_bytes,
+                hard_reserve_bytes=self.storage_guard_hard_reserve_bytes,
+                directory_errors=validation.errors,
+            )
+
+        used_bytes = get_directory_size_bytes(self.recordings_dir)
+        free_bytes = disk_free_bytes(self.recordings_dir)
+        return evaluate_storage_admission(
+            recordings_dir_used_bytes=used_bytes,
+            free_bytes=free_bytes,
+            expected_size_bytes=size.expected_wav_bytes,
+            max_file_size_bytes=size.max_file_size_bytes,
+            max_recordings_dir_bytes=self.storage_guard_max_recordings_dir_bytes,
+            min_free_warning_bytes=self.storage_guard_min_free_warning_bytes,
+            min_free_critical_bytes=self.storage_guard_min_free_critical_bytes,
+            hard_reserve_bytes=self.storage_guard_hard_reserve_bytes,
+        )
+
+    def _metadata_snapshot(
+        self,
+        *,
+        complete: bool,
+        stop_reason: str,
+        frames_written: int = 0,
+        actual_duration_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        size_bytes = None
+        free_after = None
+        used_bytes = None
+        if self.output_path is not None:
+            try:
+                size_bytes = os.path.getsize(self.output_path)
+            except OSError:
+                size_bytes = None
+        try:
+            if os.path.isdir(self.recordings_dir):
+                free_after = disk_free_bytes(self.recordings_dir)
+                used_bytes = get_directory_size_bytes(self.recordings_dir)
+        except OSError:
+            pass
+
+        admission = self.last_storage_admission
+        return {
+            "path": self.output_path,
+            "duration_sec": actual_duration_s,
+            "size_bytes": size_bytes,
+            "expected_size_bytes": self.expected_size_bytes,
+            "max_file_size_bytes": self.max_file_size_bytes,
+            "complete": bool(complete),
+            "stop_reason": stop_reason,
+            "free_bytes_before": getattr(admission, "free_bytes_before", None),
+            "free_bytes_after": free_after,
+            "recordings_dir_used_bytes": used_bytes,
+            "warnings": list(self.recording_warnings),
+            "chunks_written": frames_written,
+        }
+
     def _clear_queue(self) -> None:
         try:
             while True:
@@ -380,7 +521,8 @@ class BehringerLowLevel:
                 self.frames_per_buffer = int(frames_per_buffer)
             if recordings_dir is not None:
                 self.recordings_dir = str(recordings_dir)
-            os.makedirs(self.recordings_dir, exist_ok=True)
+            if not self.storage_guard_enabled:
+                os.makedirs(self.recordings_dir, exist_ok=True)
             self.audio_interface = None
             self.device_index = None
             self.device_info = None
@@ -394,15 +536,21 @@ class BehringerLowLevel:
             self.is_initialized = True
             self.last_record_ok = False
             self.output_path = None
+            self.max_file_size_bytes = None
+            self.expected_size_bytes = None
+            self.recording_warnings = []
+            self.last_recording_metadata = {}
+            self.last_storage_admission = None
             self._clear_queue()
             self.logger.info(
-                "Module initialized: sample_rate=%s channels=%s output_channels=%s format=%s frames_per_buffer=%s recordings_dir=%s",
+                "Module initialized: sample_rate=%s channels=%s output_channels=%s format=%s frames_per_buffer=%s recordings_dir=%s storage_guard_enabled=%s",
                 self.sample_rate,
                 self.channels,
                 self.output_channels,
                 self._format_name(),
                 self.frames_per_buffer,
                 self.recordings_dir,
+                self.storage_guard_enabled,
             )
             return True
         except Exception as exc:
@@ -679,13 +827,49 @@ class BehringerLowLevel:
                 self._set_error("Recording is already active")
                 self.logger.warning(self.last_error)
                 return False
+            self.recording_warnings = []
+            self.last_storage_admission = None
+            self.last_recording_metadata = {}
+            self.expected_size_bytes = None
+            self.max_file_size_bytes = None
+
+            if self.storage_guard_enabled:
+                admission = self._evaluate_storage_admission(duration)
+                self.last_storage_admission = admission
+                self.recording_warnings.extend(admission.warnings)
+                self.expected_size_bytes = admission.expected_size_bytes
+                self.max_file_size_bytes = admission.max_file_size_bytes
+                for warning in admission.warnings:
+                    self.logger.warning("Storage guard warning before recording: %s", warning)
+                if not admission.ok:
+                    self._set_error(",".join(admission.errors))
+                    self.last_recording_metadata = self._metadata_snapshot(
+                        complete=False,
+                        stop_reason=admission.errors[0] if admission.errors else RECORDING_STOPPED_AUDIO_ERROR,
+                    )
+                    self.logger.error("Recording skipped by storage guard: errors=%s", admission.errors)
+                    return False
+            else:
+                size = self._estimate_recording_size(duration)
+                self.expected_size_bytes = size.expected_wav_bytes
+                self.max_file_size_bytes = size.max_file_size_bytes
+
             if not self.is_open:
                 if not self.open():
+                    self.last_recording_metadata = self._metadata_snapshot(
+                        complete=False,
+                        stop_reason=RECORDING_STOPPED_AUDIO_ERROR,
+                    )
                     return False
             if self.audio_interface is None or self.device_index is None:
                 self._set_error("Audio transport is not open")
+                self.last_recording_metadata = self._metadata_snapshot(
+                    complete=False,
+                    stop_reason=RECORDING_STOPPED_AUDIO_ERROR,
+                )
                 self.logger.error(self.last_error)
                 return False
+
             self.output_path = self._make_output_path()
             self.duration = float(duration)
             self.start_time = time.time()
@@ -703,6 +887,10 @@ class BehringerLowLevel:
             self.is_recording_event.clear()
             self.last_record_ok = False
             self._set_error(f"Record failed: {exc}")
+            self.last_recording_metadata = self._metadata_snapshot(
+                complete=False,
+                stop_reason=RECORDING_STOPPED_AUDIO_ERROR,
+            )
             self.logger.exception("Record failed: %s", exc)
             self._close_stream()
             return False
@@ -730,6 +918,9 @@ class BehringerLowLevel:
             return
 
         frames_written = 0
+        audio_bytes_written = 0
+        stop_reason = RECORDING_INTERRUPTED
+        complete = False
 
         try:
             sample_width = self._bytes_per_sample()
@@ -743,6 +934,8 @@ class BehringerLowLevel:
 
                 while self.is_recording_event.is_set():
                     if self.duration is not None and (time.time() - start) >= self.duration:
+                        complete = True
+                        stop_reason = RECORDING_STOPPED_MAX_DURATION
                         break
 
                     try:
@@ -752,13 +945,14 @@ class BehringerLowLevel:
                         )
                     except Exception as exc:
                         self.logger.warning("Audio stream read failed: %s", exc)
+                        stop_reason = RECORDING_STOPPED_AUDIO_ERROR
                         continue
 
                     if not frame:
                         continue
 
                     if self.output_channels == self.channels:
-                        wf.writeframes(frame)
+                        output_frame = frame
 
                     elif self.output_channels == 1 and self.channels >= 1:
                         frame_width = self.channels * sample_width
@@ -769,16 +963,49 @@ class BehringerLowLevel:
                             for i in range(0, len(frame), frame_width):
                                 mono.extend(frame[i:i + sample_width])
 
-                            wf.writeframes(bytes(mono))
+                            output_frame = bytes(mono)
                         else:
-                            wf.writeframes(frame)
+                            output_frame = frame
 
                     else:
-                        wf.writeframes(frame)
+                        output_frame = frame
+
+                    wf.writeframes(output_frame)
 
                     frames_written += 1
+                    audio_bytes_written += len(output_frame)
 
-            self.last_record_ok = frames_written > 0
+                    if self.max_file_size_bytes is not None:
+                        estimated_file_size = audio_bytes_written + 44
+                        exceeded = evaluate_file_size_limit(
+                            estimated_file_size,
+                            max_file_size_bytes=self.max_file_size_bytes,
+                        )
+                        if exceeded:
+                            stop_reason = RECORDING_STOPPED_MAX_FILE_SIZE
+                            self.recording_warnings.extend(exceeded)
+                            self.logger.warning(
+                                "Recording reached max file size: estimated_size=%s max=%s",
+                                estimated_file_size,
+                                self.max_file_size_bytes,
+                            )
+                            break
+
+                    if self.storage_guard_enabled and os.path.isdir(self.recordings_dir):
+                        try:
+                            runtime_warnings = evaluate_free_space_warnings(
+                                disk_free_bytes(self.recordings_dir),
+                                warning_bytes=self.storage_guard_min_free_warning_bytes,
+                                critical_bytes=self.storage_guard_min_free_critical_bytes,
+                            )
+                            for warning in runtime_warnings:
+                                if warning == STORAGE_CRITICAL_LOW_FREE_SPACE and warning not in self.recording_warnings:
+                                    self.recording_warnings.append(warning)
+                                    self.logger.warning("Storage guard warning during recording: %s", warning)
+                        except OSError:
+                            pass
+
+            self.last_record_ok = bool(complete and frames_written > 0)
 
             if self.last_record_ok:
                 self.logger.info(
@@ -786,12 +1013,33 @@ class BehringerLowLevel:
                     frames_written,
                     self.output_path,
                 )
+            elif frames_written > 0:
+                self.logger.warning(
+                    "Recording completed incomplete: chunks=%s reason=%s path=%s",
+                    frames_written,
+                    stop_reason,
+                    self.output_path,
+                )
             else:
                 self.logger.error("Recording completed without frames: %s", self.output_path)
+            actual_duration = None if self.start_time is None else max(0.0, time.time() - self.start_time)
+            self.last_recording_metadata = self._metadata_snapshot(
+                complete=self.last_record_ok,
+                stop_reason=stop_reason if frames_written > 0 else RECORDING_STOPPED_AUDIO_ERROR,
+                frames_written=frames_written,
+                actual_duration_s=actual_duration,
+            )
 
         except Exception as exc:
             self.last_record_ok = False
             self._set_error(f"Recording writer failed: {exc}")
+            actual_duration = None if self.start_time is None else max(0.0, time.time() - self.start_time)
+            self.last_recording_metadata = self._metadata_snapshot(
+                complete=False,
+                stop_reason=RECORDING_STOPPED_AUDIO_ERROR,
+                frames_written=frames_written,
+                actual_duration_s=actual_duration,
+            )
             self.logger.exception("Recording writer failed: %s", exc)
 
         finally:
