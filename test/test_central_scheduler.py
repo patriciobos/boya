@@ -105,11 +105,11 @@ def test_central_scheduler_aligns_sensor_and_iridium_slots():
 def test_central_scheduler_iridium_four_hour_cycle():
     scheduler = centralScheduler({"Iridium": {"queue": Queue()}})
 
-    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 1, 0, tzinfo=UTC_MINUS_3)) == "alive"
-    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 2, 0, tzinfo=UTC_MINUS_3)) == "alive"
-    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 3, 0, tzinfo=UTC_MINUS_3)) == "alive"
+    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 1, 0, tzinfo=UTC_MINUS_3)) == "system_status"
+    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 2, 0, tzinfo=UTC_MINUS_3)) == "system_status"
+    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 3, 0, tzinfo=UTC_MINUS_3)) == "system_status"
     assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 4, 0, tzinfo=UTC_MINUS_3)) == "audio"
-    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 5, 0, tzinfo=UTC_MINUS_3)) == "alive"
+    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 5, 0, tzinfo=UTC_MINUS_3)) == "system_status"
     assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 8, 0, tzinfo=UTC_MINUS_3)) == "audio"
 
 

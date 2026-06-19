@@ -108,8 +108,8 @@ class centralScheduler:
         return previous_run + timedelta(seconds=missed_slots * interval_seconds)
 
     def _iridium_mode_for_run(self, run_at: datetime) -> str:
-        # Four-hour cycle anchored at midnight UTC-3: 01/02/03 alive, 04 audio.
-        return "audio" if run_at.hour % 4 == 0 else "alive"
+        # Four-hour cycle anchored at midnight UTC-3: 01/02/03 system status, 04 audio.
+        return "audio" if run_at.hour % 4 == 0 else "system_status"
 
     def _run(self):
         while not self._stop_event.is_set():

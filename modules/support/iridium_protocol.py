@@ -11,13 +11,35 @@ import numpy as np
 
 from modules.support.system_config import PROJECT_ROOT, get_config_value
 
-MESSAGE_TYPE_ALIVE = 0x01
+MSG_SYSTEM_STATUS_V1 = 0x01
+MSG_SYSTEM_STATUS = MSG_SYSTEM_STATUS_V1
 MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8 = 0x03
 MESSAGE_TYPE_AUDIO_STEREO_DELTA_PREVIOUS_INT8 = 0x04
 MESSAGE_TYPE_AUDIO_MONO_ABS_INT16 = 0x05
 MESSAGE_TYPE_AUDIO_STEREO_ABS_INT16 = 0x06
-ALIVE_PAYLOAD_FORMAT = ">BIBBBii"
-ALIVE_PAYLOAD_SIZE = struct.calcsize(ALIVE_PAYLOAD_FORMAT)
+SYSTEM_STATUS_PAYLOAD_FORMAT = ">BBBBHBHH"
+SYSTEM_STATUS_PAYLOAD_SIZE = struct.calcsize(SYSTEM_STATUS_PAYLOAD_FORMAT)
+SYSTEM_STATUS_UNKNOWN_U16 = 0xFFFF
+SYSTEM_STATUS_UNKNOWN_U8 = 0xFF
+SYSTEM_STATUS_MAX_U16_VALUE = 0xFFFE
+SYSTEM_STATUS_FLAG_STORAGE_UNAVAILABLE = 0x01
+SYSTEM_STATUS_FLAG_STORAGE_NOT_WRITABLE = 0x02
+SYSTEM_STATUS_FLAG_STORAGE_WARNING = 0x04
+SYSTEM_STATUS_FLAG_STORAGE_CRITICAL = 0x08
+SYSTEM_STATUS_FLAG_STORAGE_QUOTA_EXCEEDED = 0x10
+SYSTEM_STATUS_FLAG_BATTERY_WARNING = 0x20
+SYSTEM_STATUS_FLAG_BATTERY_CRITICAL = 0x40
+SYSTEM_STATUS_FLAG_LAST_ACQUISITION_INCOMPLETE = 0x80
+SYSTEM_STATUS_FLAG_FIELDS = {
+    "storage_unavailable": SYSTEM_STATUS_FLAG_STORAGE_UNAVAILABLE,
+    "storage_not_writable": SYSTEM_STATUS_FLAG_STORAGE_NOT_WRITABLE,
+    "storage_warning": SYSTEM_STATUS_FLAG_STORAGE_WARNING,
+    "storage_critical": SYSTEM_STATUS_FLAG_STORAGE_CRITICAL,
+    "storage_quota_exceeded": SYSTEM_STATUS_FLAG_STORAGE_QUOTA_EXCEEDED,
+    "battery_warning": SYSTEM_STATUS_FLAG_BATTERY_WARNING,
+    "battery_critical": SYSTEM_STATUS_FLAG_BATTERY_CRITICAL,
+    "last_acquisition_incomplete": SYSTEM_STATUS_FLAG_LAST_ACQUISITION_INCOMPLETE,
+}
 AUDIOPROC_HEADER_FORMAT = ">BI"
 AUDIOPROC_HEADER_SIZE = struct.calcsize(AUDIOPROC_HEADER_FORMAT)
 AUDIOPROC_CRC_SIZE = 2
@@ -69,49 +91,173 @@ def encode_coordinate(value: float | int | None, minimum: float, maximum: float)
     return int(round(numeric * COORD_SCALE))
 
 
-def build_alive_payload(
+def _finite_number(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if math.isfinite(numeric) else None
+
+
+def encode_battery_voltage_mv(value: Any) -> int:
+    numeric = _finite_number(value)
+    if numeric is None:
+        return SYSTEM_STATUS_UNKNOWN_U16
+    return max(0, min(SYSTEM_STATUS_MAX_U16_VALUE, int(round(numeric))))
+
+
+def encode_battery_soc_percent(value: Any) -> int:
+    numeric = _finite_number(value)
+    if numeric is None:
+        return SYSTEM_STATUS_UNKNOWN_U8
+    return max(0, min(100, int(round(numeric))))
+
+
+def encode_storage_free_gib_x10(value: Any) -> int:
+    numeric = _finite_number(value)
+    if numeric is None:
+        return SYSTEM_STATUS_UNKNOWN_U16
+    encoded = int(round(numeric * 10.0))
+    return max(0, min(SYSTEM_STATUS_MAX_U16_VALUE, encoded))
+
+
+def encode_uptime_minutes(value: Any) -> int:
+    numeric = _finite_number(value)
+    if numeric is None:
+        return SYSTEM_STATUS_UNKNOWN_U16
+    encoded = int(round(numeric))
+    if encoded < 0:
+        return 0
+    if encoded > SYSTEM_STATUS_MAX_U16_VALUE:
+        return SYSTEM_STATUS_UNKNOWN_U16
+    return encoded
+
+
+def build_status_flags(
     *,
-    timestamp: datetime | int | float | str | None = None,
-    fsm_status_bits: int = 0,
-    ll_status_bits: int = 0,
-    gps_fix: bool | None = False,
-    lat: float | None = None,
-    lon: float | None = None,
+    storage_unavailable: bool = False,
+    storage_not_writable: bool = False,
+    storage_warning: bool = False,
+    storage_critical: bool = False,
+    storage_quota_exceeded: bool = False,
+    battery_warning: bool = False,
+    battery_critical: bool = False,
+    last_acquisition_incomplete: bool = False,
+) -> int:
+    if storage_critical:
+        storage_warning = True
+    if battery_critical:
+        battery_warning = True
+
+    flags = 0
+    values = {
+        "storage_unavailable": storage_unavailable,
+        "storage_not_writable": storage_not_writable,
+        "storage_warning": storage_warning,
+        "storage_critical": storage_critical,
+        "storage_quota_exceeded": storage_quota_exceeded,
+        "battery_warning": battery_warning,
+        "battery_critical": battery_critical,
+        "last_acquisition_incomplete": last_acquisition_incomplete,
+    }
+    for name, enabled in values.items():
+        if enabled:
+            flags |= SYSTEM_STATUS_FLAG_FIELDS[name]
+    return flags & 0xFF
+
+
+def decode_status_flags(status_flags: int) -> dict[str, bool]:
+    raw = int(status_flags) & 0xFF
+    return {name: bool(raw & bit) for name, bit in SYSTEM_STATUS_FLAG_FIELDS.items()}
+
+
+def pack_system_status(
+    *,
+    fsm_ok_bitmap: int,
+    ll_ok_bitmap: int,
+    battery_voltage_mv: Any = None,
+    battery_soc_percent: Any = None,
+    storage_free_gib: Any = None,
+    uptime_minutes: Any = None,
+    status_flags: int | None = None,
+    storage_unavailable: bool = False,
+    storage_not_writable: bool = False,
+    storage_warning: bool = False,
+    storage_critical: bool = False,
+    storage_quota_exceeded: bool = False,
+    battery_warning: bool = False,
+    battery_critical: bool = False,
+    last_acquisition_incomplete: bool = False,
 ) -> bytes:
-    epoch = utc_epoch_seconds(timestamp)
-    fsm_status_bits = int(fsm_status_bits) & 0xFF
-    ll_status_bits = int(ll_status_bits) & 0xFF
-    has_fix = bool(gps_fix and lat is not None and lon is not None)
-    lat_i = encode_coordinate(lat, -90.0, 90.0) if has_fix else NO_COORD
-    lon_i = encode_coordinate(lon, -180.0, 180.0) if has_fix else NO_COORD
+    if status_flags is None:
+        status_flags = build_status_flags(
+            storage_unavailable=storage_unavailable,
+            storage_not_writable=storage_not_writable,
+            storage_warning=storage_warning,
+            storage_critical=storage_critical,
+            storage_quota_exceeded=storage_quota_exceeded,
+            battery_warning=battery_warning,
+            battery_critical=battery_critical,
+            last_acquisition_incomplete=last_acquisition_incomplete,
+        )
+
+    storage_encoded = (
+        SYSTEM_STATUS_UNKNOWN_U16
+        if storage_unavailable
+        else encode_storage_free_gib_x10(storage_free_gib)
+    )
     return struct.pack(
-        ALIVE_PAYLOAD_FORMAT,
-        MESSAGE_TYPE_ALIVE,
-        epoch,
-        fsm_status_bits,
-        ll_status_bits,
-        1 if has_fix else 0,
-        lat_i,
-        lon_i,
+        SYSTEM_STATUS_PAYLOAD_FORMAT,
+        MSG_SYSTEM_STATUS_V1,
+        int(fsm_ok_bitmap) & 0xFF,
+        int(ll_ok_bitmap) & 0xFF,
+        int(status_flags) & 0xFF,
+        encode_battery_voltage_mv(battery_voltage_mv),
+        encode_battery_soc_percent(battery_soc_percent),
+        storage_encoded,
+        encode_uptime_minutes(uptime_minutes),
     )
 
 
-def decode_alive_payload(payload: bytes) -> dict[str, Any]:
-    if len(payload) != ALIVE_PAYLOAD_SIZE:
-        raise ValueError(f"alive payload must be {ALIVE_PAYLOAD_SIZE} bytes")
-    message_type, epoch, fsm_bits, ll_bits, gps_fix, lat_i, lon_i = struct.unpack(
-        ALIVE_PAYLOAD_FORMAT, payload
-    )
-    if message_type != MESSAGE_TYPE_ALIVE:
-        raise ValueError(f"invalid alive message type: {message_type}")
+def unpack_system_status(payload: bytes) -> dict[str, Any]:
+    if len(payload) != SYSTEM_STATUS_PAYLOAD_SIZE:
+        raise ValueError(f"system status payload must be {SYSTEM_STATUS_PAYLOAD_SIZE} bytes")
+    (
+        message_type,
+        fsm_ok_bitmap,
+        ll_ok_bitmap,
+        status_flags_raw,
+        battery_voltage_mv,
+        battery_soc_percent,
+        storage_free_gib_x10,
+        uptime_minutes,
+    ) = struct.unpack(SYSTEM_STATUS_PAYLOAD_FORMAT, payload)
+    if message_type != MSG_SYSTEM_STATUS_V1:
+        raise ValueError(f"invalid system status message type: {message_type}")
+
+    voltage_mv = None if battery_voltage_mv == SYSTEM_STATUS_UNKNOWN_U16 else battery_voltage_mv
+    soc_percent = None if battery_soc_percent == SYSTEM_STATUS_UNKNOWN_U8 else battery_soc_percent
+    free_gib_x10 = None if storage_free_gib_x10 == SYSTEM_STATUS_UNKNOWN_U16 else storage_free_gib_x10
+    uptime = None if uptime_minutes == SYSTEM_STATUS_UNKNOWN_U16 else uptime_minutes
     return {
-        "message_type": message_type,
-        "timestamp": datetime.fromtimestamp(epoch, timezone.utc),
-        "fsm_status_bits": fsm_bits,
-        "ll_status_bits": ll_bits,
-        "gps_fix": bool(gps_fix),
-        "lat": None if lat_i == NO_COORD else lat_i / COORD_SCALE,
-        "lon": None if lon_i == NO_COORD else lon_i / COORD_SCALE,
+        "message_type": "MSG_SYSTEM_STATUS",
+        "message_type_byte": message_type,
+        "fsm_ok_bitmap": fsm_ok_bitmap,
+        "ll_ok_bitmap": ll_ok_bitmap,
+        "status_flags_raw": status_flags_raw,
+        "status_flags": decode_status_flags(status_flags_raw),
+        "battery": {
+            "voltage_mv": voltage_mv,
+            "voltage_v": None if voltage_mv is None else voltage_mv / 1000.0,
+            "soc_percent": soc_percent,
+        },
+        "storage": {
+            "free_gib_x10": free_gib_x10,
+            "free_gib": None if free_gib_x10 is None else free_gib_x10 / 10.0,
+        },
+        "uptime_minutes": uptime,
     }
 
 
@@ -119,15 +265,15 @@ def status_bits_binary(value: int) -> str:
     return format(int(value) & 0xFF, "08b")
 
 
-def status_details(fsm_status_bits: int, ll_status_bits: int) -> dict[str, Any]:
-    fsm_status_bits = int(fsm_status_bits) & 0xFF
-    ll_status_bits = int(ll_status_bits) & 0xFF
+def status_details(fsm_ok_bitmap: int, ll_ok_bitmap: int) -> dict[str, Any]:
+    fsm_ok_bitmap = int(fsm_ok_bitmap) & 0xFF
+    ll_ok_bitmap = int(ll_ok_bitmap) & 0xFF
     return {
-        "fsm_status_bits": fsm_status_bits,
-        "ll_status_bits": ll_status_bits,
-        "fsm_status_bits_binary": status_bits_binary(fsm_status_bits),
-        "ll_status_bits_binary": status_bits_binary(ll_status_bits),
-        "status_bytes_binary": f"{status_bits_binary(fsm_status_bits)} {status_bits_binary(ll_status_bits)}",
+        "fsm_ok_bitmap": fsm_ok_bitmap,
+        "ll_ok_bitmap": ll_ok_bitmap,
+        "fsm_ok_bitmap_binary": status_bits_binary(fsm_ok_bitmap),
+        "ll_ok_bitmap_binary": status_bits_binary(ll_ok_bitmap),
+        "ok_bytes_binary": f"{status_bits_binary(fsm_ok_bitmap)} {status_bits_binary(ll_ok_bitmap)}",
     }
 
 
@@ -403,32 +549,53 @@ def decode_audio_proc_payload(payload: bytes, expected_band_count: int | None = 
     }
 
 
+def decode_message(payload: bytes, expected_audio_band_count: int | None = None) -> dict[str, Any]:
+    if not payload:
+        raise ValueError("Iridium payload is empty")
+    message_type = payload[0]
+    if message_type == MSG_SYSTEM_STATUS_V1:
+        return unpack_system_status(payload)
+    if message_type in {
+        MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8,
+        MESSAGE_TYPE_AUDIO_STEREO_DELTA_PREVIOUS_INT8,
+        MESSAGE_TYPE_AUDIO_MONO_ABS_INT16,
+        MESSAGE_TYPE_AUDIO_STEREO_ABS_INT16,
+    }:
+        decoded = decode_audio_proc_payload(payload, expected_band_count=expected_audio_band_count)
+        decoded["message_type_name"] = "MSG_AUDIO"
+        return decoded
+    raise ValueError(f"unknown Iridium message type: {message_type:#04x}")
+
+
 def module_bit(module_name: str) -> int:
     return 1 << MODULE_ORDER.index(module_name)
 
 
-def build_status_bitmaps(system_status: dict[str, Any]) -> tuple[int, int]:
+def build_status_ok_bitmaps(system_status: dict[str, Any]) -> tuple[int, int]:
     modules = system_status.get("modules") or {}
-    fsm_bits = 0
-    ll_bits = 0
+    fsm_ok_bitmap = 0
+    ll_ok_bitmap = 0
 
     for index, module_name in enumerate(MODULE_ORDER):
         module_status = modules.get(module_name)
         if not module_status:
-            fsm_bits |= 1 << index
-            ll_bits |= 1 << index
             continue
 
         state = str(module_status.get("state") or "").upper()
         result = str(module_status.get("last_result") or "").lower()
         details = module_status.get("last_details") or {}
 
-        if state == "ERROR":
-            fsm_bits |= 1 << index
-        if result == "error" or _details_have_errors(details):
-            ll_bits |= 1 << index
+        if state != "ERROR":
+            fsm_ok_bitmap |= 1 << index
+        if result != "error" and not _details_have_errors(details):
+            ll_ok_bitmap |= 1 << index
 
-    return fsm_bits, ll_bits
+    return fsm_ok_bitmap, ll_ok_bitmap
+
+
+def build_status_bitmaps(system_status: dict[str, Any]) -> tuple[int, int]:
+    fsm_ok_bitmap, ll_ok_bitmap = build_status_ok_bitmaps(system_status)
+    return (~fsm_ok_bitmap) & 0xFF, (~ll_ok_bitmap) & 0xFF
 
 
 def _details_have_errors(value: Any) -> bool:

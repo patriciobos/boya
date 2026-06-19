@@ -367,7 +367,7 @@ def test_iridium_fsm_skips_unsupported_text_transmit(monkeypatch):
     fsm.ll.deinit()
 
 
-def test_iridium_fsm_transmits_alive_binary_with_mock(monkeypatch, tmp_path):
+def test_iridium_fsm_transmits_system_status_binary_with_mock(monkeypatch, tmp_path):
     modules = _reload_modules_with_mocks(monkeypatch)
     iridium_module = modules["Iridium"]
 
@@ -420,15 +420,15 @@ def test_iridium_fsm_transmits_alive_binary_with_mock(monkeypatch, tmp_path):
     action_results = [msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT]
     assert action_results
     details = action_results[-1].params["details"]
-    assert details["alive"]["payload_size_bytes"] == 16
-    assert details["alive"]["fsm_status_bits"] == 0
-    assert details["alive"]["ll_status_bits"] == 0
-    assert details["alive"]["fsm_status_bits_binary"] == "00000000"
-    assert details["alive"]["ll_status_bits_binary"] == "00000000"
-    assert details["alive"]["status_bytes_binary"] == "00000000 00000000"
-    assert details["alive"]["gps_fix"] is True
+    assert details["system_status"]["message_type_name"] == "MSG_SYSTEM_STATUS"
+    assert details["system_status"]["payload_size_bytes"] == 11
+    assert details["system_status"]["fsm_ok_bitmap"] == 0xFF
+    assert details["system_status"]["ll_ok_bitmap"] == 0xFF
+    assert details["system_status"]["fsm_ok_bitmap_binary"] == "11111111"
+    assert details["system_status"]["ll_ok_bitmap_binary"] == "11111111"
+    assert details["system_status"]["ok_bytes_binary"] == "11111111 11111111"
     assert details["transmit"]["mode"] == "binary"
-    assert details["transmit"]["size"] == 16
+    assert details["transmit"]["size"] == 11
 
     fsm.ll.deinit()
 
@@ -613,7 +613,7 @@ def test_iridium_fsm_skips_audio_when_payload_is_unavailable(monkeypatch, tmp_pa
     fsm.ll.deinit()
 
 
-def test_iridium_fsm_logs_alive_when_transmit_disabled(monkeypatch, tmp_path):
+def test_iridium_fsm_logs_system_status_when_transmit_disabled(monkeypatch, tmp_path):
     modules = _reload_modules_with_mocks(monkeypatch)
     iridium_module = modules["Iridium"]
 
@@ -656,7 +656,8 @@ def test_iridium_fsm_logs_alive_when_transmit_disabled(monkeypatch, tmp_path):
     log_path = logs_path / "iridium_transmit_requests.jsonl"
     entry = json.loads(log_path.read_text(encoding="utf-8").splitlines()[-1])
     assert entry["mode"] == "binary"
-    assert entry["payload_size_bytes"] == 16
+    assert entry["payload_size_bytes"] == 11
+    assert entry["details"]["message_type_name"] == "MSG_SYSTEM_STATUS"
     assert entry["skipped_reason"] == "iridium_transmit_disabled"
     assert entry["payload_hex"]
 
