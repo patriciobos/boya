@@ -11,7 +11,7 @@
   "noise_ref": "hid_freq_resp_rough.csv",
   "recordings_dir": "/storage/boya/recordings",
   "bits_per_sample": 24,
-  "behringer_output_channels": 2,
+  "behringer_output_channels": 1,
   "storage_guard_enabled": true,
   "storage_guard_max_recordings_dir_bytes": 923417968640,
   "storage_guard_min_free_warning_bytes": 107374182400,
