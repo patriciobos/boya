@@ -1,0 +1,148 @@
+\section{Introducción General}
+
+\subsection{Antecedentes}
+
+El presente informe técnico documenta el desarrollo de un sistema embebido de adquisición de datos y telemetría satelital para una boya instrumental destinada al monitoreo autónomo de variables ambientales, meteorológicas, de posicionamiento y acústicas en ambiente marítimo. El desarrollo se inscribe en una línea de trabajo sostenida por la Armada Argentina en el campo de la acústica submarina, el monitoreo pasivo y la instrumentación autónoma para aplicaciones científicas, ambientales y de defensa.
+
+El antecedente institucional y técnico directo de este proyecto es la Estación Autónoma Marítima para el Monitoreo de Ruido Ambiente submarino, EAMMRA, desarrollada en el marco del proyecto PIDDEF 32/14. Dicho proyecto tuvo como finalidad contribuir al conocimiento científico-operativo del Nivel de Ruido submarino, parámetro SONAR de relevancia para la oceanografía acústica, la caracterización ambiental, el análisis de propagación acústica y las aplicaciones navales asociadas a sistemas de escucha pasiva y predicción SONAR \cite{AS0316_EAMMRAConceptual}. En ese marco se definieron los primeros objetivos, requerimientos, métricas de aceptación y criterios de factibilidad para una estación autónoma capaz de operar en el Mar Argentino.
+
+La relevancia del Nivel de Ruido submarino, usualmente denominado \(NL\) por su sigla en inglés \emph{Noise Level}, se relaciona con la capacidad de detección de señales acústicas en el océano. En términos generales, el \(NL\) comprende el ruido ambiente propiamente dicho, \(NLa\), el ruido propio del sistema de medición, \(NLp\), y, cuando corresponde, contribuciones asociadas a fuentes identificables o ruido radiado. El ruido ambiente constituye el nivel acústico de fondo remanente en ausencia de fuentes próximas distinguibles, y puede originarse en procesos naturales, biológicos, meteorológicos, sísmicos y antrópicos. En aplicaciones de escucha pasiva, este parámetro condiciona directamente la detectabilidad de eventos acústicos de interés, la calidad de los registros hidroacústicos y la interpretación física de los datos adquiridos \cite{AS0316_EAMMRAConceptual,Bos2018MSE}.
+
+Durante la etapa inicial de EAMMRA se avanzó en el diseño conceptual de la estación, en el estudio de los requerimientos del sistema y en la definición preliminar de sus subsistemas principales. Posteriormente, se desarrollaron componentes específicos, entre ellos una etapa de preamplificación para hidrófonos orientada a adecuar los bajos niveles de tensión generados por sensores hidroacústicos a las exigencias de la etapa de adquisición, minimizando simultáneamente el ruido eléctrico agregado por la electrónica analógica \cite{AS0518_Preamp}. En paralelo, se elaboró una arquitectura de control embebido modular, con documentación de requerimientos, diseño de firmware, mecanismos de comunicación, pruebas unitarias, pruebas funcionales y trazabilidad técnica de los ensayos realizados \cite{Bos2018MSE}.
+
+Otro antecedente relevante fue el diseño de una boya prototipo de superficie para medición de Nivel de Ruido submarino en zona costera. Dicho diseño contempló aspectos estructurales, logísticos y operativos, incluyendo la necesidad de alojar sensores, electrónica, sistemas de alimentación y elementos de fondeo en una plataforma de superficie apta para pruebas de campo. El diseño priorizó la reducción de costos, la facilidad de transporte, la operación desde medios navales disponibles y la integración de un arreglo de hidrófonos asociado al sistema de fondeo \cite{AS0119_DisenioBoya}. Complementariamente, el informe de integración de subsistemas de EAMMRA consolidó la descripción funcional de sensores, adquisición, procesamiento, control, alimentación, protocolos de comunicación, modos de operación y casos de falla \cite{AS0219_Subsistemas}.
+
+La experiencia acumulada incluyó campañas científicas y ensayos en el Golfo San Jorge durante los años 2016 y 2017, así como presentaciones técnicas posteriores orientadas a describir el desarrollo de sistemas automatizados para medición de ruido submarino y sus aplicaciones en dicha región \cite{Bos2019_GSJ}. Estos antecedentes permitieron validar criterios de diseño, identificar limitaciones operativas, definir necesidades de robustez y establecer una base metodológica para la adquisición de datos en ambiente marítimo real.
+
+El proyecto actual, identificado como PIDDEF 0322, retoma esa trayectoria y la extiende hacia una nueva etapa de maduración tecnológica. A diferencia de las fases previas, centradas principalmente en la definición conceptual, el diseño de subsistemas y la integración de prototipos, el presente desarrollo incorpora una arquitectura de software moderna basada en Python~3, Máquinas de Estados Finitos, un router de eventos, un scheduler central, políticas explícitas de persistencia segura, uso extensivo de simulaciones y \emph{mocks}, y telemetría remota mediante Iridium SBD. Asimismo, se integran mejoras de hardware, alimentación mediante paneles solares, gestión inteligente de energía y una integración mecánica más robusta mediante bastidor interno.
+
+\subsection{Contexto}
+
+El desarrollo se lleva adelante en la Jefatura de Investigación y Desarrollo de la Armada Argentina, a través de la División Acústica Submarina, en estrecha colaboración con la División Mecánica del Departamento de Técnica. La vinculación con UNIDEF, unidad dependiente de CONICET y del Ministerio de Defensa, aporta un marco institucional orientado a la investigación aplicada, la transferencia tecnológica y el desarrollo de capacidades estratégicas para la Defensa Nacional.
+
+El contexto operativo del proyecto impone restricciones propias de los sistemas autónomos marítimos. La boya debe operar durante períodos prolongados en un ambiente agresivo, con exposición a humedad, salinidad, vibraciones, variabilidad térmica, oleaje, viento, corrosión, limitaciones energéticas y dificultades logísticas para el mantenimiento. A diferencia de un sistema de laboratorio, la plataforma debe ser capaz de adquirir, procesar, almacenar y transmitir información con mínima intervención humana y con tolerancia a fallas parciales.
+
+Desde el punto de vista científico-técnico, el sistema se ubica en la intersección de varias disciplinas: acústica submarina, sistemas embebidos, adquisición de señales, instrumentación electrónica, telemetría satelital, gestión de energía, ingeniería de software, diseño mecánico y operación naval. La complejidad del problema no reside únicamente en la medición de cada variable individual, sino en la coordinación confiable de múltiples subsistemas heterogéneos bajo restricciones de consumo, disponibilidad, robustez y trazabilidad.
+
+La boya instrumental debe integrar sensores ambientales, meteorológicos, de posición y de audio, y convertir sus mediciones en productos de datos persistentes, verificables y transmisibles. Para ello se requiere una arquitectura que separe responsabilidades, permita ensayar módulos en forma independiente, facilite el reemplazo o incorporación de sensores, y preserve la integridad de la información aun ante reinicios, interrupciones de energía, fallas de comunicación o indisponibilidad temporal del enlace satelital.
+
+En este marco, la telemetría satelital mediante Iridium SBD introduce una mejora sustantiva respecto de configuraciones basadas exclusivamente en almacenamiento local. La capacidad de transmitir mensajes remotos, aun de tamaño reducido, permite conocer el estado de la boya, supervisar variables críticas, recibir datos resumidos y evaluar la continuidad operativa del sistema sin necesidad de recuperación física inmediata. Esta característica incrementa el valor operacional del sistema y reduce el riesgo asociado a despliegues prolongados.
+
+\subsection{Motivación}
+
+La motivación principal del proyecto es disponer de una plataforma nacional, autónoma y robusta para la adquisición de datos oceanográficos, ambientales y acústicos en regiones de interés del Mar Argentino. La disponibilidad de series temporales confiables de Nivel de Ruido submarino y variables auxiliares asociadas resulta esencial para el análisis de escenarios acústicos, la evaluación de fuentes antrópicas, la caracterización de condiciones ambientales y el soporte a modelos de propagación y predicción SONAR.
+
+En términos de defensa, el conocimiento local del ambiente acústico constituye una capacidad estratégica. Los modelos y bases de datos desarrollados para otros teatros marítimos no siempre resultan extrapolables a la plataforma continental argentina, debido a diferencias batimétricas, oceanográficas, meteorológicas, biológicas y de tráfico marítimo. La generación de datos propios permite reducir dependencias externas, mejorar la calibración de modelos, sostener capacidades de análisis técnico-operativo y fortalecer la autonomía tecnológica.
+
+La motivación tecnológica se relaciona con la necesidad de evolucionar desde prototipos funcionales hacia una arquitectura embebida más mantenible, verificable y tolerante a fallos. Las experiencias previas mostraron la importancia de contar con diseños modulares, interfaces bien definidas, mecanismos de prueba automatizables, registros persistentes y políticas de recuperación ante condiciones anómalas. En sistemas desplegados en el mar, una falla menor no atendida puede comprometer una campaña completa; por ello, el software de control debe diseñarse explícitamente para degradar en forma controlada, registrar eventos relevantes y preservar los datos adquiridos.
+
+La incorporación de Máquinas de Estados Finitos responde a la necesidad de representar en forma explícita los modos de operación del sistema, sus transiciones, condiciones de error y acciones asociadas. Del mismo modo, el uso de un router de eventos y un scheduler central permite organizar el comportamiento de la boya como un conjunto de tareas coordinadas, evitando acoplamientos innecesarios entre módulos y facilitando la simulación de escenarios. Esta decisión de diseño resulta especialmente adecuada para sistemas embebidos con sensores heterogéneos, comunicaciones intermitentes y requisitos de bajo consumo.
+
+Finalmente, la motivación institucional es consolidar una línea de desarrollo propia iniciada con EAMMRA, capitalizando la experiencia de los informes técnicos, campañas y ensayos anteriores. El proyecto PIDDEF 0322 no parte de una hoja en blanco, sino de una trayectoria que incluye diseño conceptual, desarrollo electrónico, integración de subsistemas, control embebido y validación experimental. La nueva etapa busca transformar esa base en un sistema más robusto, documentado, ensayable y operativo.
+
+\subsection{Propuesta de Valor y Objetivos}
+
+La propuesta de valor del presente desarrollo consiste en implementar un sistema embebido integral para una boya instrumental capaz de adquirir datos multi-sensor, procesarlos localmente, almacenarlos en forma segura y transmitir información relevante mediante telemetría satelital. El sistema se orienta a operar en ambiente marítimo con bajo consumo, alta confiabilidad y tolerancia a fallos, manteniendo una arquitectura de software suficientemente modular como para permitir evolución, mantenimiento y reutilización en futuras plataformas.
+
+El objetivo general del proyecto es desarrollar un sistema embebido robusto, de bajo consumo y alta confiabilidad para adquisición multi-sensor, procesamiento local y transmisión satelital de datos desde una boya instrumental destinada al monitoreo ambiental, meteorológico, posicional y acústico.
+
+En función de este objetivo general, se establecen los siguientes objetivos específicos:
+
+\begin{itemize}
+    \item Diseñar una arquitectura de software modular basada en Máquinas de Estados Finitos, router de eventos y scheduler central, que permita coordinar las tareas principales de adquisición, procesamiento, almacenamiento, telemetría y supervisión del sistema.
+
+    \item Integrar sensores de distinta naturaleza, incluyendo variables ambientales, meteorológicas, posición geográfica y audio, mediante interfaces desacopladas y verificables.
+
+    \item Implementar políticas de almacenamiento persistente que reduzcan el riesgo de pérdida de datos frente a reinicios, fallas parciales, interrupciones de energía o errores de comunicación.
+
+    \item Incorporar telemetría satelital mediante Iridium SBD para transmisión remota de datos resumidos, mensajes de estado y eventos relevantes de operación.
+
+    \item Desarrollar una estrategia de gestión energética compatible con operación autónoma, alimentación mediante paneles solares y control inteligente de los consumos de los subsistemas.
+
+    \item Facilitar la verificación y validación del sistema mediante pruebas unitarias, pruebas de integración, simulaciones, uso de \emph{mocks} y ensayos operacionales progresivos.
+
+    \item Documentar la arquitectura, los criterios de diseño, las interfaces, los flujos de operación, las máquinas de estado y las decisiones de implementación con trazabilidad suficiente para mantenimiento, auditoría técnica y continuidad del desarrollo.
+\end{itemize}
+
+Como resultado esperado, el sistema debe constituir una plataforma de adquisición y telemetría apta para campañas experimentales y ensayos de campo, con capacidad de crecimiento hacia configuraciones operacionales más complejas. Su valor no se limita a una implementación particular, sino que reside también en la generación de una arquitectura reutilizable para futuras boyas instrumentales, estaciones autónomas de monitoreo y sistemas distribuidos de observación marítima.
+
+En síntesis, el presente informe se enmarca en la continuidad técnica de EAMMRA y en la evolución del proyecto hacia una plataforma moderna de monitoreo autónomo. La integración de hardware actualizado, software modular, telemetría satelital, gestión energética y políticas de tolerancia a fallos representa un avance significativo respecto de las etapas previas, y contribuye al fortalecimiento de capacidades nacionales en instrumentación marítima, sistemas embebidos y acústica submarina aplicada.
+```
+
+
+\subsection{Antecedentes}
+El proyecto EAMMRA (Estación Autónoma Marítima para el Monitoreo de Ruido Ambiente) se inició en el marco del PIDDEF 32/14 del Ministerio de Defensa. Entre 2016 y 2019, en la División Acústica Submarina de la Dirección de Investigación de la Armada (DIIV), se desarrollaron prototipos de sistemas de medición hidroacústica pasiva, incluyendo el diseño de una boya costera (Informe Técnico AS 01/19), la integración de subsistemas (Informe Técnico AS 02/19) y un sistema automatizado probado en campañas en el Golfo San Jorge (2016-2017).
+
+Estos trabajos, realizados en colaboración con la Unidad Ejecutora de Investigación y Desarrollo Estratégicos para la Defensa (UNIDEF - CONICET/MINDEF), sentaron las bases técnicas para mediciones autónomas de Nivel de Ruido submarino (NL).
+
+El presente desarrollo corresponde al proyecto **PIDDEF 0322**, continuación directa del EAMMRA, y se lleva a cabo en la Jefatura de Investigación y Desarrollo (JEIV) de la Armada Argentina. Participan activamente la División Acústica Submarina (DIIV) y la División Mecánica del Departamento de Técnica de la JEIV, manteniendo la doble vinculación institucional con UNIDEF.
+
+\subsection{Contexto}
+El monitoreo del ruido submarino constituye un aspecto clave tanto para la evaluación de impacto ambiental como para aplicaciones operativas navales. El aumento de actividades antrópicas (navegación comercial, industria offshore, exploraciones) genera preocupación global por sus efectos en la fauna marina y en la propagación acústica. En la Plataforma Continental Argentina existe una importante carencia de series de datos históricos y actualizados de Nivel de Ruido ambiente.
+
+Las boyas instrumentales representan una solución efectiva para obtener mediciones continuas, autónomas y en tiempo casi real en zonas de difícil acceso o con condiciones operativas adversas.
+
+\subsection{Motivación}
+Si bien los prototipos desarrollados en la etapa anterior demostraron la viabilidad técnica del concepto, presentaban limitaciones importantes para un despliegue operacional prolongado:
+\begin{itemize}
+    \item Dependencia de recuperación física para obtener los datos,
+    \item Alto consumo energético,
+    \item Dificultades de integración mecánica y logística,
+    \item Arquitectura de software poco modular y con baja tolerancia a fallos.
+\end{itemize}
+
+Estas restricciones motivaron el desarrollo de un nuevo sistema embebido más robusto, autónomo y con capacidad de telemetría satelital, que permita la transmisión remota de datos ambientales y procesados sin necesidad de recuperación frecuente del equipo.
+
+\subsection{Propuesta de Valor y Objetivos}
+El presente trabajo propone el **desarrollo de un sistema embebido de adquisición de datos y telemetría satelital para boya instrumental**, con las siguientes características principales:
+
+\begin{itemize}
+    \item \textbf{Arquitectura de software} moderna basada en Máquinas de Estados Finitos (FSM), router de eventos y scheduler central, implementada en Python 3.
+    \item Integración robusta de múltiples sensores (ambientales, meteorológicos, posición y audio).
+    \item Procesamiento de audio en la boya y transmisión selectiva de datos a través de la red satelital Iridium SBD.
+    \item Sistema de alimentación mejorado con paneles solares y gestión inteligente de energía.
+    \item Diseño mecánico integrado con bastidor modular que facilita el mantenimiento y la integración con la boya.
+    \item Alta confiabilidad mediante uso extensivo de mocks, políticas de almacenamiento seguro y mecanismos de recuperación ante fallos.
+\end{itemize}
+
+Los objetivos principales son lograr un sistema de operación autónoma prolongada, con transmisión remota confiable, bajo consumo energético y fácil mantenimiento, superando las limitaciones identificadas en las etapas previas del proyecto EAMMRA.
+
+\subsection{Contexto del proyecto}
+\subsection{Objetivos generales}
+\subsection{Importancia de las boyas instrumentales en el monitoreo ambiental}
+\subsection{Alcance y limitaciones del sistema}
+
+\section{Introducción Específica}
+\subsection{Descripción del hardware}
+\subsection{Herramientas y tecnologías de software}
+\subsection{Arquitectura general del sistema}
+\subsection{Requerimientos funcionales y no funcionales}
+
+\section{Diseño e Implementación}
+\subsection{Arquitectura del sistema}
+\subsection{Proceso principal y enrutamiento de eventos}
+\subsection{Scheduler y gestión de tareas}
+\subsection{Módulos de sensores}
+\subsubsection{Sensores ambientales (AHT10, MPU6050)}
+\subsubsection{Sensores meteorológicos y de posición}
+\subsubsection{Procesamiento de audio}
+\subsubsection{Gestión de energía}
+\subsection{Telemetría satelital (Iridium SBD)}
+\subsection{Protocolos y formatos de datos}
+\subsection{Almacenamiento y políticas de persistencia}
+
+\section{Pruebas y Ensayos}
+\subsection{Pruebas unitarias y de integración}
+\subsection{Tests de bajo nivel y simulaciones (mocks)}
+\subsection{Ensayos operacionales en laboratorio}
+\subsection{Pruebas de campo y telemetría}
+\subsection{Resultados obtenidos}
+
+\section{Conclusiones y Trabajo Futuro}
+\subsection{Conclusiones}
+\subsection{Logros alcanzados}
+\subsection{Dificultades encontradas y lecciones aprendidas}
+\subsection{Trabajo futuro}
+\subsubsection{Mejoras propuestas}
+\subsubsection{Nuevas funcionalidades}
+\subsubsection{Escalabilidad y mantenimiento del sistema}

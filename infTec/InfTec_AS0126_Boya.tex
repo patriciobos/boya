@@ -1,0 +1,321 @@
+%======================================================================================================
+%======================================================================================================
+% PLANTILLA PARA INFORMES TÉCNICOS de la DAS de la DIIV
+%  Versión 1.35 del 27/8/2015
+% 	-Rearmado de portada. Mayor sobriedad y destaque del título del informe técnico.
+%	-Incorporados fixes varios para poder referir secciones y que no aparezcan '.' al final.
+%	-Incorporado parámetro para que no se estire hasta el final los ítems del glosario.
+%	-Afectada la geometría: tiene menor margen en toda dirección.
+%	-Cambio de color rojo a negro títulos varios.
+%	-Modificado apa-good.bst --> italizado el "et al"
+%======================================================================================================
+%======================================================================================================
+
+
+% =====================================================================================================
+% =====================================================================================================
+% PREÁMBULO
+% =====================================================================================================
+% =====================================================================================================
+
+\documentclass [11pt]{article}
+\usepackage[T1]{fontenc} % para que pueda partir palabras con acentos
+\usepackage[latin1]{inputenc}
+\usepackage{rotating}
+\usepackage{graphicx, nicefrac}
+%\usepackage{graphicx}
+\usepackage[spanish]{babel} % Ojo que esto cambia el nombre de las secciones
+\usepackage{times,url}
+\usepackage{amsmath}
+\usepackage{mathrsfs}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+%\usepackage{hyphen}
+\hyphenation{EAMMRA}
+\usepackage{fullpage}
+
+\usepackage[ampersand]{easylist}
+
+\usepackage[a4paper,bottom=2.7cm,top=2.7cm,left=2.5cm,right=2.5cm]{geometry}
+\usepackage{fancyhdr} % Esto cambiará la ubicación de los numeritos de las páginas
+\usepackage{grffile} % Para tipear nombres de archivo con espacios
+%\usepackage{esvect} % Para poner flechas de vector más copadas
+\usepackage{array} % Paquete que mejora la funcionalidad de array
+
+% Estilo de página
+
+\fancypagestyle{plain}{%redefining plain pagestyle
+	\fancyhf{} %clear all headers and footers fields
+	\fancyfoot[R]{\thepage} %prints the page number on the right side of the header
+	\renewcommand{\headrulewidth}{0pt}
+	\renewcommand{\footrulewidth}{0pt}
+	}
+\pagestyle{plain}
+
+% Más paquetes extra
+
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{colortbl}
+\usepackage{tocloft}
+\usepackage{setspace}
+\usepackage{titlesec}
+\usepackage{fix-cm}
+\usepackage{natbib}
+\setcitestyle{square}
+\usepackage{multirow}
+\usepackage{bigstrut}
+
+\usepackage{wrapfig}
+\usepackage{enumitem}
+\usepackage{appendix}
+
+\usepackage{listings}
+\usepackage{graphicx}
+\usepackage{multirow}
+
+
+\renewcommand{\appendixtocname}{APÉNDICES}
+\renewcommand{\appendixpagename}{\Large\bf\textcolor{black}{APÉNDICES}}
+
+% Formateo de los caption de figuras y tablas
+
+\usepackage[margin=10pt,font=small,labelfont=bf,labelsep=period]{caption}
+\DeclareCaptionListFormat{formato}{\textcolor{black}{\textbf{{#1 #2}}}}
+\captionsetup{listformat=formato,labelfont={bf}}
+
+
+\renewcommand{\cftfigpresnum}{\textcolor{black}{FIG. }}
+\setlength{\cftfignumwidth}{1.5cm}
+\renewcommand{\cfttabpresnum}{\textcolor{black}{TABLA }}
+\setlength{\cfttabnumwidth}{2.25cm}  
+
+% Formateo general de los títulos
+
+%% \def\thesection{\Roman{section}}
+%% \def\thesubsection{\thesection .{\arabic{subsection}}}
+%% \def\thesubsubsection{\thesubsection .{\alph{subsubsection}}}
+%% \def\theappendix{\arabic{appendix*}.}
+
+%=============================================================================
+
+% Nueva definicion de secciones:
+\makeatletter
+\renewcommand\section{\@startsection{section}{1}{\z@}%
+                                   {-2.5ex \@plus -1ex \@minus -.2ex}%
+                                   {2.5ex \@plus.2ex}%
+                                   {\normalfont\large\bfseries\color{black}}}
+\renewcommand{\thesection}{\Roman{section}}
+\renewcommand{\@seccntformat}[1]{\csname the#1\endcsname.\hspace{0.3cm}}
+\makeatother
+
+% Nueva definicion de subsecciones:
+\makeatletter
+\renewcommand\subsection{\@startsection{subsection}{1}{\z@}%
+                                  {-2.5ex \@plus -1ex \@minus -.2ex}%
+                                   {2.5ex \@plus.2ex}%
+                                   {\normalfont\large\bfseries\color{black}}}
+\renewcommand{\thesubsection}{\thesection.{\arabic{subsection}}}
+\makeatother
+
+\makeatletter
+\renewcommand\subsubsection{\@startsection{subsubsection}{3}{\z@}%
+                                     {-3.25ex\@plus -1ex \@minus -.2ex}%
+                                     {1.5ex \@plus .2ex}%
+                                     {\normalfont\bfseries\color{black}}}
+\renewcommand{\thesubsubsection}{\thesubsection.{\alph{subsubsection}}}
+\makeatother
+
+% \def\thesubsubsection{\thesubsection.{\alph{subsubsection}.}}
+%\def\thesubsection{\thesection{\arabic{subsection}.}}
+
+
+%=============================================================================
+
+
+
+%\titleformat{\section}{\large\bf\color{red}}{\thesection}{0.5em}{}
+%\titleformat{\subsection}{\normalsize\color{red}}{\thesubsection}{0.5em}{}
+%\titleformat{\subsubsection}{\color{red}}{\thesubsubsection}{0.5em}{}
+
+% Formateo de los títulos la tabla de contenidos
+
+\renewcommand*{\cftsecpresnum}{\bf\color{black}} 
+\renewcommand*{\cftsecaftersnum}{\Roman{section}.} % Para que después de escribir el título de sección le ponga un punto final.
+\renewcommand*\cftsecfont{\color{black}\bf}
+\renewcommand*\cftsubsecfont{\color{black}\bf}
+\renewcommand*{\cftsubsecpresnum}{\bf\color{black}}
+\renewcommand*\cftsubsubsecfont{\color{black}\bf}
+\renewcommand*{\cftsubsubsecpresnum}{\bf\color{black}}
+
+% Cambio de nombres para elementos 
+
+\renewcommand{\spanishfigurename}{{FIG.}}
+\renewcommand{\spanishtablename}{{TABLA}}
+\renewcommand{\spanishlistfigurename}{\textcolor{black}{LISTA DE FIGURAS}}
+\renewcommand{\spanishlisttablename}{\textcolor{black}{LISTA DE TABLAS}}
+\renewcommand{\spanishrefname}{\textcolor{black}{REFERENCIAS}}
+\renewcommand{\spanishappendixname}{\textcolor{black}{APÉNDICE}}
+\renewcommand{\spanishcontentsname}{\textcolor{black}{ÍNDICE}}
+\newcommand{\mage}[1]{\textcolor{magenta}{#1}}
+
+% Tamaño de reglas y cajas
+
+\setlength{\fboxrule}{1pt}%
+\setlength{\arrayrulewidth}{1pt}
+
+% Longitud de indentados
+
+\setlength{\parindent}{2em}
+\setlength{\parskip}{1.25ex}
+
+% Formateo de los títulos para la tabla de contenidos
+
+%\renewcommand{\cftsecpresnum}{\thesection}
+\renewcommand{\cftsecnumwidth}{3em}
+\setlength{\cftsubsecnumwidth}{3em}
+
+% Definición de colores personalizados
+
+\definecolor{blue(ryb)}{rgb}{0.01, 0.28, 1.0}
+\definecolor{coolblack}{rgb}{0.0, 0.18, 0.39}
+
+%
+% Permite crear columnas de datos.
+\usepackage{multicol}
+
+
+
+% =====================================================================================================
+% =====================================================================================================
+% =====================================================================================================
+%
+% DOCUMENTO PROPIAMENTE DICHO
+%
+% =====================================================================================================
+% =====================================================================================================
+% =====================================================================================================
+
+%	plantilla_RT.tex   % Este archivo llamará a los subsiguientes
+% --> 1_Portada.tex 
+% --> 2_Resumen.tex 
+% --> 3_Pertenencia.tex 
+% --> 4_Agradecimientos.tex 
+% --> 5_Glosario.tex 
+% --> 6_Cuerpo.tex 
+% --> 7_Referencias.bib 
+% --> 8_Apendices.tex 
+
+
+\begin{document}
+
+% =====================================================================================================
+% =====================================================================================================
+% PORTADA
+% =====================================================================================================
+% =====================================================================================================
+\include{1_Portada}
+
+% =====================================================================================================
+% =====================================================================================================
+% PÁGINA DE RESUMEN EN CASTELLANO Y EN INGLÉS
+% =====================================================================================================
+% =====================================================================================================
+
+\include{2_Resumen}
+
+% =====================================================================================================
+% =====================================================================================================
+% PÁGINA DESCRIPTIVA DE PERTENENCIA A PROYECTO DEL TRABAJO
+% =====================================================================================================
+% =====================================================================================================
+
+\include{3_Pertenencia}
+
+% =====================================================================================================
+% =====================================================================================================
+% PÁGINA DE AGRADECIMIENTOS
+% =====================================================================================================
+% =====================================================================================================
+% La configuración está optimizada para fotos de 3cm de ancho (armónicamente).  
+%
+
+\include{4_Agradecimientos}
+
+% =====================================================================================================
+% ÍNDICE
+% =====================================================================================================
+% =====================================================================================================
+
+
+\tableofcontents
+\clearpage
+
+
+% =====================================================================================================
+% =====================================================================================================
+% GLOSARIO DE SIGLAS
+% =====================================================================================================
+% =====================================================================================================
+
+\include{5_Glosario}
+
+% =====================================================================================================
+%=====================================================================================================
+% LISTA DE FIGURAS
+% =====================================================================================================
+% =====================================================================================================
+
+%\begin{center}
+%\listoffigures
+%\end{center}
+%\clearpage
+
+% =====================================================================================================
+% =====================================================================================================
+% LISTA DE TABLAS
+% =====================================================================================================
+% =====================================================================================================
+
+%\begin{center}
+%\listoftables
+%\end{center}
+%\clearpage
+
+% =====================================================================================================
+% =====================================================================================================
+% CUERPO DEL INFORME
+% =====================================================================================================
+% =====================================================================================================
+
+\include{6_Cuerpo}
+
+% =====================================================================================================
+% =====================================================================================================
+% PÁGINA DE REFERENCIAS
+% =====================================================================================================
+% =====================================================================================================
+
+\clearpage
+\vspace{4pc}
+\addcontentsline{toc}{section}{REFERENCIAS}
+\bibliographystyle{apa-good}	% (uses file "plain.bst")
+\bibliography{7_Referencias}	% Acá está la base de datos de referencias. Espera el archivo "7_Referencias.bib"
+
+\clearpage
+
+% =====================================================================================================
+% =====================================================================================================
+% APÉNDICE
+% =====================================================================================================
+% =====================================================================================================
+
+
+% Reseteo y cambio de numeración para los apéndices
+\setcounter{section}{0}
+\renewcommand\appendix{\Roman{section}}
+%\def\thesection{\Roman{section}}
+
+%\include{8_Apendices}
+
+
+\end{document}
