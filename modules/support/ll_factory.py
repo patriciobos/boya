@@ -17,6 +17,7 @@ from modules.support.ll_mocks import (
     XTRA2210LowLevelMock,
 )
 
+
 def _env_enabled(name: str) -> bool:
     return os.getenv(name, "0").strip().lower() in ("1", "true", "yes", "on")
 
@@ -35,8 +36,7 @@ _ACTUAL_CLASSES: dict[str, tuple[str, str]] = {
 }
 
 _MOCK_ENV_VARS: dict[str, str] = {
-    module_name: f"USE_MOCK_{module_name.upper()}"
-    for module_name in _ACTUAL_CLASSES
+    module_name: f"USE_MOCK_{module_name.upper()}" for module_name in _ACTUAL_CLASSES
 }
 
 _MOCK_CLASSES: dict[str, Type[Any]] = {
@@ -78,7 +78,9 @@ def validate_mock_configuration() -> dict[str, Any]:
         "all_mock": USE_LL_MOCKS,
         "config_modules": sorted(config_modules),
         "env_modules": sorted(env_modules),
-        "mock_modules": sorted(all_modules if USE_LL_MOCKS else config_modules | env_modules),
+        "mock_modules": sorted(
+            all_modules if USE_LL_MOCKS else config_modules | env_modules
+        ),
     }
 
 

@@ -4,6 +4,7 @@ import wave
 from datetime import datetime
 
 import sys
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from modules.support.log_utils import get_logger
@@ -14,11 +15,11 @@ except ImportError:
     lfilter = None
 
 # Configurable parameters
-NOISE_TYPE = "pink"   # Options: "white", "pink", "brown"
-FS = 192000           # Sampling frequency (Hz)
-BITS = 24             # Bit depth (bits)
-DURATION = 70         # File duration (seconds)
-N_CHANNELS = 1       # Mono=1, Stereo=2
+NOISE_TYPE = "pink"  # Options: "white", "pink", "brown"
+FS = 192000  # Sampling frequency (Hz)
+BITS = 24  # Bit depth (bits)
+DURATION = 70  # File duration (seconds)
+N_CHANNELS = 1  # Mono=1, Stereo=2
 
 # Output folder
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,6 +28,7 @@ os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
 # Logger
 logger = get_logger("mock_audio_signals")
+
 
 def generate_noise(noise_type, num_samples):
     if noise_type == "white":
@@ -44,6 +46,7 @@ def generate_noise(noise_type, num_samples):
         return np.cumsum(white)
     else:
         raise ValueError(f"Unsupported noise type: {noise_type}")
+
 
 def save_wav(data, fs, bits, n_channels, path):
     """
@@ -72,7 +75,7 @@ def save_wav(data, fs, bits, n_channels, path):
         raise ValueError("Only 16, 24, or 32 bits are supported.")
     if n_channels == 2:
         data_pcm = np.column_stack([data_pcm, data_pcm])
-    with wave.open(path, 'wb') as wf:
+    with wave.open(path, "wb") as wf:
         wf.setnchannels(n_channels)
         wf.setsampwidth(sampwidth)
         wf.setframerate(fs)
@@ -82,13 +85,20 @@ def save_wav(data, fs, bits, n_channels, path):
                 if n_channels == 1:
                     wf.writeframesraw(frame.astype(np.int32).tobytes()[:3])
                 else:
-                    wf.writeframesraw(b''.join([ch.astype(np.int32).tobytes()[:3] for ch in frame]))
+                    wf.writeframesraw(
+                        b"".join([ch.astype(np.int32).tobytes()[:3] for ch in frame])
+                    )
         else:
             wf.writeframes(data_pcm.tobytes())
 
+
 if __name__ == "__main__":
-    logger.info(f"Generating {NOISE_TYPE} noise - fs={FS}Hz, bits={BITS}, duration={DURATION}s, channels={N_CHANNELS}")
-    print(f"Generating {NOISE_TYPE} noise - fs={FS}Hz, bits={BITS}, duration={DURATION}s, channels={N_CHANNELS}")
+    logger.info(
+        f"Generating {NOISE_TYPE} noise - fs={FS}Hz, bits={BITS}, duration={DURATION}s, channels={N_CHANNELS}"
+    )
+    print(
+        f"Generating {NOISE_TYPE} noise - fs={FS}Hz, bits={BITS}, duration={DURATION}s, channels={N_CHANNELS}"
+    )
     num_samples = FS * DURATION
     noise = generate_noise(NOISE_TYPE, num_samples)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

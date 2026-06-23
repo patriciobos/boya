@@ -59,7 +59,9 @@ def _load_mocks_config() -> dict[str, Any]:
     except FileNotFoundError:
         _default_mocks_config = {}
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Invalid JSON in mocks config file {MOCKS_CONFIG_PATH}: {exc}") from exc
+        raise RuntimeError(
+            f"Invalid JSON in mocks config file {MOCKS_CONFIG_PATH}: {exc}"
+        ) from exc
     return _default_mocks_config
 
 
@@ -88,7 +90,9 @@ def normalize_module_names(value: Any, field_name: str = "modules") -> list[str]
     elif isinstance(value, list):
         raw_names = [str(part).strip() for part in value]
     else:
-        raise RuntimeError(f"Invalid {field_name}: expected list or comma-separated string")
+        raise RuntimeError(
+            f"Invalid {field_name}: expected list or comma-separated string"
+        )
 
     canonical = {name.lower(): name for name in MODULE_NAMES}
     normalized: list[str] = []

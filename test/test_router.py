@@ -67,7 +67,9 @@ def test_router_stores_audioproc_result_without_immediate_iridium_request():
 
     assert routed is False
     assert iridium_queue.empty()
-    assert router.latest_audio_summary["output"] == "data/audio_proc/audioProc_test.json"
+    assert (
+        router.latest_audio_summary["output"] == "data/audio_proc/audioProc_test.json"
+    )
 
 
 def test_router_does_not_route_failed_audioproc_to_iridium():

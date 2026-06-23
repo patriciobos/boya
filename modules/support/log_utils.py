@@ -18,7 +18,9 @@ class UTCMinus3Formatter(logging.Formatter):
         return dt.isoformat()
 
 
-def get_logger(name: str, log_file: Optional[str] = None, level=logging.INFO) -> logging.Logger:
+def get_logger(
+    name: str, log_file: Optional[str] = None, level=logging.INFO
+) -> logging.Logger:
     """
     Crea un logger uniforme para todos los módulos, con formato y handlers estándar.
     - name: nombre del logger (usualmente el nombre del módulo o clase)
@@ -40,10 +42,16 @@ def get_logger(name: str, log_file: Optional[str] = None, level=logging.INFO) ->
 
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    formatter = UTCMinus3Formatter('%(asctime)s %(timezone_label)s [%(process)d] [%(name)s] %(levelname)s: %(message)s')
+    formatter = UTCMinus3Formatter(
+        "%(asctime)s %(timezone_label)s [%(process)d] [%(name)s] %(levelname)s: %(message)s"
+    )
 
     # Handler de archivo
-    if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == os.path.abspath(log_file) for h in logger.handlers):
+    if not any(
+        isinstance(h, logging.FileHandler)
+        and getattr(h, "baseFilename", None) == os.path.abspath(log_file)
+        for h in logger.handlers
+    ):
         fh = logging.FileHandler(log_file)
         fh.setFormatter(formatter)
         logger.addHandler(fh)

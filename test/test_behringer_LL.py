@@ -33,7 +33,12 @@ from modules.support.storage_guard import (
 
 
 def _hardware_tests_enabled():
-    return os.getenv("RUN_HARDWARE_TESTS", "0").strip().lower() in ("1", "true", "yes", "on")
+    return os.getenv("RUN_HARDWARE_TESTS", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 requires_hardware = pytest.mark.skipif(
@@ -50,6 +55,7 @@ def test_init_and_deinit():
     assert audio.init() in [True, False]
     assert audio.deinit() in [True, False]
 
+
 @pytest.mark.hardware
 @requires_hardware
 def test_open_and_close():
@@ -60,6 +66,7 @@ def test_open_and_close():
     assert opened in [True, False]
     audio.close()
     audio.deinit()
+
 
 @pytest.mark.hardware
 @requires_hardware
@@ -76,6 +83,7 @@ def test_record_and_is_recording_done():
         time.sleep(0.5)
     audio.deinit()
 
+
 @pytest.mark.hardware
 @requires_hardware
 def test_full_test():
@@ -87,6 +95,7 @@ def test_full_test():
     assert isinstance(detalles, dict)
     audio.deinit()
 
+
 @pytest.mark.hardware
 @requires_hardware
 def test_stop_recording():
@@ -97,6 +106,7 @@ def test_stop_recording():
     assert ok in [True, False]
     audio.stop_recording()
     audio.deinit()
+
 
 def test_permissions():
     """Test write permissions in the recordings directory."""
@@ -120,7 +130,9 @@ def test_output_path_is_flat_utc_recordings_file(tmp_path):
     """Verify recordings are named with a UTC timestamp directly under recordings_dir."""
     audio = BehringerLowLevel(recordings_dir=str(tmp_path), storage_guard_enabled=False)
     output_path = audio._make_output_path()
-    assert os.path.abspath(os.path.dirname(output_path)) == os.path.abspath(audio.recordings_dir)
+    assert os.path.abspath(os.path.dirname(output_path)) == os.path.abspath(
+        audio.recordings_dir
+    )
     assert re.fullmatch(r"recording_\d{8}_\d{6}\.wav", os.path.basename(output_path))
 
 
@@ -136,24 +148,37 @@ def test_record_rejects_unavailable_storage_before_open(monkeypatch):
     assert audio.record(60) is False
     assert STORAGE_ERROR_RECORDINGS_DIR_UNAVAILABLE in audio.last_error
     assert audio.last_recording_metadata["complete"] is False
-    assert audio.last_recording_metadata["stop_reason"] == STORAGE_ERROR_RECORDINGS_DIR_UNAVAILABLE
+    assert (
+        audio.last_recording_metadata["stop_reason"]
+        == STORAGE_ERROR_RECORDINGS_DIR_UNAVAILABLE
+    )
 
 
-def test_record_rejects_when_post_reservation_breaks_hard_reserve(monkeypatch, tmp_path):
+def test_record_rejects_when_post_reservation_breaks_hard_reserve(
+    monkeypatch, tmp_path
+):
     audio = BehringerLowLevel(recordings_dir=str(tmp_path))
     assert audio.init() is True
 
     monkeypatch.setattr(
         behringer_module,
         "validate_recordings_dir",
-        lambda recordings_dir, create=True: DirectoryValidation(ok=True, path=tmp_path, errors=[]),
+        lambda recordings_dir, create=True: DirectoryValidation(
+            ok=True, path=tmp_path, errors=[]
+        ),
     )
-    monkeypatch.setattr(behringer_module, "get_directory_size_bytes", lambda recordings_dir: 0)
-    monkeypatch.setattr(behringer_module, "disk_free_bytes", lambda recordings_dir: gib_to_bytes(10) + 1)
+    monkeypatch.setattr(
+        behringer_module, "get_directory_size_bytes", lambda recordings_dir: 0
+    )
+    monkeypatch.setattr(
+        behringer_module, "disk_free_bytes", lambda recordings_dir: gib_to_bytes(10) + 1
+    )
     monkeypatch.setattr(
         audio,
         "open",
-        lambda: (_ for _ in ()).throw(AssertionError("open should not be called when storage is low")),
+        lambda: (_ for _ in ()).throw(
+            AssertionError("open should not be called when storage is low")
+        ),
     )
 
     assert audio.record(60) is False
@@ -170,19 +195,30 @@ def test_record_rejects_when_recordings_quota_would_be_exceeded(monkeypatch, tmp
     monkeypatch.setattr(
         behringer_module,
         "validate_recordings_dir",
-        lambda recordings_dir, create=True: DirectoryValidation(ok=True, path=tmp_path, errors=[]),
+        lambda recordings_dir, create=True: DirectoryValidation(
+            ok=True, path=tmp_path, errors=[]
+        ),
     )
-    monkeypatch.setattr(behringer_module, "get_directory_size_bytes", lambda recordings_dir: gib_to_bytes(1))
-    monkeypatch.setattr(behringer_module, "disk_free_bytes", lambda recordings_dir: gib_to_bytes(100))
+    monkeypatch.setattr(
+        behringer_module,
+        "get_directory_size_bytes",
+        lambda recordings_dir: gib_to_bytes(1),
+    )
+    monkeypatch.setattr(
+        behringer_module, "disk_free_bytes", lambda recordings_dir: gib_to_bytes(100)
+    )
     monkeypatch.setattr(
         audio,
         "open",
-        lambda: (_ for _ in ()).throw(AssertionError("open should not be called when quota is exceeded")),
+        lambda: (_ for _ in ()).throw(
+            AssertionError("open should not be called when quota is exceeded")
+        ),
     )
 
     assert audio.record(60) is False
     assert RECORDING_SKIPPED_RECORDINGS_QUOTA_EXCEEDED in audio.last_error
     assert audio.last_recording_metadata["complete"] is False
+
 
 @pytest.mark.hardware
 @requires_hardware
@@ -193,11 +229,13 @@ def test_test_method():
     assert isinstance(audio.test(), bool)
     audio.deinit()
 
+
 def test_open_without_init():
     """Test opening the stream without initializing the device."""
     audio = BehringerLowLevel()
     assert audio.open() is False
     audio.close()
+
 
 def test_record_without_init():
     """Test recording without initializing the device."""
@@ -205,12 +243,14 @@ def test_record_without_init():
     assert audio.record(1) is False
     audio.deinit()
 
+
 def test_full_test_without_init():
     """Test full_test without initializing the device."""
     audio = BehringerLowLevel()
     result, detalles = audio.full_test()
     assert result is False
     assert detalles.get("initialized") is False
+
 
 @pytest.mark.hardware
 @requires_hardware
@@ -220,6 +260,7 @@ def test_stop_recording_without_recording():
     audio.init()
     audio.stop_recording()  # Should not raise
     audio.deinit()
+
 
 @pytest.mark.hardware
 @requires_hardware
@@ -232,30 +273,34 @@ def test_close_multiple_times():
     audio.close()  # Should not raise or log error
     audio.deinit()
 
+
 def test_callback_not_recording():
     """Test the _callback method when not recording (should return paComplete)."""
     audio = BehringerLowLevel()
     # Simula callback sin grabar
-    result = audio._callback(b'data', 0, 0, 0)
+    result = audio._callback(b"data", 0, 0, 0)
     assert isinstance(result, tuple)
     assert result[1] is not None
+
 
 def test_callback_recording():
     """Test the _callback method when recording (should return paContinue and put data in queue)."""
     audio = BehringerLowLevel()
     audio.is_recording_event.set()
-    result = audio._callback(b'data', 0, 0, 0)
+    result = audio._callback(b"data", 0, 0, 0)
     assert isinstance(result, tuple)
     assert result[1] is not None
     # Verifica que los datos se pusieron en la queue
     assert not audio.frames_queue.empty()
     audio.is_recording_event.clear()
 
+
 def test_write_audio_without_init():
     """Test _write_audio when audio_interface is None (should handle gracefully)."""
     audio = BehringerLowLevel()
     audio.output_path = "/tmp/test_write_audio.wav"
     audio._write_audio()  # Should not raise
+
 
 def test_write_audio_no_output_path():
     """Test _write_audio when output_path is None (should handle gracefully)."""
@@ -265,6 +310,7 @@ def test_write_audio_no_output_path():
     audio.output_path = None
     audio._write_audio()  # Should not raise
 
+
 def test_write_audio_no_duration():
     """Test _write_audio when duration is None (should handle gracefully)."""
     audio = BehringerLowLevel()
@@ -273,15 +319,18 @@ def test_write_audio_no_duration():
     audio.duration = None
     audio._write_audio()  # Should not raise
 
+
 def test_deinit_without_init():
     """Test deinit when audio_interface is None (should handle gracefully)."""
     audio = BehringerLowLevel()
     assert audio.deinit() is True
 
+
 def test_close_without_stream():
     """Test close when stream is None (should handle gracefully)."""
     audio = BehringerLowLevel()
     audio.close()  # Should not raise
+
 
 # Opcional: test de manejo de archivos inexistentes o permisos denegados
 # (esto puede requerir privilegios o un entorno controlado, así que solo se sugiere)

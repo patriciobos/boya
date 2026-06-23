@@ -131,4 +131,6 @@ def test_admission_rejects_when_recordings_quota_would_be_exceeded():
 
 def test_file_size_limit_warns_only_after_limit_is_exceeded():
     assert evaluate_file_size_limit(100, max_file_size_bytes=100) == []
-    assert evaluate_file_size_limit(101, max_file_size_bytes=100) == [RECORDING_STOPPED_MAX_FILE_SIZE]
+    assert evaluate_file_size_limit(101, max_file_size_bytes=100) == [
+        RECORDING_STOPPED_MAX_FILE_SIZE
+    ]

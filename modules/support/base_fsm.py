@@ -9,10 +9,10 @@ import json
 
 from modules.support.log_utils import get_logger
 
-
 # ------------------------------------------------------------------
 # States
 # ------------------------------------------------------------------
+
 
 class State(Enum):
     DISABLE = auto()
@@ -28,6 +28,7 @@ class State(Enum):
 # ------------------------------------------------------------------
 # Messages
 # ------------------------------------------------------------------
+
 
 class MessageID(Enum):
     SIG_INIT = "sig_init"
@@ -52,6 +53,7 @@ class MessageID(Enum):
 # Result codes
 # ------------------------------------------------------------------
 
+
 class ResultCode(Enum):
     OK = "ok"
     ERROR = "error"
@@ -60,6 +62,7 @@ class ResultCode(Enum):
 # ------------------------------------------------------------------
 # Message container
 # ------------------------------------------------------------------
+
 
 @dataclass
 class Message:
@@ -70,6 +73,7 @@ class Message:
 # ------------------------------------------------------------------
 # Base FSM
 # ------------------------------------------------------------------
+
 
 class BaseHandlerFSM:
     def __init__(self, name: str):
@@ -181,13 +185,15 @@ class BaseHandlerFSM:
             self.state = new_state
 
             if status_queue:
-                status_queue.put((
-                    self.name,
-                    Message(
-                        MessageID.STATE_CHANGED,
-                        {"state": self.state.name},
-                    ),
-                ))
+                status_queue.put(
+                    (
+                        self.name,
+                        Message(
+                            MessageID.STATE_CHANGED,
+                            {"state": self.state.name},
+                        ),
+                    )
+                )
 
 
 def run_fsm_self_test(
@@ -222,11 +228,13 @@ def run_fsm_self_test(
                 name, message = status_queue.get_nowait()
             except Empty:
                 break
-            report["messages"].append({
-                "name": name,
-                "id": message.id.value,
-                "params": message.params,
-            })
+            report["messages"].append(
+                {
+                    "name": name,
+                    "id": message.id.value,
+                    "params": message.params,
+                }
+            )
 
     try:
         queue.put(Message(MessageID.SIG_INIT))

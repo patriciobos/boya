@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 try:
     REPO_ROOT = Path(__file__).resolve().parents[1]
 except Exception:
@@ -60,7 +59,7 @@ def _extract_last_json_object(text: str):
                 depth -= 1
 
                 if depth == 0:
-                    candidate = text[start:idx + 1]
+                    candidate = text[start : idx + 1]
                     try:
                         obj = json.loads(candidate)
                         if isinstance(obj, dict):
@@ -165,7 +164,11 @@ def _run_script(script: Path, timeout: int):
                     stderr="\n".join([entry["stdout"], entry["stderr"]]),
                     reason="",
                 )
-        elif script.stem == "audioProc_LL" and proc.returncode == 0 and "Full test: OK" in combined:
+        elif (
+            script.stem == "audioProc_LL"
+            and proc.returncode == 0
+            and "Full test: OK" in combined
+        ):
             entry["success"] = True
             entry["error"] = ""
         else:
@@ -178,8 +181,16 @@ def _run_script(script: Path, timeout: int):
 
     except subprocess.TimeoutExpired as exc:
         entry["returncode"] = -1
-        entry["stdout"] = (exc.stdout or "").strip() if isinstance(exc.stdout, str) else str(exc.stdout or "")
-        entry["stderr"] = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else str(exc.stderr or "")
+        entry["stdout"] = (
+            (exc.stdout or "").strip()
+            if isinstance(exc.stdout, str)
+            else str(exc.stdout or "")
+        )
+        entry["stderr"] = (
+            (exc.stderr or "").strip()
+            if isinstance(exc.stderr, str)
+            else str(exc.stderr or "")
+        )
         entry["success"] = False
         entry["error"] = f"timeout after {timeout}s"
 
@@ -237,7 +248,12 @@ def _write_reports(results, report_dir: Path):
 @pytest.mark.hardware
 @pytest.mark.timeout(300)
 def test_run_all_ll_scripts_and_report(tmp_path):
-    if os.getenv("RUN_HARDWARE_TESTS", "0").strip().lower() not in ("1", "true", "yes", "on"):
+    if os.getenv("RUN_HARDWARE_TESTS", "0").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
         pytest.skip("hardware test disabled; set RUN_HARDWARE_TESTS=1 to run")
 
     timeout = int(os.getenv("LL_SCRIPT_TIMEOUT", "90"))

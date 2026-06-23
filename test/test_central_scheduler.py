@@ -89,14 +89,20 @@ def test_central_scheduler_aligns_regular_slots_from_midnight():
 
 
 def test_central_scheduler_aligns_sensor_and_iridium_slots():
-    scheduler = centralScheduler({"AHT10": {"queue": Queue()}, "Iridium": {"queue": Queue()}})
+    scheduler = centralScheduler(
+        {"AHT10": {"queue": Queue()}, "Iridium": {"queue": Queue()}}
+    )
 
-    next_sensor = scheduler._aligned_next_run(datetime(2026, 6, 9, 10, 4, 30, tzinfo=UTC_MINUS_3), 600)
+    next_sensor = scheduler._aligned_next_run(
+        datetime(2026, 6, 9, 10, 4, 30, tzinfo=UTC_MINUS_3), 600
+    )
     assert next_sensor.hour == 10
     assert next_sensor.minute == 10
     assert next_sensor.second == 0
 
-    next_iridium = scheduler._aligned_next_run(datetime(2026, 6, 9, 10, 4, 30, tzinfo=UTC_MINUS_3), 3600)
+    next_iridium = scheduler._aligned_next_run(
+        datetime(2026, 6, 9, 10, 4, 30, tzinfo=UTC_MINUS_3), 3600
+    )
     assert next_iridium.hour == 11
     assert next_iridium.minute == 0
     assert next_iridium.second == 0
@@ -105,12 +111,30 @@ def test_central_scheduler_aligns_sensor_and_iridium_slots():
 def test_central_scheduler_iridium_four_hour_cycle():
     scheduler = centralScheduler({"Iridium": {"queue": Queue()}})
 
-    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 1, 0, tzinfo=UTC_MINUS_3)) == "system_status"
-    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 2, 0, tzinfo=UTC_MINUS_3)) == "system_status"
-    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 3, 0, tzinfo=UTC_MINUS_3)) == "system_status"
-    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 4, 0, tzinfo=UTC_MINUS_3)) == "audio"
-    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 5, 0, tzinfo=UTC_MINUS_3)) == "system_status"
-    assert scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 8, 0, tzinfo=UTC_MINUS_3)) == "audio"
+    assert (
+        scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 1, 0, tzinfo=UTC_MINUS_3))
+        == "system_status"
+    )
+    assert (
+        scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 2, 0, tzinfo=UTC_MINUS_3))
+        == "system_status"
+    )
+    assert (
+        scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 3, 0, tzinfo=UTC_MINUS_3))
+        == "system_status"
+    )
+    assert (
+        scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 4, 0, tzinfo=UTC_MINUS_3))
+        == "audio"
+    )
+    assert (
+        scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 5, 0, tzinfo=UTC_MINUS_3))
+        == "system_status"
+    )
+    assert (
+        scheduler._iridium_mode_for_run(datetime(2026, 6, 9, 8, 0, tzinfo=UTC_MINUS_3))
+        == "audio"
+    )
 
 
 def test_central_scheduler_advances_without_drift():
@@ -153,11 +177,17 @@ def test_error_recovery_manager_sends_sig_init_and_marks_irrecoverable():
         recovery.handle_state("AHT10", "ERROR", logger, status_report)
         message = queue.get(timeout=1)
         assert message.id == MessageID.SIG_INIT
-        assert message.params == {"origin": "main", "recovery_attempt": expected_attempt}
+        assert message.params == {
+            "origin": "main",
+            "recovery_attempt": expected_attempt,
+        }
 
     recovery.handle_state("AHT10", "ERROR", logger, status_report)
 
     assert "AHT10" in recovery.irrecoverable
-    assert logger.errors[-1] == "[AHT10] Module failed irrecoverably after 3 recovery attempts"
+    assert (
+        logger.errors[-1]
+        == "[AHT10] Module failed irrecoverably after 3 recovery attempts"
+    )
     assert status_report.updates[-1][0:4] == ("AHT10", "ERROR", "recover", "error")
     assert status_report.updates[-1][4]["error"] == "Module failed irrecoverably"

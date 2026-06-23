@@ -86,6 +86,18 @@ Para comandos de test se recomienda usar la venv explicitamente. La suite local 
 PYTHONPATH=. .venv/bin/python -m pytest -m "not hardware" -q
 ```
 
+Para formatear el código con Black:
+
+```bash
+./scripts/run_black.sh
+```
+
+Para ejecutar el linter Pylint:
+
+```bash
+./scripts/run_pylint.sh
+```
+
 Para ejecutar los self-tests low-level como scripts contra hardware real y generar reportes:
 
 ```bash

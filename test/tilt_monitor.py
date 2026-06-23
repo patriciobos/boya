@@ -89,7 +89,9 @@ def main(argv=None) -> int:
         drv.init(bus=args.bus, address=args.address)
 
         if not drv.probe():
-            print(f"No se detectó MPU6050 en bus={drv.bus_num} address=0x{drv.address:02x}")
+            print(
+                f"No se detectó MPU6050 en bus={drv.bus_num} address=0x{drv.address:02x}"
+            )
             return 2
 
         print(f"Detectado en bus={drv.bus_num} address=0x{drv.address:02x}")

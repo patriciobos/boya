@@ -6,17 +6,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
-GIB_BYTES = 1024 ** 3
+GIB_BYTES = 1024**3
 WAV_HEADER_BYTES = 44
 
 STORAGE_WARNING_LOW_FREE_SPACE = "STORAGE_WARNING_LOW_FREE_SPACE"
 STORAGE_CRITICAL_LOW_FREE_SPACE = "STORAGE_CRITICAL_LOW_FREE_SPACE"
-STORAGE_WARNING_INVALID_DURATION_USING_DEFAULT = "STORAGE_WARNING_INVALID_DURATION_USING_DEFAULT"
+STORAGE_WARNING_INVALID_DURATION_USING_DEFAULT = (
+    "STORAGE_WARNING_INVALID_DURATION_USING_DEFAULT"
+)
 STORAGE_ERROR_RECORDINGS_DIR_UNAVAILABLE = "STORAGE_ERROR_RECORDINGS_DIR_UNAVAILABLE"
-STORAGE_ERROR_RECORDINGS_DIR_NOT_ON_STORAGE = "STORAGE_ERROR_RECORDINGS_DIR_NOT_ON_STORAGE"
+STORAGE_ERROR_RECORDINGS_DIR_NOT_ON_STORAGE = (
+    "STORAGE_ERROR_RECORDINGS_DIR_NOT_ON_STORAGE"
+)
 STORAGE_ERROR_RECORDINGS_DIR_NOT_WRITABLE = "STORAGE_ERROR_RECORDINGS_DIR_NOT_WRITABLE"
 RECORDING_SKIPPED_LOW_STORAGE = "RECORDING_SKIPPED_LOW_STORAGE"
-RECORDING_SKIPPED_RECORDINGS_QUOTA_EXCEEDED = "RECORDING_SKIPPED_RECORDINGS_QUOTA_EXCEEDED"
+RECORDING_SKIPPED_RECORDINGS_QUOTA_EXCEEDED = (
+    "RECORDING_SKIPPED_RECORDINGS_QUOTA_EXCEEDED"
+)
 RECORDING_SKIPPED_INSUFFICIENT_SPACE_FOR_EXPECTED_FILE = (
     "RECORDING_SKIPPED_INSUFFICIENT_SPACE_FOR_EXPECTED_FILE"
 )
@@ -68,10 +74,18 @@ def estimate_wav_pcm_size_bytes(
     duration = float(duration_s)
     bits = int(bits_per_sample)
     channel_count = int(channels)
-    if sample_rate <= 0 or duration <= 0 or bits <= 0 or bits % 8 != 0 or channel_count <= 0:
+    if (
+        sample_rate <= 0
+        or duration <= 0
+        or bits <= 0
+        or bits % 8 != 0
+        or channel_count <= 0
+    ):
         raise ValueError("Invalid WAV PCM sizing parameters")
     bytes_per_sample = bits // 8
-    expected_audio_bytes = int(sample_rate * channel_count * bytes_per_sample * duration)
+    expected_audio_bytes = int(
+        sample_rate * channel_count * bytes_per_sample * duration
+    )
     return expected_audio_bytes + WAV_HEADER_BYTES
 
 
@@ -199,7 +213,9 @@ def evaluate_storage_admission(
     if int(max_file_size_bytes) <= 0 or int(expected_size_bytes) <= 0:
         errors.append(RECORDING_SKIPPED_INVALID_AUDIO_CONFIG)
 
-    if int(recordings_dir_used_bytes) + int(max_file_size_bytes) > int(max_recordings_dir_bytes):
+    if int(recordings_dir_used_bytes) + int(max_file_size_bytes) > int(
+        max_recordings_dir_bytes
+    ):
         errors.append(RECORDING_SKIPPED_RECORDINGS_QUOTA_EXCEEDED)
 
     if free_after < int(hard_reserve_bytes):

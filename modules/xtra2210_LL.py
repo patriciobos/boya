@@ -85,7 +85,11 @@ class XTRA2210LowLevel:
             },
         },
         "battery_capacity_ah": {"register": 0x9001, "unit": "Ah", "scale": 1},
-        "temperature_compensation_coefficient": {"register": 0x9002, "unit": "mV/C/2V", "scale": 100},
+        "temperature_compensation_coefficient": {
+            "register": 0x9002,
+            "unit": "mV/C/2V",
+            "scale": 100,
+        },
         "over_voltage_disconnect_v": {"register": 0x9003, "unit": "V", "scale": 100},
         "charging_limit_voltage_v": {"register": 0x9004, "unit": "V", "scale": 100},
         "over_voltage_reconnect_v": {"register": 0x9005, "unit": "V", "scale": 100},
@@ -144,7 +148,9 @@ class XTRA2210LowLevel:
         self.serial_port: Optional[serial.Serial] = None
         self.port: Optional[str] = None
         self.port_candidates: List[str] = []
-        self.preferred_port: Optional[str] = preferred_port or self.DEFAULT_PREFERRED_PORT
+        self.preferred_port: Optional[str] = (
+            preferred_port or self.DEFAULT_PREFERRED_PORT
+        )
         self.baudrate: int = int(baudrate)
         self.slave_id: int = int(slave_id)
         self.timeout: float = float(timeout)
@@ -237,7 +243,9 @@ class XTRA2210LowLevel:
     def build_read_holding_registers_request(self, start_reg: int, count: int) -> bytes:
         return self._build_request(0x03, start_reg, count)
 
-    def build_write_holding_registers_request(self, start_reg: int, values: list[int]) -> bytes:
+    def build_write_holding_registers_request(
+        self, start_reg: int, values: list[int]
+    ) -> bytes:
         if not 0 <= int(start_reg) <= 0xFFFF:
             raise ValueError("start_reg must fit uint16")
         if not values:
@@ -247,7 +255,9 @@ class XTRA2210LowLevel:
         for value in values:
             if not 0 <= int(value) <= 0xFFFF:
                 raise ValueError("each value must fit uint16")
-        payload = struct.pack(">BBHHB", self.slave_id, 0x10, int(start_reg), len(values), len(values) * 2)
+        payload = struct.pack(
+            ">BBHHB", self.slave_id, 0x10, int(start_reg), len(values), len(values) * 2
+        )
         payload += b"".join(struct.pack(">H", int(value)) for value in values)
         crc = self.modbus_crc(payload)
         return payload + struct.pack("<H", crc)
@@ -263,7 +273,9 @@ class XTRA2210LowLevel:
     def expected_write_single_response_length() -> int:
         return 8
 
-    def parse_modbus_response(self, resp: bytes, function_code: int, register_count: int) -> Tuple[bool, Any]:
+    def parse_modbus_response(
+        self, resp: bytes, function_code: int, register_count: int
+    ) -> Tuple[bool, Any]:
         if len(resp) < 5:
             return False, "response too short"
         data = resp[:-2]
@@ -287,10 +299,12 @@ class XTRA2210LowLevel:
         regs = []
         for i in range(register_count):
             off = 3 + 2 * i
-            regs.append(struct.unpack(">H", resp[off:off + 2])[0])
+            regs.append(struct.unpack(">H", resp[off : off + 2])[0])
         return True, regs
 
-    def parse_write_holding_registers_response(self, resp: bytes, start_reg: int, count: int) -> Tuple[bool, Any]:
+    def parse_write_holding_registers_response(
+        self, resp: bytes, start_reg: int, count: int
+    ) -> Tuple[bool, Any]:
         if len(resp) < self.expected_write_single_response_length():
             return False, "response too short"
         data = resp[:-2]
@@ -302,7 +316,11 @@ class XTRA2210LowLevel:
             return False, f"unexpected slave id ({resp[0]})"
         func = resp[1]
         if func == 0x90:
-            return False, f"Modbus exception 0x{resp[2]:02X}" if len(resp) >= 5 else "Modbus exception"
+            return False, (
+                f"Modbus exception 0x{resp[2]:02X}"
+                if len(resp) >= 5
+                else "Modbus exception"
+            )
         if func != 0x10:
             return False, f"unexpected function 0x{func:02X}"
         echoed_register, register_count = struct.unpack(">HH", resp[2:6])
@@ -312,7 +330,9 @@ class XTRA2210LowLevel:
             return False, f"unexpected register count {register_count}"
         return True, {"register": echoed_register, "count": register_count}
 
-    def parse_write_single_register_response(self, resp: bytes, register: int, value: int) -> Tuple[bool, Any]:
+    def parse_write_single_register_response(
+        self, resp: bytes, register: int, value: int
+    ) -> Tuple[bool, Any]:
         ok, parsed = self.parse_write_holding_registers_response(resp, register, 1)
         if not ok:
             return ok, parsed
@@ -352,8 +372,16 @@ class XTRA2210LowLevel:
             decoded["load_current_a"] = regs[1] / 100.0
             decoded["load_power_w"] = self.regs_to_u32(regs[3], regs[2]) / 100.0
         elif start_reg == 0x3110 and len(regs) >= 2:
-            decoded["battery_temp_c"] = self.reg_to_i16(regs[0]) / 100.0 if regs[0] not in (0x7FFF, 0xFFFF) else None
-            decoded["device_temp_c"] = self.reg_to_i16(regs[1]) / 100.0 if regs[1] not in (0x7FFF, 0xFFFF) else None
+            decoded["battery_temp_c"] = (
+                self.reg_to_i16(regs[0]) / 100.0
+                if regs[0] not in (0x7FFF, 0xFFFF)
+                else None
+            )
+            decoded["device_temp_c"] = (
+                self.reg_to_i16(regs[1]) / 100.0
+                if regs[1] not in (0x7FFF, 0xFFFF)
+                else None
+            )
         elif start_reg == 0x311A and len(regs) >= 1:
             decoded["battery_soc_pct"] = regs[0]
         elif start_reg == 0x311D and len(regs) >= 1:
@@ -369,23 +397,44 @@ class XTRA2210LowLevel:
             plausible = True
         if "load_voltage_v" in decoded and 0.0 <= decoded["load_voltage_v"] <= 100.0:
             plausible = True
-        if "battery_voltage_v" in decoded and 0.0 <= decoded["battery_voltage_v"] <= 100.0:
+        if (
+            "battery_voltage_v" in decoded
+            and 0.0 <= decoded["battery_voltage_v"] <= 100.0
+        ):
             plausible = True
         if "battery_soc_pct" in decoded and 0 <= decoded["battery_soc_pct"] <= 100:
             plausible = True
-        if "system_rated_voltage_v" in decoded and decoded["system_rated_voltage_v"] in (12.0, 24.0, 36.0, 48.0):
+        if "system_rated_voltage_v" in decoded and decoded[
+            "system_rated_voltage_v"
+        ] in (12.0, 24.0, 36.0, 48.0):
             plausible = True
-        if "device_temp_c" in decoded and decoded["device_temp_c"] is not None and -20.0 <= decoded["device_temp_c"] <= 120.0:
+        if (
+            "device_temp_c" in decoded
+            and decoded["device_temp_c"] is not None
+            and -20.0 <= decoded["device_temp_c"] <= 120.0
+        ):
             plausible = True
-        if "rated_battery_current_a" in decoded and 0.0 < decoded["rated_battery_current_a"] <= 100.0:
+        if (
+            "rated_battery_current_a" in decoded
+            and 0.0 < decoded["rated_battery_current_a"] <= 100.0
+        ):
             plausible = True
-        if "rated_load_current_a" in decoded and 0.0 < decoded["rated_load_current_a"] <= 100.0:
+        if (
+            "rated_load_current_a" in decoded
+            and 0.0 < decoded["rated_load_current_a"] <= 100.0
+        ):
             plausible = True
-        if "charging_mode" in decoded and decoded["charging_mode"] in ("connect_disconnect", "pwm", "mppt"):
+        if "charging_mode" in decoded and decoded["charging_mode"] in (
+            "connect_disconnect",
+            "pwm",
+            "mppt",
+        ):
             plausible = True
         return plausible
 
-    def _send_request(self, request: bytes, function_code: int, reg_count: int) -> Tuple[bool, Any]:
+    def _send_request(
+        self, request: bytes, function_code: int, reg_count: int
+    ) -> Tuple[bool, Any]:
         ser = self._require_open_serial()
         resp_len = self.expected_response_length(reg_count)
         ser.reset_input_buffer()
@@ -397,11 +446,15 @@ class XTRA2210LowLevel:
             return False, "timeout"
         return self.parse_modbus_response(resp, function_code, reg_count)
 
-    def send_read_input_registers(self, start_reg: int, reg_count: int) -> Tuple[bool, Any]:
+    def send_read_input_registers(
+        self, start_reg: int, reg_count: int
+    ) -> Tuple[bool, Any]:
         req = self.build_read_input_registers_request(start_reg, reg_count)
         return self._send_request(req, 0x04, reg_count)
 
-    def send_read_holding_registers(self, start_reg: int, reg_count: int) -> Tuple[bool, Any]:
+    def send_read_holding_registers(
+        self, start_reg: int, reg_count: int
+    ) -> Tuple[bool, Any]:
         req = self.build_read_holding_registers_request(start_reg, reg_count)
         ser = self._require_open_serial()
         resp_len = self.expected_response_length(reg_count)
@@ -414,7 +467,9 @@ class XTRA2210LowLevel:
             return False, "timeout"
         return self.parse_modbus_response(resp, 0x03, reg_count)
 
-    def read_holding_registers_raw(self, start_reg: int, reg_count: int = 1) -> list[int]:
+    def read_holding_registers_raw(
+        self, start_reg: int, reg_count: int = 1
+    ) -> list[int]:
         ok, result = self.send_read_holding_registers(start_reg, reg_count)
         if not ok:
             raise ProtocolError(str(result))
@@ -430,7 +485,10 @@ class XTRA2210LowLevel:
         start_reg = int(start_reg)
         values = [int(value) for value in values]
         request = self.build_write_holding_registers_request(start_reg, values)
-        register_names = [self.WRITABLE_REGISTER_ALLOWLIST.get(start_reg + offset) for offset in range(len(values))]
+        register_names = [
+            self.WRITABLE_REGISTER_ALLOWLIST.get(start_reg + offset)
+            for offset in range(len(values))
+        ]
         result = {
             "start_register": start_reg,
             "start_register_hex": f"0x{start_reg:04X}",
@@ -442,14 +500,22 @@ class XTRA2210LowLevel:
             "written": False,
         }
         if dry_run:
-            self.logger.info("Dry-run XTRA2210 holding-register block write: %s", result)
+            self.logger.info(
+                "Dry-run XTRA2210 holding-register block write: %s", result
+            )
             return result
         if not confirm:
             raise ValueError("Refusing real XTRA2210 write without confirm=True")
-        blocked = [start_reg + offset for offset, name in enumerate(register_names) if name is None]
+        blocked = [
+            start_reg + offset
+            for offset, name in enumerate(register_names)
+            if name is None
+        ]
         if blocked:
             blocked_hex = ", ".join(f"0x{register:04X}" for register in blocked)
-            raise ValueError(f"Refusing to write non-allowlisted XTRA2210 register(s) {blocked_hex}")
+            raise ValueError(
+                f"Refusing to write non-allowlisted XTRA2210 register(s) {blocked_hex}"
+            )
 
         ser = self._require_open_serial()
         ser.reset_input_buffer()
@@ -459,7 +525,9 @@ class XTRA2210LowLevel:
         response = ser.read(self.expected_write_single_response_length())
         if not response:
             raise ProtocolError("timeout")
-        ok, parsed = self.parse_write_holding_registers_response(response, start_reg, len(values))
+        ok, parsed = self.parse_write_holding_registers_response(
+            response, start_reg, len(values)
+        )
         if not ok:
             raise ProtocolError(str(parsed))
         result["response_hex"] = response.hex()
@@ -509,7 +577,9 @@ class XTRA2210LowLevel:
         response = ser.read(self.expected_write_single_response_length())
         if not response:
             raise ProtocolError("timeout")
-        ok, parsed = self.parse_write_single_register_response(response, register, value)
+        ok, parsed = self.parse_write_single_register_response(
+            response, register, value
+        )
         if not ok:
             raise ProtocolError(str(parsed))
         result["response_hex"] = response.hex()
@@ -522,7 +592,9 @@ class XTRA2210LowLevel:
             return cls.BATTERY_PARAMETER_SPECS[name]
         except KeyError as exc:
             allowed = ", ".join(sorted(cls.BATTERY_PARAMETER_SPECS))
-            raise ValueError(f"Unknown XTRA2210 battery parameter '{name}'. Allowed: {allowed}") from exc
+            raise ValueError(
+                f"Unknown XTRA2210 battery parameter '{name}'. Allowed: {allowed}"
+            ) from exc
 
     @classmethod
     def encode_battery_parameter(cls, name: str, value: Any) -> int:
@@ -533,7 +605,9 @@ class XTRA2210LowLevel:
                 key = value.strip().lower()
                 if key not in values:
                     allowed = ", ".join(sorted(values))
-                    raise ValueError(f"Invalid value for {name}: {value!r}. Allowed: {allowed}")
+                    raise ValueError(
+                        f"Invalid value for {name}: {value!r}. Allowed: {allowed}"
+                    )
                 return int(values[key])
             raw_value = int(value)
             if raw_value not in values.values():
@@ -543,7 +617,9 @@ class XTRA2210LowLevel:
         scale = int(spec["scale"])
         raw_value = int(round(float(value) * scale))
         if not 0 <= raw_value <= 0xFFFF:
-            raise ValueError(f"Encoded value for {name} does not fit uint16: {raw_value}")
+            raise ValueError(
+                f"Encoded value for {name} does not fit uint16: {raw_value}"
+            )
         return raw_value
 
     @classmethod
@@ -577,7 +653,9 @@ class XTRA2210LowLevel:
         raise ValueError(f"No raw value found for XTRA2210 register 0x{register:04X}")
 
     @classmethod
-    def load_battery_parameter_config(cls, config_path: Optional[Any] = None) -> tuple[Optional[Any], dict[int, dict]]:
+    def load_battery_parameter_config(
+        cls, config_path: Optional[Any] = None
+    ) -> tuple[Optional[Any], dict[int, dict]]:
         if config_path is None:
             candidates = sorted(CONFIGS_PATH.glob("*xtra2210*battery*params*.json"))
             if not candidates:
@@ -596,7 +674,9 @@ class XTRA2210LowLevel:
             desired[register] = {
                 "register": register,
                 "register_hex": f"0x{register:04X}",
-                "name": payload.get("name", cls.WRITABLE_REGISTER_ALLOWLIST.get(register)),
+                "name": payload.get(
+                    "name", cls.WRITABLE_REGISTER_ALLOWLIST.get(register)
+                ),
                 "value": raw_value,
                 "unit": payload.get("unit") or ("V" if "voltage" in payload else None),
                 "source": "registers",
@@ -647,14 +727,18 @@ class XTRA2210LowLevel:
             "dry_run": bool(dry_run),
         }
         if not desired:
-            self.logger.info("No XTRA2210 battery parameter config found in %s", CONFIGS_PATH)
+            self.logger.info(
+                "No XTRA2210 battery parameter config found in %s", CONFIGS_PATH
+            )
             return report
 
         current_values: dict[int, int] = {}
         changed_registers: list[int] = []
         for register, expected in sorted(desired.items()):
             if register not in self.WRITABLE_REGISTER_ALLOWLIST:
-                raise ValueError(f"Refusing to manage non-allowlisted XTRA2210 register 0x{register:04X}")
+                raise ValueError(
+                    f"Refusing to manage non-allowlisted XTRA2210 register 0x{register:04X}"
+                )
             current = self.read_holding_registers_raw(register, 1)[0]
             current_values[register] = current
             expected_value = int(expected["value"])
@@ -695,15 +779,23 @@ class XTRA2210LowLevel:
             )
             return report
 
-        block_registers = sorted(register for register in desired if 0x9000 <= register <= 0x900E)
-        timer_registers = sorted(register for register in desired if 0x906B <= register <= 0x906C)
+        block_registers = sorted(
+            register for register in desired if 0x9000 <= register <= 0x900E
+        )
+        timer_registers = sorted(
+            register for register in desired if 0x906B <= register <= 0x906C
+        )
         write_ranges: list[list[int]] = []
         if any(register in changed_registers for register in block_registers):
             expected_block = list(range(0x9000, 0x900F))
             if block_registers == expected_block:
                 write_ranges.append(expected_block)
             else:
-                write_ranges.extend(self._contiguous_ranges([r for r in block_registers if r in changed_registers]))
+                write_ranges.extend(
+                    self._contiguous_ranges(
+                        [r for r in block_registers if r in changed_registers]
+                    )
+                )
         if any(register in changed_registers for register in timer_registers):
             write_ranges.extend(self._contiguous_ranges(timer_registers))
 
@@ -716,7 +808,11 @@ class XTRA2210LowLevel:
                 dry_run=dry_run,
                 confirm=not dry_run,
             )
-            affected = [change for change in report["changed"] if change["register"] in register_range]
+            affected = [
+                change
+                for change in report["changed"]
+                if change["register"] in register_range
+            ]
             report["written"].append(
                 {
                     "start_register": start_reg,
@@ -745,7 +841,9 @@ class XTRA2210LowLevel:
 
         return report
 
-    def build_battery_parameter_write_plan(self, parameters: Optional[dict] = None) -> list[dict]:
+    def build_battery_parameter_write_plan(
+        self, parameters: Optional[dict] = None
+    ) -> list[dict]:
         parameters = dict(parameters or self.RECOMMENDED_BATTERY_PARAMETERS)
         plan = []
         for name, value in parameters.items():
@@ -793,7 +891,13 @@ class XTRA2210LowLevel:
             results.append(result)
         return results
 
-    def read_register_block(self, start_reg: int, reg_count: int, description: str = "", function_code: int = 0x04) -> Tuple[bool, Any]:
+    def read_register_block(
+        self,
+        start_reg: int,
+        reg_count: int,
+        description: str = "",
+        function_code: int = 0x04,
+    ) -> Tuple[bool, Any]:
         if function_code != 0x04:
             return False, f"unsupported function code 0x{function_code:02X}"
         ok, result = self.send_read_input_registers(start_reg, reg_count)
@@ -809,13 +913,17 @@ class XTRA2210LowLevel:
         }
 
     def read_pv(self) -> Dict[str, Any]:
-        ok, result = self.read_register_block(0x3100, 2, "PV input voltage/current", function_code=0x04)
+        ok, result = self.read_register_block(
+            0x3100, 2, "PV input voltage/current", function_code=0x04
+        )
         if not ok:
             raise ProtocolError(str(result))
         return result["decoded"]
 
     def read_load(self) -> Dict[str, Any]:
-        ok, result = self.read_register_block(0x310C, 4, "Load voltage/current/power", function_code=0x04)
+        ok, result = self.read_register_block(
+            0x310C, 4, "Load voltage/current/power", function_code=0x04
+        )
         if not ok:
             raise ProtocolError(str(result))
         return result["decoded"]
@@ -826,21 +934,29 @@ class XTRA2210LowLevel:
             (0x3104, 2, "Battery voltage/current"),
             (0x311A, 1, "Battery SOC"),
         ]:
-            ok, result = self.read_register_block(start_reg, reg_count, description, function_code=0x04)
+            ok, result = self.read_register_block(
+                start_reg, reg_count, description, function_code=0x04
+            )
             if not ok:
                 raise ProtocolError(str(result))
             data.update(result["decoded"])
         return data
 
     def read_temperatures(self) -> Dict[str, Any]:
-        ok, result = self.read_register_block(0x3110, 2, "Battery temperature / device temperature", function_code=0x04)
+        ok, result = self.read_register_block(
+            0x3110, 2, "Battery temperature / device temperature", function_code=0x04
+        )
         if not ok:
             raise ProtocolError(str(result))
         return result["decoded"]
 
     def read_identity(self) -> Dict[str, Any]:
         decoded: Dict[str, Any] = {}
-        for key, (start_reg, reg_count, function_code) in self.IDENTIFICATION_REGISTERS.items():
+        for key, (
+            start_reg,
+            reg_count,
+            function_code,
+        ) in self.IDENTIFICATION_REGISTERS.items():
             ok, result = self.read_register_block(
                 start_reg,
                 reg_count,
@@ -868,7 +984,9 @@ class XTRA2210LowLevel:
         system_rated_voltage_v = decoded.get("system_rated_voltage_v")
         if charging_mode != "mppt":
             return False
-        if rated_battery_current_a is None or not (15.0 <= rated_battery_current_a <= 25.0):
+        if rated_battery_current_a is None or not (
+            15.0 <= rated_battery_current_a <= 25.0
+        ):
             return False
         if rated_load_current_a is None or not (1.0 <= rated_load_current_a <= 100.0):
             return False
@@ -913,12 +1031,22 @@ class XTRA2210LowLevel:
             )
             config_path, desired = self.load_battery_parameter_config()
             if desired:
-                self.logger.info("Applying XTRA2210 battery parameter config from %s", config_path)
-                was_open = self.is_open and self.serial_port is not None and self.serial_port.is_open
+                self.logger.info(
+                    "Applying XTRA2210 battery parameter config from %s", config_path
+                )
+                was_open = (
+                    self.is_open
+                    and self.serial_port is not None
+                    and self.serial_port.is_open
+                )
                 if not was_open and not self.open():
-                    raise TransportError(self.last_error or "Unable to open serial transport")
+                    raise TransportError(
+                        self.last_error or "Unable to open serial transport"
+                    )
                 try:
-                    self.battery_parameter_sync_report = self.sync_battery_parameters_from_config(config_path)
+                    self.battery_parameter_sync_report = (
+                        self.sync_battery_parameters_from_config(config_path)
+                    )
                 finally:
                     if not was_open:
                         self.close()
@@ -1026,7 +1154,9 @@ class XTRA2210LowLevel:
     def test(self) -> bool:
         self.logger.info("Running smoke test")
         self._clear_error()
-        was_open = self.is_open and self.serial_port is not None and self.serial_port.is_open
+        was_open = (
+            self.is_open and self.serial_port is not None and self.serial_port.is_open
+        )
         temporarily_opened = False
         original_serial = self.serial_port
         original_bus = self.bus
@@ -1056,7 +1186,9 @@ class XTRA2210LowLevel:
         self.logger.info("Running full diagnostic test")
         self._clear_error()
         report = self._build_full_test_report()
-        was_open = self.is_open and self.serial_port is not None and self.serial_port.is_open
+        was_open = (
+            self.is_open and self.serial_port is not None and self.serial_port.is_open
+        )
         temporarily_opened = False
         try:
             report["initialized"] = self.is_initialized
@@ -1081,7 +1213,11 @@ class XTRA2210LowLevel:
 
             identity_blocks: Dict[str, Any] = {}
             identity_decoded: Dict[str, Any] = {}
-            for key, (start_reg, reg_count, function_code) in self.IDENTIFICATION_REGISTERS.items():
+            for key, (
+                start_reg,
+                reg_count,
+                function_code,
+            ) in self.IDENTIFICATION_REGISTERS.items():
                 try:
                     ok, result = self.read_register_block(
                         start_reg,
@@ -1090,12 +1226,16 @@ class XTRA2210LowLevel:
                         function_code=function_code,
                     )
                     if not ok:
-                        report["errors"].append(f"identity 0x{start_reg:04X} ({key}): {result}")
+                        report["errors"].append(
+                            f"identity 0x{start_reg:04X} ({key}): {result}"
+                        )
                         continue
                     identity_blocks[f"0x{start_reg:04X}"] = result
                     identity_decoded.update(result.get("decoded", {}))
                 except Exception as exc:
-                    report["errors"].append(f"identity 0x{start_reg:04X} ({key}): {exc}")
+                    report["errors"].append(
+                        f"identity 0x{start_reg:04X} ({key}): {exc}"
+                    )
 
             identity_confirmed = self._identity_matches_expected(identity_decoded)
 
@@ -1104,9 +1244,13 @@ class XTRA2210LowLevel:
             plausible_hits = 0
             for start_reg, reg_count, description in self.REGISTER_BLOCKS:
                 try:
-                    ok, result = self.read_register_block(start_reg, reg_count, description, function_code=0x04)
+                    ok, result = self.read_register_block(
+                        start_reg, reg_count, description, function_code=0x04
+                    )
                     if not ok:
-                        report["errors"].append(f"0x{start_reg:04X} ({description}): {result}")
+                        report["errors"].append(
+                            f"0x{start_reg:04X} ({description}): {result}"
+                        )
                         continue
                     successes += 1
                     if result.get("plausible"):
@@ -1121,9 +1265,13 @@ class XTRA2210LowLevel:
 
             report["details"]["identity"] = {
                 "charging_mode": identity_decoded.get("charging_mode"),
-                "rated_battery_current_a": identity_decoded.get("rated_battery_current_a"),
+                "rated_battery_current_a": identity_decoded.get(
+                    "rated_battery_current_a"
+                ),
                 "rated_load_current_a": identity_decoded.get("rated_load_current_a"),
-                "system_rated_voltage_v": identity_decoded.get("system_rated_voltage_v"),
+                "system_rated_voltage_v": identity_decoded.get(
+                    "system_rated_voltage_v"
+                ),
                 "identity_confirmed": identity_confirmed,
             }
 
@@ -1155,31 +1303,39 @@ class XTRA2210LowLevel:
             success = bool(identity_confirmed)
             self._log_full_test_result(success, report)
             return success, report
-        
+
         except Exception as exc:
             report["errors"].append(f"Unexpected full_test failure: {exc}")
             self._set_error(f"Full test failed: {exc}")
             self.logger.exception("Full test failed: %s", exc)
             self._log_full_test_result(False, report)
             return False, report
-        
+
         finally:
             if temporarily_opened:
                 self.close()
 
 
 def main(argv=None) -> bool:
-    preferred_port = os.getenv("PREFERRED_PORT", XTRA2210LowLevel.DEFAULT_PREFERRED_PORT)
+    preferred_port = os.getenv(
+        "PREFERRED_PORT", XTRA2210LowLevel.DEFAULT_PREFERRED_PORT
+    )
     try:
-        baudrate = int(os.getenv("XTRA2210_BAUDRATE", str(XTRA2210LowLevel.DEFAULT_BAUDRATE)))
+        baudrate = int(
+            os.getenv("XTRA2210_BAUDRATE", str(XTRA2210LowLevel.DEFAULT_BAUDRATE))
+        )
     except Exception:
         baudrate = XTRA2210LowLevel.DEFAULT_BAUDRATE
     try:
-        slave_id = int(os.getenv("XTRA2210_SLAVE_ID", str(XTRA2210LowLevel.DEFAULT_SLAVE_ID)))
+        slave_id = int(
+            os.getenv("XTRA2210_SLAVE_ID", str(XTRA2210LowLevel.DEFAULT_SLAVE_ID))
+        )
     except Exception:
         slave_id = XTRA2210LowLevel.DEFAULT_SLAVE_ID
     try:
-        timeout = float(os.getenv("XTRA2210_TIMEOUT", str(XTRA2210LowLevel.DEFAULT_TIMEOUT)))
+        timeout = float(
+            os.getenv("XTRA2210_TIMEOUT", str(XTRA2210LowLevel.DEFAULT_TIMEOUT))
+        )
     except Exception:
         timeout = XTRA2210LowLevel.DEFAULT_TIMEOUT
     try:

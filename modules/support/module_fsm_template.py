@@ -7,8 +7,16 @@ Standard FSM contract:
 - Standard upstream message: ACTION_RESULT with action/result/data/error/details.
 """
 
-from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
-from modules.support.module_LL_template import ModuleLowLevel  # Replace with actual LL module
+from modules.support.base_fsm import (
+    BaseHandlerFSM,
+    State,
+    Message,
+    MessageID,
+    ResultCode,
+)
+from modules.support.module_LL_template import (
+    ModuleLowLevel,
+)  # Replace with actual LL module
 
 
 class ModuleHandlerFSM(BaseHandlerFSM):
@@ -21,12 +29,22 @@ class ModuleHandlerFSM(BaseHandlerFSM):
 
     def _emit_state_result(self, result: ResultCode, details=None):
         if self.status_queue:
-            self.status_queue.put((self.name, Message(MessageID.STATE_RESULT, {
-                "result": result.value,
-                "details": details or {},
-            })))
+            self.status_queue.put(
+                (
+                    self.name,
+                    Message(
+                        MessageID.STATE_RESULT,
+                        {
+                            "result": result.value,
+                            "details": details or {},
+                        },
+                    ),
+                )
+            )
 
-    def _emit_action_result(self, action: str, result: ResultCode, data=None, error=None, details=None):
+    def _emit_action_result(
+        self, action: str, result: ResultCode, data=None, error=None, details=None
+    ):
         payload = {
             "origin": self.name,
             "state": self.state.name,
@@ -38,7 +56,9 @@ class ModuleHandlerFSM(BaseHandlerFSM):
         if error is not None:
             payload["error"] = error
         if self.status_queue:
-            self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
+            self.status_queue.put(
+                (self.name, Message(MessageID.ACTION_RESULT, payload))
+            )
 
     def handle_message(self, message: Message):
         if self.state == State.DISABLE:
@@ -51,7 +71,9 @@ class ModuleHandlerFSM(BaseHandlerFSM):
         elif message.id == MessageID.SIG_TEST:
             self.set_state(State.TEST, self.status_queue)
         elif message.id in (MessageID.SIG_ACQUIRE, MessageID.SIG_TIMEOUT):
-            self._pending_params = dict(getattr(message, "params", {}) or self._acquire_params)
+            self._pending_params = dict(
+                getattr(message, "params", {}) or self._acquire_params
+            )
             self.set_state(State.ACQUIRE, self.status_queue)
 
     def update(self):

@@ -113,7 +113,12 @@ def test_xtra2210_sync_writes_only_changed_registers(tmp_path):
         writes.append((start_reg, values, dry_run, confirm))
         for offset, value in enumerate(values):
             current[start_reg + offset] = value
-        return {"start_register": start_reg, "values": values, "dry_run": dry_run, "written": not dry_run}
+        return {
+            "start_register": start_reg,
+            "values": values,
+            "dry_run": dry_run,
+            "written": not dry_run,
+        }
 
     ll.read_holding_registers_raw = fake_read
     ll.write_holding_registers = fake_write_block
@@ -122,7 +127,9 @@ def test_xtra2210_sync_writes_only_changed_registers(tmp_path):
 
     assert report["checked"] == 3
     assert report["matched"] == 1
-    assert [(item["register"], item["before"], item["after"]) for item in report["changed"]] == [
+    assert [
+        (item["register"], item["before"], item["after"]) for item in report["changed"]
+    ] == [
         (0x9008, 1380, 1370),
         (0x906B, 120, 0),
     ]

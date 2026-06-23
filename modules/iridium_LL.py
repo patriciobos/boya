@@ -75,7 +75,9 @@ class IridiumLowLevel:
         self.serial_port: Optional[serial.Serial] = None
         self.port: Optional[str] = preferred_port
         self.port_candidates: List[str] = []
-        self.preferred_port: Optional[str] = preferred_port or self.DEFAULT_PREFERRED_PORT
+        self.preferred_port: Optional[str] = (
+            preferred_port or self.DEFAULT_PREFERRED_PORT
+        )
         self.baudrate: int = int(baudrate)
         self.timeout: float = float(timeout)
         self.show_ports: bool = bool(show_ports)
@@ -123,8 +125,14 @@ class IridiumLowLevel:
         self.port = port_name
         self.is_open = True
 
-    def _read_command_response(self, command: str, timeout: float = 1.0) -> Optional[dict]:
-        if self.serial_port is None or not self.serial_port.is_open or self.port is None:
+    def _read_command_response(
+        self, command: str, timeout: float = 1.0
+    ) -> Optional[dict]:
+        if (
+            self.serial_port is None
+            or not self.serial_port.is_open
+            or self.port is None
+        ):
             raise TransportError("Serial port is not open")
 
         self.serial_port.reset_input_buffer()
@@ -365,7 +373,9 @@ class IridiumLowLevel:
         self.logger.info("Running smoke test")
         self._clear_error()
 
-        was_open = self.is_open and self.serial_port is not None and self.serial_port.is_open
+        was_open = (
+            self.is_open and self.serial_port is not None and self.serial_port.is_open
+        )
         temporarily_opened = False
         original_serial = self.serial_port
         original_bus = self.bus
@@ -400,7 +410,9 @@ class IridiumLowLevel:
         self._clear_error()
 
         report = self._build_full_test_report()
-        was_open = self.is_open and self.serial_port is not None and self.serial_port.is_open
+        was_open = (
+            self.is_open and self.serial_port is not None and self.serial_port.is_open
+        )
         temporarily_opened = False
 
         try:
@@ -475,7 +487,9 @@ class IridiumLowLevel:
                 "free_bytes": free_bytes,
             }
 
-            success = bool(report["initialized"] and report["opened"] and report["device_present"])
+            success = bool(
+                report["initialized"] and report["opened"] and report["device_present"]
+            )
             self._log_full_test_result(success, report)
             return success, report
 
@@ -491,6 +505,7 @@ class IridiumLowLevel:
                 self.close()
 
         # ------------------------------------------------------------------
+
     # SBD send API
     # ------------------------------------------------------------------
 
@@ -676,7 +691,9 @@ class IridiumLowLevel:
         """
         Returns (ok, temporarily_opened).
         """
-        was_open = self.is_open and self.serial_port is not None and self.serial_port.is_open
+        was_open = (
+            self.is_open and self.serial_port is not None and self.serial_port.is_open
+        )
         if was_open:
             return True, False
 
@@ -935,12 +952,16 @@ class IridiumLowLevel:
 def main(argv=None) -> bool:
     preferred_port = os.getenv("PREFERRED_PORT", IridiumLowLevel.DEFAULT_PREFERRED_PORT)
     try:
-        baudrate = int(os.getenv("IRIDIUM_BAUDRATE", str(IridiumLowLevel.DEFAULT_BAUDRATE)))
+        baudrate = int(
+            os.getenv("IRIDIUM_BAUDRATE", str(IridiumLowLevel.DEFAULT_BAUDRATE))
+        )
     except Exception:
         baudrate = IridiumLowLevel.DEFAULT_BAUDRATE
 
     try:
-        timeout = float(os.getenv("IRIDIUM_TIMEOUT", str(IridiumLowLevel.DEFAULT_TIMEOUT)))
+        timeout = float(
+            os.getenv("IRIDIUM_TIMEOUT", str(IridiumLowLevel.DEFAULT_TIMEOUT))
+        )
     except Exception:
         timeout = IridiumLowLevel.DEFAULT_TIMEOUT
 

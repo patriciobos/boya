@@ -65,12 +65,16 @@ def test_pack_system_status_encodes_fixed_11_byte_binary_contract():
     )
 
     assert len(payload) == SYSTEM_STATUS_PAYLOAD_SIZE == 11
-    assert payload == bytes([
-        MSG_SYSTEM_STATUS,
-        0b11111101,
-        0b11101111,
-        SYSTEM_STATUS_FLAG_STORAGE_WARNING | SYSTEM_STATUS_FLAG_STORAGE_QUOTA_EXCEEDED | SYSTEM_STATUS_FLAG_BATTERY_WARNING,
-    ]) + struct.pack(">H", 12480) + bytes([87]) + struct.pack(">HH", 8427, 5321)
+    assert payload == bytes(
+        [
+            MSG_SYSTEM_STATUS,
+            0b11111101,
+            0b11101111,
+            SYSTEM_STATUS_FLAG_STORAGE_WARNING
+            | SYSTEM_STATUS_FLAG_STORAGE_QUOTA_EXCEEDED
+            | SYSTEM_STATUS_FLAG_BATTERY_WARNING,
+        ]
+    ) + struct.pack(">H", 12480) + bytes([87]) + struct.pack(">HH", 8427, 5321)
     decoded = unpack_system_status(payload)
     assert decoded == {
         "message_type": "MSG_SYSTEM_STATUS",
@@ -114,7 +118,9 @@ def test_system_status_flags_bits_and_critical_implications():
         | SYSTEM_STATUS_FLAG_BATTERY_CRITICAL
         | SYSTEM_STATUS_FLAG_LAST_ACQUISITION_INCOMPLETE
     )
-    decoded = unpack_system_status(pack_system_status(fsm_ok_bitmap=0, ll_ok_bitmap=0, status_flags=flags))
+    decoded = unpack_system_status(
+        pack_system_status(fsm_ok_bitmap=0, ll_ok_bitmap=0, status_flags=flags)
+    )
     assert all(decoded["status_flags"].values())
     assert "any_fsm_not_ok" not in decoded
     assert "any_ll_not_ok" not in decoded
@@ -136,7 +142,11 @@ def test_system_status_sentinels_and_saturation():
     assert payload[7:9] == b"\xff\xff"
     assert payload[9:11] == b"\xff\xff"
     decoded = unpack_system_status(payload)
-    assert decoded["battery"] == {"voltage_mv": None, "voltage_v": None, "soc_percent": None}
+    assert decoded["battery"] == {
+        "voltage_mv": None,
+        "voltage_v": None,
+        "soc_percent": None,
+    }
     assert decoded["storage"] == {"free_gib_x10": None, "free_gib": None}
     assert decoded["uptime_minutes"] is None
     assert encode_battery_voltage_mv(-1) == 0
@@ -210,7 +220,12 @@ def test_delta_previous_int8_channel_round_trip():
 
     assert len(packed) == 2 + (len(q_values) - 1)
     assert packed[:2] == struct.pack(">h", 12)
-    assert unpack_delta_previous_int8_channel(packed, len(q_values)) == [1.2, 1.5, 1.8, 1.7]
+    assert unpack_delta_previous_int8_channel(packed, len(q_values)) == [
+        1.2,
+        1.5,
+        1.8,
+        1.7,
+    ]
 
 
 def test_abs_int16_channel_round_trip_with_sentinel_and_big_endian():
@@ -221,7 +236,13 @@ def test_abs_int16_channel_round_trip_with_sentinel_and_big_endian():
     assert packed[:2] == struct.pack(">h", AUDIOPROC_ABS_INT16_SENTINEL)
     assert packed[2:4] == struct.pack(">h", -37)
     assert packed[-2:] == struct.pack(">h", 32767)
-    assert unpack_abs_int16_channel(packed, len(q_values)) == [None, -3.7, 1.2, None, 3276.7]
+    assert unpack_abs_int16_channel(packed, len(q_values)) == [
+        None,
+        -3.7,
+        1.2,
+        None,
+        3276.7,
+    ]
 
 
 def test_build_audio_proc_payload_prefers_mono_delta_with_timestamp_and_crc():
@@ -316,26 +337,47 @@ def test_audio_proc_payload_validates_frequency_bands_per_channel():
     assert expected_bands == 49
 
     mono_bands = [[float(index)] for index in range(expected_bands)]
-    stereo_bands = [[float(index), float(index + 100)] for index in range(expected_bands)]
+    stereo_bands = [
+        [float(index), float(index + 100)] for index in range(expected_bands)
+    ]
 
     mono_payload = build_audio_proc_payload(
-        timestamp=0, relative_band_power_db=mono_bands, expected_band_count=expected_bands
+        timestamp=0,
+        relative_band_power_db=mono_bands,
+        expected_band_count=expected_bands,
     )
     stereo_payload = build_audio_proc_payload(
-        timestamp=0, relative_band_power_db=stereo_bands, expected_band_count=expected_bands
+        timestamp=0,
+        relative_band_power_db=stereo_bands,
+        expected_band_count=expected_bands,
     )
 
-    assert len(mono_payload) == AUDIOPROC_HEADER_SIZE + 2 + (expected_bands - 1) + AUDIOPROC_CRC_SIZE
-    assert len(stereo_payload) == AUDIOPROC_HEADER_SIZE + 2 * (2 + (expected_bands - 1)) + AUDIOPROC_CRC_SIZE
+    assert (
+        len(mono_payload)
+        == AUDIOPROC_HEADER_SIZE + 2 + (expected_bands - 1) + AUDIOPROC_CRC_SIZE
+    )
+    assert (
+        len(stereo_payload)
+        == AUDIOPROC_HEADER_SIZE + 2 * (2 + (expected_bands - 1)) + AUDIOPROC_CRC_SIZE
+    )
     assert mono_payload[0] == MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8
     assert stereo_payload[0] == MESSAGE_TYPE_AUDIO_STEREO_DELTA_PREVIOUS_INT8
-    assert decode_audio_proc_payload(mono_payload, expected_band_count=expected_bands)["band_count"] == expected_bands
-    decoded_stereo = decode_audio_proc_payload(stereo_payload, expected_band_count=expected_bands)
+    assert (
+        decode_audio_proc_payload(mono_payload, expected_band_count=expected_bands)[
+            "band_count"
+        ]
+        == expected_bands
+    )
+    decoded_stereo = decode_audio_proc_payload(
+        stereo_payload, expected_band_count=expected_bands
+    )
     assert decoded_stereo["band_count"] == expected_bands
     assert decoded_stereo["channel_count"] == 2
     assert decoded_stereo["packing"] == AUDIO_PACKING_DELTA_PREVIOUS_INT8
     assert decoded_stereo["relative_band_power_db"][0] == [0.0, 100.0]
-    first_channel = stereo_payload[AUDIOPROC_HEADER_SIZE:AUDIOPROC_HEADER_SIZE + 2 + (expected_bands - 1)]
+    first_channel = stereo_payload[
+        AUDIOPROC_HEADER_SIZE : AUDIOPROC_HEADER_SIZE + 2 + (expected_bands - 1)
+    ]
     assert first_channel[:2] == struct.pack(">h", 0)
     assert first_channel[2:] == bytes([10] * (expected_bands - 1))
 
@@ -343,7 +385,9 @@ def test_audio_proc_payload_validates_frequency_bands_per_channel():
 def test_audio_proc_payload_falls_back_globally_to_abs_when_any_delta_is_too_large():
     bands = [[0.0, 10.0], [1.0, 40.0], [2.0, 41.0]]
 
-    payload = build_audio_proc_payload(timestamp=0, relative_band_power_db=bands, expected_band_count=3)
+    payload = build_audio_proc_payload(
+        timestamp=0, relative_band_power_db=bands, expected_band_count=3
+    )
 
     assert payload[0] == MESSAGE_TYPE_AUDIO_STEREO_ABS_INT16
     assert len(payload) == AUDIOPROC_HEADER_SIZE + 4 * 3 + AUDIOPROC_CRC_SIZE
@@ -355,21 +399,33 @@ def test_audio_proc_payload_falls_back_globally_to_abs_when_any_delta_is_too_lar
 def test_audio_proc_payload_abs_mono_encodes_invalid_sentinel_and_saturates():
     bands = [[None], [float("nan")], [float("inf")], [4000.0], [-4000.0]]
 
-    payload = build_audio_proc_payload(timestamp=0, relative_band_power_db=bands, expected_band_count=5)
+    payload = build_audio_proc_payload(
+        timestamp=0, relative_band_power_db=bands, expected_band_count=5
+    )
 
     assert payload[0] == MESSAGE_TYPE_AUDIO_MONO_ABS_INT16
     assert len(payload) == AUDIOPROC_HEADER_SIZE + 2 * 5 + AUDIOPROC_CRC_SIZE
     body = payload[AUDIOPROC_HEADER_SIZE:-AUDIOPROC_CRC_SIZE]
     assert body[:2] == struct.pack(">h", AUDIOPROC_ABS_INT16_SENTINEL)
     decoded = decode_audio_proc_payload(payload, expected_band_count=5)
-    assert decoded["relative_band_power_db"] == [[None], [None], [None], [3276.7], [-3276.7]]
+    assert decoded["relative_band_power_db"] == [
+        [None],
+        [None],
+        [None],
+        [3276.7],
+        [-3276.7],
+    ]
 
 
 def test_audio_proc_payload_rejects_wrong_band_count():
     expected_bands = 4
 
     try:
-        build_audio_proc_payload(timestamp=0, relative_band_power_db=[[1.0], [2.0], [3.0]], expected_band_count=expected_bands)
+        build_audio_proc_payload(
+            timestamp=0,
+            relative_band_power_db=[[1.0], [2.0], [3.0]],
+            expected_band_count=expected_bands,
+        )
     except ValueError as exc:
         assert "band count mismatch" in str(exc)
     else:
@@ -377,7 +433,11 @@ def test_audio_proc_payload_rejects_wrong_band_count():
 
 
 def test_audio_proc_payload_rejects_bad_crc():
-    payload = bytearray(build_audio_proc_payload(timestamp=0, relative_band_power_db=[[1.0]], expected_band_count=1))
+    payload = bytearray(
+        build_audio_proc_payload(
+            timestamp=0, relative_band_power_db=[[1.0]], expected_band_count=1
+        )
+    )
     payload[-1] ^= 0x01
 
     try:

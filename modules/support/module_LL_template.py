@@ -53,7 +53,7 @@ class MyModuleLowLevel:
         self.last_error: Optional[str] = None
 
         # standard transport state
-        self.bus: Optional[Any] = None          # or self.conn / self.transport
+        self.bus: Optional[Any] = None  # or self.conn / self.transport
         self.bus_num: Optional[int] = None
         self.address: Optional[int] = None
         self.bus_candidates: list[int] = []
@@ -219,7 +219,11 @@ class MyModuleLowLevel:
             self.logger.info("Transport already open")
             return True
 
-        candidates = [self.bus_num] if self.bus_forced and self.bus_num is not None else list(self.bus_candidates)
+        candidates = (
+            [self.bus_num]
+            if self.bus_forced and self.bus_num is not None
+            else list(self.bus_candidates)
+        )
         last_exc: Optional[Exception] = None
 
         for candidate in candidates:
@@ -364,7 +368,10 @@ class MyModuleLowLevel:
                             if candidate == original_bus_num:
                                 continue
                             try:
-                                self.logger.info("Fallback diagnostic open on candidate: %s", candidate)
+                                self.logger.info(
+                                    "Fallback diagnostic open on candidate: %s",
+                                    candidate,
+                                )
                                 self.bus = self._open_transport(candidate)
                                 self.bus_num = candidate
                                 self.is_open = True

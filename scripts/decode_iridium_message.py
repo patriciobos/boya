@@ -18,7 +18,11 @@ def _json_default(value):
 
 
 def _payload_from_args(args: argparse.Namespace) -> bytes:
-    selected = [args.hex_payload is not None, args.base64_payload is not None, args.file is not None]
+    selected = [
+        args.hex_payload is not None,
+        args.base64_payload is not None,
+        args.file is not None,
+    ]
     if sum(selected) != 1:
         raise ValueError("select exactly one input: --hex, --base64, or --file")
     if args.hex_payload is not None:
@@ -29,9 +33,13 @@ def _payload_from_args(args: argparse.Namespace) -> bytes:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Decode a binary Iridium payload as JSON.")
+    parser = argparse.ArgumentParser(
+        description="Decode a binary Iridium payload as JSON."
+    )
     parser.add_argument("--hex", dest="hex_payload", help="Payload as a hex string")
-    parser.add_argument("--base64", dest="base64_payload", help="Payload as a base64 string")
+    parser.add_argument(
+        "--base64", dest="base64_payload", help="Payload as a base64 string"
+    )
     parser.add_argument("--file", help="Path to a binary payload file")
     parser.add_argument(
         "--expected-audio-band-count",
@@ -43,7 +51,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         payload = _payload_from_args(args)
-        decoded = decode_message(payload, expected_audio_band_count=args.expected_audio_band_count)
+        decoded = decode_message(
+            payload, expected_audio_band_count=args.expected_audio_band_count
+        )
     except Exception as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2

@@ -4,7 +4,13 @@ from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
+from modules.support.base_fsm import (
+    BaseHandlerFSM,
+    State,
+    Message,
+    MessageID,
+    ResultCode,
+)
 from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
 from modules.support.storage_guard import STORAGE_WARNING_INVALID_DURATION_USING_DEFAULT
@@ -56,12 +62,22 @@ class BehringerHandlerFSM(BaseHandlerFSM):
 
     def _emit_state_result(self, result: ResultCode, details=None):
         if self.status_queue:
-            self.status_queue.put((self.name, Message(MessageID.STATE_RESULT, {
-                "result": result.value,
-                "details": details or {},
-            })))
+            self.status_queue.put(
+                (
+                    self.name,
+                    Message(
+                        MessageID.STATE_RESULT,
+                        {
+                            "result": result.value,
+                            "details": details or {},
+                        },
+                    ),
+                )
+            )
 
-    def _emit_action_result(self, action: str, result: ResultCode, data=None, error=None, details=None):
+    def _emit_action_result(
+        self, action: str, result: ResultCode, data=None, error=None, details=None
+    ):
         payload = {
             "origin": self.name,
             "state": self.state.name,
@@ -76,7 +92,9 @@ class BehringerHandlerFSM(BaseHandlerFSM):
         if data and "file" in data:
             payload["file"] = data["file"]
         if self.status_queue:
-            self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
+            self.status_queue.put(
+                (self.name, Message(MessageID.ACTION_RESULT, payload))
+            )
 
     def handle_message(self, message: Message):
         if self._ignore_scheduler_while_error(message):
@@ -106,7 +124,9 @@ class BehringerHandlerFSM(BaseHandlerFSM):
         elif message.id == MessageID.SIG_TEST:
             self.set_state(State.TEST, self.status_queue)
         elif message.id == MessageID.SIG_ACQUIRE:
-            self._pending_params = {"duration": params.get("duration", self._acquire_duration)}
+            self._pending_params = {
+                "duration": params.get("duration", self._acquire_duration)
+            }
             self.set_state(State.ACQUIRE, self.status_queue)
         elif message.id == MessageID.SIG_TIMEOUT:
             self._pending_params = {"duration": self._acquire_duration}
@@ -144,17 +164,23 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                 duration = self._pending_params.get("duration", self._acquire_duration)
                 success = self.ll.record(duration)
                 if not success:
-                    self._emit_action_result("acquire", ResultCode.ERROR, error=self.ll.last_error)
+                    self._emit_action_result(
+                        "acquire", ResultCode.ERROR, error=self.ll.last_error
+                    )
                     self.set_state(State.ERROR, self.status_queue)
                 self._on_entry_flag = False
 
             done, success = self.ll.is_recording_done()
             if done:
                 result = ResultCode.OK if success else ResultCode.ERROR
-                recording_metadata = getattr(self.ll, "last_recording_metadata", {}) or {}
+                recording_metadata = (
+                    getattr(self.ll, "last_recording_metadata", {}) or {}
+                )
                 data = {
                     "file": _project_relative_path(self.ll.output_path),
-                    "duration_s": self._pending_params.get("duration", self._acquire_duration),
+                    "duration_s": self._pending_params.get(
+                        "duration", self._acquire_duration
+                    ),
                     "sample_rate_hz": getattr(self.ll, "sample_rate", 192000),
                     "channels": getattr(self.ll, "output_channels", 1),
                     "size_bytes": _file_size_bytes(self.ll.output_path),
@@ -162,21 +188,32 @@ class BehringerHandlerFSM(BaseHandlerFSM):
                 if recording_metadata:
                     data["recording"] = recording_metadata
                     data["storage"] = {
-                        "expected_size_bytes": recording_metadata.get("expected_size_bytes"),
-                        "max_file_size_bytes": recording_metadata.get("max_file_size_bytes"),
-                        "free_bytes_before": recording_metadata.get("free_bytes_before"),
+                        "expected_size_bytes": recording_metadata.get(
+                            "expected_size_bytes"
+                        ),
+                        "max_file_size_bytes": recording_metadata.get(
+                            "max_file_size_bytes"
+                        ),
+                        "free_bytes_before": recording_metadata.get(
+                            "free_bytes_before"
+                        ),
                         "free_bytes_after": recording_metadata.get("free_bytes_after"),
-                        "recordings_dir_used_bytes": recording_metadata.get("recordings_dir_used_bytes"),
+                        "recordings_dir_used_bytes": recording_metadata.get(
+                            "recordings_dir_used_bytes"
+                        ),
                         "warnings": recording_metadata.get("warnings", []),
                     }
                 if self._duration_warnings:
                     data.setdefault("storage", {})["warnings"] = (
-                        data.get("storage", {}).get("warnings", []) + self._duration_warnings
+                        data.get("storage", {}).get("warnings", [])
+                        + self._duration_warnings
                     )
                 if result == ResultCode.OK:
                     self.data_logger.log(data, source=data_source_for(self.ll))
                 self._emit_action_result("acquire", result, data=data)
-                self.set_state(State.IDLE if success else State.ERROR, self.status_queue)
+                self.set_state(
+                    State.IDLE if success else State.ERROR, self.status_queue
+                )
 
         elif self.state == State.DISABLE and self._on_entry_flag:
             self.logger.info("Entering DISABLE")

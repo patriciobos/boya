@@ -116,7 +116,9 @@ class AudioProcLowLevelMock(MockLowLevel):
                 "timestamp": "1970-01-01T00:00:00-03:00",
                 "relative_band_power_db": [[1.0], [2.0]],
             }
-            output.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
+            output.write_text(
+                json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8"
+            )
             self.output_path = str(output)
             return self.output_path
         except Exception as exc:
@@ -283,8 +285,14 @@ class AHT10LowLevelMock(MockLowLevel):
             return 0
         return 0
 
-    def read_measurement_raw(self, timeout: float = 1.0, retry_on_null: bool = True) -> bytes:
-        self.logger.info("Mock read_measurement_raw called: timeout=%s retry_on_null=%s", timeout, retry_on_null)
+    def read_measurement_raw(
+        self, timeout: float = 1.0, retry_on_null: bool = True
+    ) -> bytes:
+        self.logger.info(
+            "Mock read_measurement_raw called: timeout=%s retry_on_null=%s",
+            timeout,
+            retry_on_null,
+        )
         self._clear_error()
         if not self.is_initialized:
             raise RuntimeError("Module is not initialized")

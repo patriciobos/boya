@@ -23,7 +23,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.support.i2c_common import discover_i2c_buses
 from modules.support.log_utils import get_logger
 
-
 if TYPE_CHECKING:
     from smbus2 import SMBus as SMBusType
 else:
@@ -139,7 +138,7 @@ class MPU6050LowLevel:
     def _resolve_bus_candidates(self, bus: Optional[int]) -> list[int]:
         preferred = int(bus) if bus is not None else self.DEFAULT_BUS
         return list(discover_i2c_buses(preferred))
-    
+
     def _open_bus(self, busnum: int) -> SMBusType:
         self._require_i2c()
         SMBusCls = SMBus
@@ -184,7 +183,9 @@ class MPU6050LowLevel:
             return True, errors, details
         except Exception as exc:
             errors.append(f"read_all_raw failed: {exc}")
-            details["checks"].append({"name": "read_all_raw", "ok": False, "error": str(exc)})
+            details["checks"].append(
+                {"name": "read_all_raw", "ok": False, "error": str(exc)}
+            )
 
         return False, errors, details
 
@@ -207,9 +208,15 @@ class MPU6050LowLevel:
         if original_was_open:
             self.close()
 
-        candidates = [self.bus_num] if self.bus_forced and self.bus_num is not None else list(self.bus_candidates)
+        candidates = (
+            [self.bus_num]
+            if self.bus_forced and self.bus_num is not None
+            else list(self.bus_candidates)
+        )
         if not candidates:
-            candidates = self._resolve_bus_candidates(self.bus_num if self.bus_forced else None)
+            candidates = self._resolve_bus_candidates(
+                self.bus_num if self.bus_forced else None
+            )
 
         for busnum in candidates:
             bus_entry: dict[str, Any] = {"bus": busnum, "addresses": []}
@@ -228,7 +235,12 @@ class MPU6050LowLevel:
 
                     present, probe_errors, probe_details = self._probe_current_bus()
                     address_entry["probe"] = probe_details
-                    errors.extend([f"bus {busnum} addr 0x{address:02X}: {e}" for e in probe_errors])
+                    errors.extend(
+                        [
+                            f"bus {busnum} addr 0x{address:02X}: {e}"
+                            for e in probe_errors
+                        ]
+                    )
 
                     if present:
                         scan_details["selected_bus"] = busnum
@@ -237,7 +249,9 @@ class MPU6050LowLevel:
                 except Exception as exc:
                     address_entry["open_ok"] = False
                     address_entry["error"] = str(exc)
-                    errors.append(f"bus {busnum} addr 0x{address:02X}: open/probe failed: {exc}")
+                    errors.append(
+                        f"bus {busnum} addr 0x{address:02X}: open/probe failed: {exc}"
+                    )
                 finally:
                     if self.bus is not None:
                         try:
@@ -297,12 +311,18 @@ class MPU6050LowLevel:
             self.logger.info("I2C bus already open on bus %s", self.bus_num)
             return True
 
-        candidates = [self.bus_num] if self.bus_forced and self.bus_num is not None else list(self.bus_candidates)
+        candidates = (
+            [self.bus_num]
+            if self.bus_forced and self.bus_num is not None
+            else list(self.bus_candidates)
+        )
         last_exc: Optional[Exception] = None
 
         for busnum in candidates:
             try:
-                self.logger.info("Trying I2C bus %s for MPU6050@0x%02X", busnum, self.address)
+                self.logger.info(
+                    "Trying I2C bus %s for MPU6050@0x%02X", busnum, self.address
+                )
                 self.bus = self._open_bus(busnum)
                 self.bus_num = busnum
                 self.is_open = True
@@ -314,7 +334,9 @@ class MPU6050LowLevel:
 
         self.bus = None
         self.is_open = False
-        self.bus_num = int(self.bus_num) if self.bus_forced and self.bus_num is not None else None
+        self.bus_num = (
+            int(self.bus_num) if self.bus_forced and self.bus_num is not None else None
+        )
         message = f"Open failed: {last_exc}" if last_exc else "Open failed"
         self._set_error(message)
         self.logger.error(message)
@@ -375,7 +397,9 @@ class MPU6050LowLevel:
                 present, scan_errors, scan_details = self._scan_for_device()
                 errors.extend(scan_errors)
                 if present:
-                    self.logger.info("Device detected during fallback scan: %s", scan_details)
+                    self.logger.info(
+                        "Device detected during fallback scan: %s", scan_details
+                    )
                     return True
 
             if errors:
@@ -464,7 +488,10 @@ class MPU6050LowLevel:
                 if present:
                     self.close()
                     if not self.open():
-                        scan_errors.append(self.last_error or "Failed to reopen selected bus after scan")
+                        scan_errors.append(
+                            self.last_error
+                            or "Failed to reopen selected bus after scan"
+                        )
                         present = False
 
             details["opened"] = self.is_open
@@ -520,7 +547,9 @@ class MPU6050LowLevel:
             )
             details["details"]["plausible"] = plausible
             if not plausible:
-                details["errors"].append("Measured values are outside plausible MPU6050 ranges")
+                details["errors"].append(
+                    "Measured values are outside plausible MPU6050 ranges"
+                )
                 return False, details
 
             success = (
@@ -582,7 +611,9 @@ class MPU6050LowLevel:
         try:
             bus.write_byte_data(self.address, reg, value & 0xFF)
         except OSError as exc:
-            raise I2CError(f"I2C error during write_reg(0x{reg:02X}, 0x{value:02X}): {exc}") from exc
+            raise I2CError(
+                f"I2C error during write_reg(0x{reg:02X}, 0x{value:02X}): {exc}"
+            ) from exc
 
     def read_block(self, reg: int, n: int) -> bytes:
         bus = self._require_bus()
@@ -590,7 +621,9 @@ class MPU6050LowLevel:
             data = bus.read_i2c_block_data(self.address, reg, n)
             return bytes(data)
         except OSError as exc:
-            raise I2CError(f"I2C error during read_block(0x{reg:02X}, {n}): {exc}") from exc
+            raise I2CError(
+                f"I2C error during read_block(0x{reg:02X}, {n}): {exc}"
+            ) from exc
 
     def whoami(self) -> int:
         return self.read_reg(self.REG_WHO_AM_I)
@@ -828,7 +861,9 @@ class MPU6050LowLevel:
         self.clear_accel_offsets()
         self.clear_gyro_offsets()
 
-    def calibrate_gyro(self, samples: int = 500, delay: float = 0.005) -> Tuple[float, float, float]:
+    def calibrate_gyro(
+        self, samples: int = 500, delay: float = 0.005
+    ) -> Tuple[float, float, float]:
         if samples <= 0:
             raise CalibrationError("samples must be > 0")
         if delay < 0:
@@ -838,7 +873,9 @@ class MPU6050LowLevel:
         sy = 0.0
         sz = 0.0
 
-        self.logger.info("Starting gyro calibration: samples=%s delay=%s", samples, delay)
+        self.logger.info(
+            "Starting gyro calibration: samples=%s delay=%s", samples, delay
+        )
         for _ in range(samples):
             gx, gy, gz = self.read_gyro_dps()
             sx += gx
@@ -915,7 +952,9 @@ class MPU6050LowLevel:
             "gz_dps": gz_dps,
         }
 
-    def tilt_from_accel(self, accel_g: Tuple[float, float, float]) -> Tuple[float, float]:
+    def tilt_from_accel(
+        self, accel_g: Tuple[float, float, float]
+    ) -> Tuple[float, float]:
         ax, ay, az = accel_g
 
         if az < 0.0:
@@ -935,7 +974,9 @@ class MPU6050LowLevel:
     def read_tilt_deg_corrected(self) -> Tuple[float, float]:
         return self.tilt_from_accel(self.read_accel_g_corrected())
 
-    def read_tilt_deg_avg(self, samples: int = 10, delay: float = 0.02) -> Tuple[float, float]:
+    def read_tilt_deg_avg(
+        self, samples: int = 10, delay: float = 0.02
+    ) -> Tuple[float, float]:
         if samples <= 0:
             raise CalibrationError("samples must be > 0")
         if delay < 0:
@@ -966,7 +1007,9 @@ __all__ = [
 ]
 
 
-def _run_self_test(bus: Optional[int] = None, address: int = MPU6050LowLevel.DEFAULT_ADDRESS) -> int:
+def _run_self_test(
+    bus: Optional[int] = None, address: int = MPU6050LowLevel.DEFAULT_ADDRESS
+) -> int:
     drv = MPU6050LowLevel()
 
     try:
@@ -993,6 +1036,7 @@ def _run_self_test(bus: Optional[int] = None, address: int = MPU6050LowLevel.DEF
             drv.deinit()
         except Exception:
             pass
+
 
 def main(argv=None) -> bool:
     """

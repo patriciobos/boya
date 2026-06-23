@@ -25,6 +25,7 @@ def _reload_modules_with_mocks(monkeypatch):
     monkeypatch.setenv("USE_LL_MOCKS", "1")
 
     import modules.support.ll_factory as ll_factory
+
     importlib.reload(ll_factory)
 
     import modules.audioProc_fsm as audio_proc_fsm
@@ -104,7 +105,9 @@ def test_audio_proc_fsm_uses_mock_and_self_tests_with_mock(monkeypatch):
         ("XTRA2210", "XTRA2210HandlerFSM"),
     ],
 )
-def test_fsm_in_error_ignores_scheduler_but_accepts_recovery_init(monkeypatch, module_name, handler_name):
+def test_fsm_in_error_ignores_scheduler_but_accepts_recovery_init(
+    monkeypatch, module_name, handler_name
+):
     modules = _reload_modules_with_mocks(monkeypatch)
     fsm = getattr(modules[module_name], handler_name)()
     status_queue = Queue()
@@ -116,13 +119,17 @@ def test_fsm_in_error_ignores_scheduler_but_accepts_recovery_init(monkeypatch, m
     fsm.handle_message(Message(MessageID.SIG_TIMEOUT, {"origin": "Scheduler"}))
     assert fsm.state == State.ERROR
 
-    fsm.handle_message(Message(MessageID.SIG_ACQUIRE, {"origin": "Scheduler", "retry": True}))
+    fsm.handle_message(
+        Message(MessageID.SIG_ACQUIRE, {"origin": "Scheduler", "retry": True})
+    )
     assert fsm.state == State.ERROR
 
     fsm.handle_message(Message(MessageID.SIG_ACQUIRE))
     assert fsm.state == State.ERROR
 
-    fsm.handle_message(Message(MessageID.SIG_INIT, {"origin": "main", "recovery_attempt": 1}))
+    fsm.handle_message(
+        Message(MessageID.SIG_INIT, {"origin": "main", "recovery_attempt": 1})
+    )
     assert fsm.state == State.INIT
 
 
@@ -192,6 +199,7 @@ def test_mocks_can_be_enabled_from_mocks_config(monkeypatch, tmp_path):
     _use_temp_mocks_config(monkeypatch, tmp_path, {"mock_modules": ["ais", "XTRA2210"]})
 
     import modules.support.ll_factory as ll_factory
+
     importlib.reload(ll_factory)
 
     assert ll_factory.is_mock_enabled_for("AIS") is True
@@ -199,7 +207,10 @@ def test_mocks_can_be_enabled_from_mocks_config(monkeypatch, tmp_path):
     assert ll_factory.is_mock_enabled_for("Windsonic") is False
     assert ll_factory.mock_source_for("AIS") == "config"
     assert ll_factory.get_low_level_class("AIS").__name__ == "AISLowLevelMock"
-    assert ll_factory.validate_mock_configuration()["mock_modules"] == ["AIS", "XTRA2210"]
+    assert ll_factory.validate_mock_configuration()["mock_modules"] == [
+        "AIS",
+        "XTRA2210",
+    ]
 
 
 def test_global_mock_env_rejects_partial_config(monkeypatch, tmp_path):
@@ -207,18 +218,24 @@ def test_global_mock_env_rejects_partial_config(monkeypatch, tmp_path):
     _use_temp_mocks_config(monkeypatch, tmp_path, {"mock_modules": ["AIS"]})
 
     import modules.support.ll_factory as ll_factory
+
     importlib.reload(ll_factory)
 
     with pytest.raises(RuntimeError, match="Ambiguous mock configuration"):
         ll_factory.validate_mock_configuration()
 
 
-def test_mock_modules_fallback_to_main_config_when_mocks_config_missing(monkeypatch, tmp_path):
+def test_mock_modules_fallback_to_main_config_when_mocks_config_missing(
+    monkeypatch, tmp_path
+):
     monkeypatch.delenv("USE_LL_MOCKS", raising=False)
     _use_temp_config(monkeypatch, tmp_path, {"mock_modules": ["AIS"]})
 
     import modules.support.system_config as system_config
-    monkeypatch.setattr(system_config, "MOCKS_CONFIG_PATH", tmp_path / "missing_mock_modules.json")
+
+    monkeypatch.setattr(
+        system_config, "MOCKS_CONFIG_PATH", tmp_path / "missing_mock_modules.json"
+    )
     monkeypatch.setattr(system_config, "_default_mocks_config", None)
 
     assert system_config.get_configured_mock_modules() == ["AIS"]
@@ -231,6 +248,7 @@ def test_status_report_tags_mock_modules(monkeypatch, tmp_path):
 
     import modules.support.ll_factory as ll_factory
     import modules.support.status_report as status_report
+
     importlib.reload(ll_factory)
     importlib.reload(status_report)
 
@@ -251,9 +269,11 @@ def test_mocks_can_be_enabled_per_module(monkeypatch):
     monkeypatch.delenv("USE_MOCK_BEHRINGER", raising=False)
 
     import modules.support.system_config as system_config
+
     monkeypatch.setattr(system_config, "_default_config", {"mock_modules": []})
 
     import modules.support.ll_factory as ll_factory
+
     importlib.reload(ll_factory)
 
     assert ll_factory.is_mock_enabled_for("AudioProc") is True
@@ -264,7 +284,9 @@ def test_mocks_can_be_enabled_per_module(monkeypatch):
     assert audio_proc_cls.__name__ == "AudioProcLowLevelMock"
 
     # Ensure only the targeted module uses a mock when individual env vars are set.
-    assert ll_factory.get_low_level_class("AudioProc").__name__ == "AudioProcLowLevelMock"
+    assert (
+        ll_factory.get_low_level_class("AudioProc").__name__ == "AudioProcLowLevelMock"
+    )
 
 
 def test_behringer_fsm_acquire_with_mock(monkeypatch):
@@ -356,7 +378,9 @@ def test_iridium_fsm_skips_unsupported_text_transmit(monkeypatch):
     assert fsm.state == State.IDLE
 
     messages = _drain_status_queue(status_queue)
-    action_results = [msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT]
+    action_results = [
+        msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT
+    ]
     assert action_results
     assert action_results[-1].params["result"] == "ok"
     details = action_results[-1].params["details"]["transmit"]
@@ -376,18 +400,20 @@ def test_iridium_fsm_transmits_system_status_binary_with_mock(monkeypatch, tmp_p
     logs_path.mkdir()
     data_path.mkdir()
     (logs_path / "system_status.json").write_text(
-        json.dumps({
-            "modules": {
-                "AHT10": {"state": "IDLE", "last_result": "ok"},
-                "AIS": {"state": "IDLE", "last_result": "ok"},
-                "AudioProc": {"state": "IDLE", "last_result": "ok"},
-                "Behringer": {"state": "IDLE", "last_result": "ok"},
-                "Iridium": {"state": "IDLE", "last_result": "ok"},
-                "MPU6050": {"state": "IDLE", "last_result": "ok"},
-                "Windsonic": {"state": "IDLE", "last_result": "ok"},
-                "XTRA2210": {"state": "IDLE", "last_result": "ok"},
+        json.dumps(
+            {
+                "modules": {
+                    "AHT10": {"state": "IDLE", "last_result": "ok"},
+                    "AIS": {"state": "IDLE", "last_result": "ok"},
+                    "AudioProc": {"state": "IDLE", "last_result": "ok"},
+                    "Behringer": {"state": "IDLE", "last_result": "ok"},
+                    "Iridium": {"state": "IDLE", "last_result": "ok"},
+                    "MPU6050": {"state": "IDLE", "last_result": "ok"},
+                    "Windsonic": {"state": "IDLE", "last_result": "ok"},
+                    "XTRA2210": {"state": "IDLE", "last_result": "ok"},
+                }
             }
-        }),
+        ),
         encoding="utf-8",
     )
     (data_path / "ais_readings.jsonl").write_text(
@@ -396,7 +422,9 @@ def test_iridium_fsm_transmits_system_status_binary_with_mock(monkeypatch, tmp_p
     )
     monkeypatch.setattr(iridium_module, "get_logs_path", lambda: logs_path)
     monkeypatch.setattr(iridium_module, "get_data_path", lambda: data_path)
-    monkeypatch.setattr(iridium_module, "get_config_value", lambda key, default=None: True)
+    monkeypatch.setattr(
+        iridium_module, "get_config_value", lambda key, default=None: True
+    )
 
     fsm = iridium_module.IridiumHandlerFSM()
     status_queue = Queue()
@@ -410,14 +438,21 @@ def test_iridium_fsm_transmits_system_status_binary_with_mock(monkeypatch, tmp_p
     fsm.handle_message(
         Message(
             MessageID.SIG_TRANSMIT,
-            {"mode": "alive", "clear_after_success": True, "max_attempts": 1, "retry_delay_s": 0.1},
+            {
+                "mode": "alive",
+                "clear_after_success": True,
+                "max_attempts": 1,
+                "retry_delay_s": 0.1,
+            },
         )
     )
     assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
     assert fsm.state == State.IDLE
 
     messages = _drain_status_queue(status_queue)
-    action_results = [msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT]
+    action_results = [
+        msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT
+    ]
     assert action_results
     details = action_results[-1].params["details"]
     assert details["system_status"]["message_type_name"] == "MSG_SYSTEM_STATUS"
@@ -443,30 +478,38 @@ def test_iridium_fsm_logs_audio_binary_when_transmit_disabled(monkeypatch, tmp_p
     logs_path.mkdir()
     audio_path.parent.mkdir(parents=True)
     (logs_path / "system_status.json").write_text(
-        json.dumps({
-            "modules": {
-                "AHT10": {"state": "IDLE", "last_result": "ok"},
-                "AIS": {"state": "ERROR", "last_result": "ok"},
-                "AudioProc": {"state": "IDLE", "last_result": "ok"},
-                "Behringer": {"state": "IDLE", "last_result": "ok"},
-                "Iridium": {"state": "IDLE", "last_result": "ok"},
-                "MPU6050": {"state": "IDLE", "last_result": "ok"},
-                "Windsonic": {"state": "IDLE", "last_result": "ok"},
-                "XTRA2210": {"state": "IDLE", "last_result": "ok"},
+        json.dumps(
+            {
+                "modules": {
+                    "AHT10": {"state": "IDLE", "last_result": "ok"},
+                    "AIS": {"state": "ERROR", "last_result": "ok"},
+                    "AudioProc": {"state": "IDLE", "last_result": "ok"},
+                    "Behringer": {"state": "IDLE", "last_result": "ok"},
+                    "Iridium": {"state": "IDLE", "last_result": "ok"},
+                    "MPU6050": {"state": "IDLE", "last_result": "ok"},
+                    "Windsonic": {"state": "IDLE", "last_result": "ok"},
+                    "XTRA2210": {"state": "IDLE", "last_result": "ok"},
+                }
             }
-        }),
+        ),
         encoding="utf-8",
     )
     audio_path.write_text(
-        json.dumps({
-            "timestamp": "2026-06-13T08:00:08-03:00",
-            "relative_band_power_db": [[None if index == 0 else float(index)] for index in range(49)],
-        }),
+        json.dumps(
+            {
+                "timestamp": "2026-06-13T08:00:08-03:00",
+                "relative_band_power_db": [
+                    [None if index == 0 else float(index)] for index in range(49)
+                ],
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(iridium_module, "get_logs_path", lambda: logs_path)
     monkeypatch.setattr(iridium_module, "get_data_path", lambda: data_path)
-    monkeypatch.setattr(iridium_module, "get_config_value", lambda key, default=None: False)
+    monkeypatch.setattr(
+        iridium_module, "get_config_value", lambda key, default=None: False
+    )
     monkeypatch.setattr(iridium_module, "PROJECT_ROOT", tmp_path)
 
     fsm = iridium_module.IridiumHandlerFSM()
@@ -478,12 +521,22 @@ def test_iridium_fsm_logs_audio_binary_when_transmit_disabled(monkeypatch, tmp_p
     assert fsm.state == State.IDLE
     _drain_status_queue(status_queue)
 
-    fsm.handle_message(Message(MessageID.SIG_TRANSMIT, {"mode": "audio", "audio": {"output": "data/audio_proc/audioProc_test.json"}}))
+    fsm.handle_message(
+        Message(
+            MessageID.SIG_TRANSMIT,
+            {
+                "mode": "audio",
+                "audio": {"output": "data/audio_proc/audioProc_test.json"},
+            },
+        )
+    )
     assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
     assert fsm.state == State.IDLE
 
     messages = _drain_status_queue(status_queue)
-    action_results = [msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT]
+    action_results = [
+        msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT
+    ]
     assert action_results[-1].params["result"] == "ok"
     details = action_results[-1].params["details"]
     assert details["audio"]["message_type"] == "audioProc"
@@ -497,7 +550,11 @@ def test_iridium_fsm_logs_audio_binary_when_transmit_disabled(monkeypatch, tmp_p
     assert details["audio"]["crc_size_bytes"] == 2
     assert details["transmit"]["reason"] == "iridium_transmit_disabled"
 
-    entry = json.loads((logs_path / "iridium_transmit_requests.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    entry = json.loads(
+        (logs_path / "iridium_transmit_requests.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[-1]
+    )
     assert entry["mode"] == "binary"
     assert entry["payload_size_bytes"] == 105
     assert entry["payload_hex"].startswith("05")
@@ -507,7 +564,9 @@ def test_iridium_fsm_logs_audio_binary_when_transmit_disabled(monkeypatch, tmp_p
     fsm.ll.deinit()
 
 
-def test_iridium_fsm_audio_uses_latest_audioproc_output_when_not_provided(monkeypatch, tmp_path):
+def test_iridium_fsm_audio_uses_latest_audioproc_output_when_not_provided(
+    monkeypatch, tmp_path
+):
     modules = _reload_modules_with_mocks(monkeypatch)
     iridium_module = modules["Iridium"]
 
@@ -521,25 +580,32 @@ def test_iridium_fsm_audio_uses_latest_audioproc_output_when_not_provided(monkey
         encoding="utf-8",
     )
     audio_path.write_text(
-        json.dumps({
-            "timestamp": "2026-06-13T08:00:08-03:00",
-            "relative_band_power_db": [[float(index)] for index in range(49)],
-        }),
+        json.dumps(
+            {
+                "timestamp": "2026-06-13T08:00:08-03:00",
+                "relative_band_power_db": [[float(index)] for index in range(49)],
+            }
+        ),
         encoding="utf-8",
     )
     (data_path / "audioProc_readings.jsonl").write_text(
-        json.dumps({
-            "timestamp": "2026-06-13T08:01:00-03:00",
-            "data": {
-                "input_file": "data/recordings/latest.wav",
-                "output_file": "data/audio_proc/audioProc_latest.json",
-            },
-        }) + "\n",
+        json.dumps(
+            {
+                "timestamp": "2026-06-13T08:01:00-03:00",
+                "data": {
+                    "input_file": "data/recordings/latest.wav",
+                    "output_file": "data/audio_proc/audioProc_latest.json",
+                },
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(iridium_module, "get_logs_path", lambda: logs_path)
     monkeypatch.setattr(iridium_module, "get_data_path", lambda: data_path)
-    monkeypatch.setattr(iridium_module, "get_config_value", lambda key, default=None: False)
+    monkeypatch.setattr(
+        iridium_module, "get_config_value", lambda key, default=None: False
+    )
     monkeypatch.setattr(iridium_module, "PROJECT_ROOT", tmp_path)
 
     fsm = iridium_module.IridiumHandlerFSM()
@@ -556,7 +622,9 @@ def test_iridium_fsm_audio_uses_latest_audioproc_output_when_not_provided(monkey
     assert fsm.state == State.IDLE
 
     messages = _drain_status_queue(status_queue)
-    action_results = [msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT]
+    action_results = [
+        msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT
+    ]
     details = action_results[-1].params["details"]
     assert action_results[-1].params["result"] == "ok"
     assert details["audio"]["message_type"] == "audioProc"
@@ -565,7 +633,11 @@ def test_iridium_fsm_audio_uses_latest_audioproc_output_when_not_provided(monkey
     assert details["audio"]["audio_output"] == "data/audio_proc/audioProc_latest.json"
     assert details["transmit"]["reason"] == "iridium_transmit_disabled"
 
-    entry = json.loads((logs_path / "iridium_transmit_requests.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    entry = json.loads(
+        (logs_path / "iridium_transmit_requests.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[-1]
+    )
     assert entry["payload_size_bytes"] == 57
     assert entry["details"]["audio_output"] == "data/audio_proc/audioProc_latest.json"
 
@@ -581,12 +653,16 @@ def test_iridium_fsm_skips_audio_when_payload_is_unavailable(monkeypatch, tmp_pa
     logs_path.mkdir()
     data_path.mkdir()
     (logs_path / "system_status.json").write_text(
-        json.dumps({"modules": {"AudioProc": {"state": "ERROR", "last_result": "error"}}}),
+        json.dumps(
+            {"modules": {"AudioProc": {"state": "ERROR", "last_result": "error"}}}
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(iridium_module, "get_logs_path", lambda: logs_path)
     monkeypatch.setattr(iridium_module, "get_data_path", lambda: data_path)
-    monkeypatch.setattr(iridium_module, "get_config_value", lambda key, default=None: False)
+    monkeypatch.setattr(
+        iridium_module, "get_config_value", lambda key, default=None: False
+    )
 
     fsm = iridium_module.IridiumHandlerFSM()
     status_queue = Queue()
@@ -597,12 +673,19 @@ def test_iridium_fsm_skips_audio_when_payload_is_unavailable(monkeypatch, tmp_pa
     assert fsm.state == State.IDLE
     _drain_status_queue(status_queue)
 
-    fsm.handle_message(Message(MessageID.SIG_TRANSMIT, {"mode": "audio", "audio": {"relative_band_power_db": None}}))
+    fsm.handle_message(
+        Message(
+            MessageID.SIG_TRANSMIT,
+            {"mode": "audio", "audio": {"relative_band_power_db": None}},
+        )
+    )
     assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
     assert fsm.state == State.IDLE
 
     messages = _drain_status_queue(status_queue)
-    action_results = [msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT]
+    action_results = [
+        msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT
+    ]
     assert action_results[-1].params["result"] == "ok"
     details = action_results[-1].params["details"]
     assert details["audio"]["skipped"] is True
@@ -631,7 +714,9 @@ def test_iridium_fsm_logs_system_status_when_transmit_disabled(monkeypatch, tmp_
     )
     monkeypatch.setattr(iridium_module, "get_logs_path", lambda: logs_path)
     monkeypatch.setattr(iridium_module, "get_data_path", lambda: data_path)
-    monkeypatch.setattr(iridium_module, "get_config_value", lambda key, default=None: False)
+    monkeypatch.setattr(
+        iridium_module, "get_config_value", lambda key, default=None: False
+    )
 
     fsm = iridium_module.IridiumHandlerFSM()
     status_queue = Queue()
@@ -647,7 +732,9 @@ def test_iridium_fsm_logs_system_status_when_transmit_disabled(monkeypatch, tmp_
     assert fsm.state == State.IDLE
 
     messages = _drain_status_queue(status_queue)
-    action_results = [msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT]
+    action_results = [
+        msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT
+    ]
     assert action_results[-1].params["result"] == "ok"
     details = action_results[-1].params["details"]
     assert details["transmit"]["skipped"] is True
@@ -700,7 +787,12 @@ def test_aht10_fsm_retries_and_logs_implausible_temperature_jump(monkeypatch, ca
         MAX_PLAUSIBLE_RH = 100.0
 
         def __init__(self):
-            self.measurements = [(22.74, 44.2), (34.3, 24.9), (34.3, 24.9), (34.3, 24.9)]
+            self.measurements = [
+                (22.74, 44.2),
+                (34.3, 24.9),
+                (34.3, 24.9),
+                (34.3, 24.9),
+            ]
             self.reads = 0
 
         def init(self):
@@ -745,8 +837,10 @@ def test_aht10_fsm_retries_and_logs_implausible_temperature_jump(monkeypatch, ca
     ]
 
     acquire_results = [
-        msg[1].params for msg in _drain_status_queue(status_queue)
-        if msg[1].id == MessageID.ACTION_RESULT and msg[1].params.get("action") == "acquire"
+        msg[1].params
+        for msg in _drain_status_queue(status_queue)
+        if msg[1].id == MessageID.ACTION_RESULT
+        and msg[1].params.get("action") == "acquire"
     ]
     assert acquire_results[-1]["result"] == "ok"
     assert "temperature jump is not plausible" in caplog.text
@@ -838,7 +932,8 @@ def test_ais_fsm_acquire_without_fresh_traffic_goes_error(monkeypatch):
     acquire_results = [
         msg[1].params
         for msg in messages
-        if msg[1].id == MessageID.ACTION_RESULT and msg[1].params.get("action") == "acquire"
+        if msg[1].id == MessageID.ACTION_RESULT
+        and msg[1].params.get("action") == "acquire"
     ]
     assert acquire_results
     assert acquire_results[-1]["result"] == "error"

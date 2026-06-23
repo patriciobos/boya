@@ -14,7 +14,9 @@ def test_sensor_data_logger_uses_compact_utc_timestamp(monkeypatch, tmp_path):
     assert entry["module"] == "AHT10"
     assert entry["source"] == "hardware mock"
     assert entry["data"] == {"temperature_c": 25.0}
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-03:00", entry["timestamp"])
+    assert re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-03:00", entry["timestamp"]
+    )
 
 
 def test_data_source_for_distinguishes_mocks():
@@ -44,7 +46,9 @@ def test_sensor_data_logger_marks_firmware_mock(monkeypatch, tmp_path):
     logger = data_logger.SensorDataLogger("XTRA2210")
     logger.log({"identity": {"firmware": "mock"}})
 
-    entry = json.loads((tmp_path / "xtra2210_readings.jsonl").read_text(encoding="utf-8"))
+    entry = json.loads(
+        (tmp_path / "xtra2210_readings.jsonl").read_text(encoding="utf-8")
+    )
     assert entry["source"] == "firmware mock"
 
 
@@ -54,6 +58,8 @@ def test_sensor_data_logger_can_omit_module(monkeypatch, tmp_path):
     logger = data_logger.SensorDataLogger("XTRA2210", include_module=False)
     logger.log({"battery_voltage_v": 12.0})
 
-    entry = json.loads((tmp_path / "xtra2210_readings.jsonl").read_text(encoding="utf-8"))
+    entry = json.loads(
+        (tmp_path / "xtra2210_readings.jsonl").read_text(encoding="utf-8")
+    )
     assert "module" not in entry
     assert entry["data"] == {"battery_voltage_v": 12.0}

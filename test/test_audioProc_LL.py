@@ -17,7 +17,10 @@ def test_audio_proc_processes_real_fixture_wav():
     passed, report = ll.full_test()
 
     assert passed is True, report
-    assert report["details"]["comparison"] == "AudioProc JSON output matches expected pattern."
+    assert (
+        report["details"]["comparison"]
+        == "AudioProc JSON output matches expected pattern."
+    )
 
     output_path = Path(report["details"]["output_path"])
     assert output_path == PROJECT_ROOT / "test" / "test_proc" / "audioProc_actual.json"
