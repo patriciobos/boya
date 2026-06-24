@@ -57,7 +57,7 @@ class CalibrationError(MPU6050Error):
 class MPU6050LowLevel:
     DEFAULT_ADDRESS = 0x68
     ALT_ADDRESS = 0x69
-    DEFAULT_BUS = 1
+    DEFAULT_BUS = 12
 
     REG_SMPLRT_DIV = 0x19
     REG_CONFIG = 0x1A

@@ -54,7 +54,7 @@ class ProtocolError(WindsonicError):
 
 class WindsonicLowLevel:
     DEFAULT_PORT_CANDIDATES = [f"/dev/ttyS{i}" for i in range(6)]  # ttyS0 .. ttyS5
-    DEFAULT_PREFERRED_PORT = "/dev/ttyS2"
+    DEFAULT_PREFERRED_PORT = "/dev/ttyS1"
     DEFAULT_BAUDRATE = 9600
     DEFAULT_TIMEOUT = 1.0
     DEFAULT_IDENTIFICATION = "Q"

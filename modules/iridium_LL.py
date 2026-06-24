@@ -48,7 +48,7 @@ class ProtocolError(IridiumError):
 
 class IridiumLowLevel:
     DEFAULT_PORT_CANDIDATES = [f"/dev/ttyS{i}" for i in range(7)]  # ttyS0 .. ttyS6
-    DEFAULT_PREFERRED_PORT = "/dev/ttyS0"
+    DEFAULT_PREFERRED_PORT = "/dev/ttyS2"
     DEFAULT_BAUDRATE = 19200
     DEFAULT_TIMEOUT = 1.0
 
