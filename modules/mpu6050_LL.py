@@ -57,7 +57,7 @@ class CalibrationError(MPU6050Error):
 class MPU6050LowLevel:
     DEFAULT_ADDRESS = 0x68
     ALT_ADDRESS = 0x69
-    DEFAULT_BUS = 12
+    DEFAULT_BUS = 1
 
     REG_SMPLRT_DIV = 0x19
     REG_CONFIG = 0x1A
@@ -180,7 +180,6 @@ class MPU6050LowLevel:
         try:
             raw = self.read_all_raw()
             details["checks"].append({"name": "read_all_raw", "ok": True, "raw": raw})
-            return True, errors, details
         except Exception as exc:
             errors.append(f"read_all_raw failed: {exc}")
             details["checks"].append(
@@ -209,14 +208,12 @@ class MPU6050LowLevel:
             self.close()
 
         candidates = (
-            [self.bus_num]
-            if self.bus_forced and self.bus_num is not None
-            else list(self.bus_candidates)
+            list(self.bus_candidates)
+            if self.bus_candidates
+            else self._resolve_bus_candidates(None)
         )
-        if not candidates:
-            candidates = self._resolve_bus_candidates(
-                self.bus_num if self.bus_forced else None
-            )
+        if self.bus_num is not None and self.bus_num not in candidates:
+            candidates = [self.bus_num] + candidates
 
         for busnum in candidates:
             bus_entry: dict[str, Any] = {"bus": busnum, "addresses": []}
@@ -253,13 +250,14 @@ class MPU6050LowLevel:
                         f"bus {busnum} addr 0x{address:02X}: open/probe failed: {exc}"
                     )
                 finally:
-                    if self.bus is not None:
-                        try:
-                            self.bus.close()
-                        except Exception:
-                            pass
-                    self.bus = None
-                    self.is_open = False
+                    if self.is_open and not (scan_details["selected_bus"] == busnum and scan_details["selected_address"] == f"0x{address:02X}"):
+                        if self.bus is not None:
+                            try:
+                                self.bus.close()
+                            except Exception:
+                                pass
+                        self.bus = None
+                        self.is_open = False
 
         self.bus_num = original_bus
         self.address = original_address
@@ -311,11 +309,15 @@ class MPU6050LowLevel:
             self.logger.info("I2C bus already open on bus %s", self.bus_num)
             return True
 
-        candidates = (
-            [self.bus_num]
-            if self.bus_forced and self.bus_num is not None
-            else list(self.bus_candidates)
-        )
+        if self.bus_forced and self.bus_num is not None:
+            candidates = [self.bus_num]
+        else:
+            candidates = []
+            if self.bus_num is not None:
+                candidates.append(self.bus_num)
+            for busnum in self.bus_candidates:
+                if busnum not in candidates:
+                    candidates.append(busnum)
         last_exc: Optional[Exception] = None
 
         for busnum in candidates:
@@ -362,13 +364,25 @@ class MPU6050LowLevel:
             return False
 
     def probe(self) -> bool:
-        """Public probe against the currently-open bus only."""
+        """Public probe against the currently-open bus only.
+
+        If the bus is not already open, attempt to open the configured
+       /preferred I2C bus before probing.
+        """
+        original_was_open = self.is_open and self.bus is not None
+        if not original_was_open:
+            if not self.open():
+                return False
+
         try:
             present, _, _ = self._probe_current_bus()
             return present
         except Exception as exc:
             self.logger.debug("Probe failed on bus %s: %s", self.bus_num, exc)
             return False
+        finally:
+            if not original_was_open:
+                self.close()
 
     def test(self) -> bool:
         """Run a basic presence/communication smoke test and restore prior state."""
@@ -393,14 +407,13 @@ class MPU6050LowLevel:
             if present:
                 return True
 
-            if not self.bus_forced:
-                present, scan_errors, scan_details = self._scan_for_device()
-                errors.extend(scan_errors)
-                if present:
-                    self.logger.info(
-                        "Device detected during fallback scan: %s", scan_details
-                    )
-                    return True
+            present, scan_errors, scan_details = self._scan_for_device()
+            errors.extend(scan_errors)
+            if present:
+                self.logger.info(
+                    "Device detected during fallback scan: %s", scan_details
+                )
+                return True
 
             if errors:
                 self._set_error("; ".join(errors[-3:]))
@@ -485,14 +498,6 @@ class MPU6050LowLevel:
                 present, fallback_errors, fallback_details = self._scan_for_device()
                 scan_errors.extend(fallback_errors)
                 scan_details["fallback_scan"] = fallback_details
-                if present:
-                    self.close()
-                    if not self.open():
-                        scan_errors.append(
-                            self.last_error
-                            or "Failed to reopen selected bus after scan"
-                        )
-                        present = False
 
             details["opened"] = self.is_open
             details["device_present"] = present
@@ -555,7 +560,6 @@ class MPU6050LowLevel:
             success = (
                 details["initialized"]
                 and details["device_present"]
-                and not details["errors"]
             )
             return success, details
         except Exception as exc:
@@ -572,7 +576,7 @@ class MPU6050LowLevel:
                 else:
                     self.bus_num = original_bus_num
                     self.address = original_address
-            else:
+            elif not details.get("device_present", False):
                 self.close()
                 self.bus_num = original_bus_num
                 self.address = original_address
