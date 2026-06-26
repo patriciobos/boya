@@ -186,6 +186,31 @@ El scheduler incrementa desde el slot programado, no desde la hora real de ejecu
 
 Iridium funciona como gateway satelital. La FSM de Iridium decide que transmitir y usa `modules/support/iridium_protocol.py` para codificar payloads binarios; el low-level `iridium_LL.py` queda limitado al transporte AT/SBD.
 
+### Boot message binario
+
+Al iniciar el módulo Iridium, la FSM envía una sola vez un mensaje de arranque si la configuración lo permite. Este boot message permite monitorear remotamente que la boya arrancó y que la ruta SBD está disponible antes del primer ciclo periódico.
+
+La opción de configuración es:
+
+```json
+{
+  "iridium_boot_message_enabled": true
+}
+```
+
+El mensaje se envía después de inicializar el modem y aprobar la prueba hardware (`full_test`), fuera del ciclo periódico de transmisiones.
+
+Formato del payload de boot (3 bytes):
+
+- Byte 0: `message_type = 0x02` (`MSG_BOOT_V1`)
+- Bytes 1-2: `uptime_minutes` como `uint16` big-endian
+
+Ejemplos hex:
+
+- `02 00 00` → uptime 0 minutos
+- `02 00 01` → uptime 1 minuto
+- `02 FF FF` → uptime 65535 minutos
+
 ### System Status binario
 
 El scheduler central envia Iridium cada hora exacta UTC-3. En las primeras tres horas del ciclo envia estado de sistema; en la cuarta envia `audio`:
