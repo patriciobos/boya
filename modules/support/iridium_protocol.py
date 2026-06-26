@@ -13,11 +13,15 @@ from modules.support.system_config import PROJECT_ROOT, get_config_value
 
 MSG_SYSTEM_STATUS_V1 = 0x01
 MSG_SYSTEM_STATUS = MSG_SYSTEM_STATUS_V1
+MSG_BOOT_V1 = 0x02
+MSG_BOOT = MSG_BOOT_V1
 MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8 = 0x03
 MESSAGE_TYPE_AUDIO_STEREO_DELTA_PREVIOUS_INT8 = 0x04
 MESSAGE_TYPE_AUDIO_MONO_ABS_INT16 = 0x05
 MESSAGE_TYPE_AUDIO_STEREO_ABS_INT16 = 0x06
 SYSTEM_STATUS_PAYLOAD_FORMAT = ">BBBBHBHH"
+BOOT_PAYLOAD_FORMAT = ">BH"
+BOOT_PAYLOAD_SIZE = struct.calcsize(BOOT_PAYLOAD_FORMAT)
 SYSTEM_STATUS_PAYLOAD_SIZE = struct.calcsize(SYSTEM_STATUS_PAYLOAD_FORMAT)
 SYSTEM_STATUS_UNKNOWN_U16 = 0xFFFF
 SYSTEM_STATUS_UNKNOWN_U8 = 0xFF
@@ -133,6 +137,34 @@ def encode_uptime_minutes(value: Any) -> int:
     if encoded > SYSTEM_STATUS_MAX_U16_VALUE:
         return SYSTEM_STATUS_UNKNOWN_U16
     return encoded
+
+
+def encode_boot_uptime_minutes(value: Any) -> int:
+    numeric = _finite_number(value)
+    if numeric is None:
+        raise ValueError("uptime_minutes must be a finite numeric value")
+    uptime = int(round(numeric))
+    if not 0 <= uptime <= 0xFFFF:
+        raise ValueError("uptime_minutes must be in range 0..65535")
+    return uptime
+
+
+def pack_boot_payload(uptime_minutes: Any) -> bytes:
+    uptime_encoded = encode_boot_uptime_minutes(uptime_minutes)
+    return struct.pack(BOOT_PAYLOAD_FORMAT, MSG_BOOT_V1, uptime_encoded)
+
+
+def unpack_boot_message(payload: bytes) -> dict[str, Any]:
+    if len(payload) != BOOT_PAYLOAD_SIZE:
+        raise ValueError(f"boot message payload must be {BOOT_PAYLOAD_SIZE} bytes")
+    message_type, uptime_minutes = struct.unpack(BOOT_PAYLOAD_FORMAT, payload)
+    if message_type != MSG_BOOT_V1:
+        raise ValueError(f"invalid boot message type: {message_type}")
+    return {
+        "message_type": "MSG_BOOT",
+        "message_type_byte": message_type,
+        "uptime_minutes": uptime_minutes,
+    }
 
 
 def build_status_flags(
@@ -555,6 +587,8 @@ def decode_message(payload: bytes, expected_audio_band_count: int | None = None)
     message_type = payload[0]
     if message_type == MSG_SYSTEM_STATUS_V1:
         return unpack_system_status(payload)
+    if message_type == MSG_BOOT_V1:
+        return unpack_boot_message(payload)
     if message_type in {
         MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8,
         MESSAGE_TYPE_AUDIO_STEREO_DELTA_PREVIOUS_INT8,

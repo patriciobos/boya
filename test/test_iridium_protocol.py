@@ -12,10 +12,12 @@ from modules.support.iridium_protocol import (
     AUDIOPROC_HEADER_SIZE,
     AUDIO_PACKING_ABS_INT16,
     AUDIO_PACKING_DELTA_PREVIOUS_INT8,
+    BOOT_PAYLOAD_SIZE,
     MESSAGE_TYPE_AUDIO_MONO_ABS_INT16,
     MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8,
     MESSAGE_TYPE_AUDIO_STEREO_ABS_INT16,
     MESSAGE_TYPE_AUDIO_STEREO_DELTA_PREVIOUS_INT8,
+    MSG_BOOT,
     MSG_SYSTEM_STATUS,
     SYSTEM_STATUS_FLAG_BATTERY_CRITICAL,
     SYSTEM_STATUS_FLAG_BATTERY_WARNING,
@@ -41,6 +43,7 @@ from modules.support.iridium_protocol import (
     expected_audio_band_count,
     module_bit,
     pack_abs_int16_channel,
+    pack_boot_payload,
     pack_delta_previous_int8_channel,
     pack_system_status,
     quantize_db_tenths,
@@ -49,6 +52,44 @@ from modules.support.iridium_protocol import (
     unpack_abs_int16_channel,
     unpack_delta_previous_int8_channel,
 )
+
+
+def test_pack_boot_payload_encodes_fixed_3_byte_binary_contract():
+    payload = pack_boot_payload(0)
+
+    assert len(payload) == BOOT_PAYLOAD_SIZE == 3
+    assert payload == bytes([MSG_BOOT, 0x00, 0x00])
+    decoded = decode_message(payload)
+    assert decoded == {
+        "message_type": "MSG_BOOT",
+        "message_type_byte": MSG_BOOT,
+        "uptime_minutes": 0,
+    }
+
+
+def test_pack_boot_payload_encodes_big_endian_uptime():
+    payload = pack_boot_payload(65535)
+
+    assert payload[0] == MSG_BOOT
+    assert payload[1:] == struct.pack(">H", 65535)
+    decoded = decode_message(payload)
+    assert decoded["uptime_minutes"] == 65535
+
+
+def test_pack_boot_payload_validates_uptime_range():
+    try:
+        pack_boot_payload(65536)
+    except ValueError as exc:
+        assert "uptime_minutes must be in range" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for out of range uptime_minutes")
+
+    try:
+        pack_boot_payload(-1)
+    except ValueError as exc:
+        assert "uptime_minutes must be in range" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for negative uptime_minutes")
 
 
 def test_pack_system_status_encodes_fixed_11_byte_binary_contract():

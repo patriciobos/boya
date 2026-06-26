@@ -7,10 +7,13 @@ from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, 
 from modules.support.iridium_protocol import (
     AUDIOPROC_CRC_SIZE,
     AUDIOPROC_HEADER_SIZE,
+    MSG_BOOT,
     build_audio_proc_payload,
+    BOOT_PAYLOAD_SIZE,
     SYSTEM_STATUS_PAYLOAD_SIZE,
     build_status_flags,
     build_status_ok_bitmaps,
+    pack_boot_payload,
     pack_system_status,
     decode_audio_proc_payload,
     expected_audio_band_count,
@@ -49,6 +52,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         self.ll = get_low_level_class("Iridium")()
         self.status_queue = None
         self._pending_params = {}
+        self._boot_message_sent = False
 
     def _emit_state_result(self, result: ResultCode, details=None):
         if self.status_queue:
@@ -189,6 +193,41 @@ class IridiumHandlerFSM(BaseHandlerFSM):
                 return int(float(handle.read().split()[0]) // 60)
         except (OSError, ValueError, IndexError):
             return int(time.monotonic() // 60)
+
+    def _boot_message_enabled(self):
+        return bool(get_config_value("iridium_boot_message_enabled", True))
+
+    def _send_boot_message(self):
+        if self._boot_message_sent:
+            return True, {"mode": "boot", "skipped": True, "reason": "boot_message_already_sent"}
+
+        self._boot_message_sent = True
+        if not self._boot_message_enabled():
+            details = {"mode": "boot", "skipped": True, "reason": "iridium_boot_message_disabled"}
+            self.logger.info("Iridium boot message disabled by configuration")
+            return True, details
+
+        try:
+            uptime_minutes = self._uptime_minutes()
+            payload = pack_boot_payload(uptime_minutes)
+        except ValueError as exc:
+            self.logger.warning("Boot message payload validation failed: %s", exc)
+            return False, {"mode": "boot", "skipped": True, "reason": "invalid_uptime_minutes", "error": str(exc)}
+
+        details = {
+            "message_type": "boot",
+            "message_type_byte": MSG_BOOT,
+            "payload_size_bytes": len(payload),
+            "uptime_minutes": uptime_minutes,
+        }
+        ok, transmit_details = self._send_binary_or_log(
+            payload,
+            details,
+            clear_after_success=True,
+            max_attempts=1,
+            retry_delay_s=0.0,
+        )
+        return ok, transmit_details
 
     def _last_acquisition_incomplete(self, system_status):
         incomplete_reasons = {
@@ -432,7 +471,13 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             ok, details = self.ll.full_test()
             result = ResultCode.OK if ok else ResultCode.ERROR
             self._emit_action_result("test", result, details=details)
-            self.set_state(State.IDLE if ok else State.ERROR, self.status_queue)
+            if ok:
+                boot_ok, boot_details = self._send_boot_message()
+                if not boot_ok:
+                    self.logger.warning("Iridium boot message failed after successful test: %s", boot_details)
+                self.set_state(State.IDLE, self.status_queue)
+            else:
+                self.set_state(State.ERROR, self.status_queue)
             self._on_entry_flag = False
 
         elif self.state == State.IDLE and self._on_entry_flag:
