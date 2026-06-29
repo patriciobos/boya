@@ -2,13 +2,7 @@
 
 from typing import Any, Dict, Optional
 
-from modules.support.base_fsm import (
-    BaseHandlerFSM,
-    State,
-    Message,
-    MessageID,
-    ResultCode,
-)
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
 
@@ -21,30 +15,14 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
         self.status_queue = None
         self.data_logger = SensorDataLogger("MPU6050", include_module=False)
 
-    def _emit_state_result(
-        self, result: ResultCode, details: Optional[Dict[str, Any]] = None
-    ):
+    def _emit_state_result(self, result: ResultCode, details: Optional[Dict[str, Any]] = None):
         if self.status_queue:
-            self.status_queue.put(
-                (
-                    self.name,
-                    Message(
-                        MessageID.STATE_RESULT,
-                        {
-                            "result": result.value,
-                            "details": details or {},
-                        },
-                    ),
-                )
-            )
+            self.status_queue.put((self.name, Message(MessageID.STATE_RESULT, {
+                "result": result.value,
+                "details": details or {},
+            })))
 
-    def _emit_action_result(
-        self,
-        action: str,
-        result: ResultCode,
-        data: Optional[Dict[str, Any]] = None,
-        error: Optional[str] = None,
-    ):
+    def _emit_action_result(self, action: str, result: ResultCode, data: Optional[Dict[str, Any]] = None, error: Optional[str] = None):
         payload = {
             "origin": self.name,
             "state": self.state.name,
@@ -55,32 +33,18 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
         if error is not None:
             payload["error"] = error
         if self.status_queue:
-            self.status_queue.put(
-                (self.name, Message(MessageID.ACTION_RESULT, payload))
-            )
+            self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
     def _normalize_measurement(self, data: Dict[str, Any]) -> Dict[str, Any]:
         accel = data.get("accel_g") or []
         gyro = data.get("gyro_dps") or []
         return {
-            "ax_g": round(
-                float(data.get("ax_g", accel[0] if len(accel) > 0 else 0.0)), 4
-            ),
-            "ay_g": round(
-                float(data.get("ay_g", accel[1] if len(accel) > 1 else 0.0)), 4
-            ),
-            "az_g": round(
-                float(data.get("az_g", accel[2] if len(accel) > 2 else 0.0)), 4
-            ),
-            "gx_dps": round(
-                float(data.get("gx_dps", gyro[0] if len(gyro) > 0 else 0.0)), 3
-            ),
-            "gy_dps": round(
-                float(data.get("gy_dps", gyro[1] if len(gyro) > 1 else 0.0)), 3
-            ),
-            "gz_dps": round(
-                float(data.get("gz_dps", gyro[2] if len(gyro) > 2 else 0.0)), 3
-            ),
+            "ax_g": round(float(data.get("ax_g", accel[0] if len(accel) > 0 else 0.0)), 4),
+            "ay_g": round(float(data.get("ay_g", accel[1] if len(accel) > 1 else 0.0)), 4),
+            "az_g": round(float(data.get("az_g", accel[2] if len(accel) > 2 else 0.0)), 4),
+            "gx_dps": round(float(data.get("gx_dps", gyro[0] if len(gyro) > 0 else 0.0)), 3),
+            "gy_dps": round(float(data.get("gy_dps", gyro[1] if len(gyro) > 1 else 0.0)), 3),
+            "gz_dps": round(float(data.get("gz_dps", gyro[2] if len(gyro) > 2 else 0.0)), 3),
         }
 
     def handle_message(self, message: Message):
@@ -136,10 +100,7 @@ class MPU6050HandlerFSM(BaseHandlerFSM):
                 error_message = str(exc)
                 result = ResultCode.ERROR
             self._emit_action_result("acquire", result, data=data, error=error_message)
-            self.set_state(
-                State.IDLE if result == ResultCode.OK else State.ERROR,
-                self.status_queue,
-            )
+            self.set_state(State.IDLE if result == ResultCode.OK else State.ERROR, self.status_queue)
             self._on_entry_flag = False
 
         elif self.state == State.DISABLE and self._on_entry_flag:

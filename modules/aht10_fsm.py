@@ -2,13 +2,7 @@
 
 from typing import Any, Dict, Optional
 
-from modules.support.base_fsm import (
-    BaseHandlerFSM,
-    State,
-    Message,
-    MessageID,
-    ResultCode,
-)
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
 from modules.support.system_config import get_config_value
@@ -22,26 +16,19 @@ class AHT10HandlerFSM(BaseHandlerFSM):
         self.status_queue = None
         self.data_logger = SensorDataLogger("AHT10", include_module=False)
         self._last_valid_reading: dict[str, float] | None = None
-        self.max_temperature_step_c = float(
-            get_config_value("aht10_max_temperature_step_c", 5.0)
-        )
-        self.max_humidity_step_rh = float(
-            get_config_value("aht10_max_humidity_step_rh", 35.0)
-        )
-        self.max_acquire_attempts = int(
-            get_config_value("aht10_max_acquire_attempts", 3)
-        )
+        self.max_temperature_step_c = float(get_config_value("aht10_max_temperature_step_c", 5.0))
+        self.max_humidity_step_rh = float(get_config_value("aht10_max_humidity_step_rh", 35.0))
+        self.max_acquire_attempts = int(get_config_value("aht10_max_acquire_attempts", 3))
 
-    def _plausibility_warning(
-        self, temperature_c: float, humidity_rh: float
-    ) -> str | None:
+    def _plausibility_warning(self, temperature_c: float, humidity_rh: float) -> str | None:
         min_temp = float(getattr(self.ll, "MIN_PLAUSIBLE_TEMP_C", -40.0))
         max_temp = float(getattr(self.ll, "MAX_PLAUSIBLE_TEMP_C", 85.0))
         min_rh = float(getattr(self.ll, "MIN_PLAUSIBLE_RH", 0.0))
         max_rh = float(getattr(self.ll, "MAX_PLAUSIBLE_RH", 100.0))
 
         if not (
-            min_temp <= temperature_c <= max_temp and min_rh <= humidity_rh <= max_rh
+            min_temp <= temperature_c <= max_temp
+            and min_rh <= humidity_rh <= max_rh
         ):
             return (
                 f"AHT10 reading is out of plausible range: "
@@ -72,30 +59,14 @@ class AHT10HandlerFSM(BaseHandlerFSM):
 
         return None
 
-    def _emit_state_result(
-        self, result: ResultCode, details: Optional[Dict[str, Any]] = None
-    ):
+    def _emit_state_result(self, result: ResultCode, details: Optional[Dict[str, Any]] = None):
         if self.status_queue:
-            self.status_queue.put(
-                (
-                    self.name,
-                    Message(
-                        MessageID.STATE_RESULT,
-                        {
-                            "result": result.value,
-                            "details": details or {},
-                        },
-                    ),
-                )
-            )
+            self.status_queue.put((self.name, Message(MessageID.STATE_RESULT, {
+                "result": result.value,
+                "details": details or {},
+            })))
 
-    def _emit_action_result(
-        self,
-        action: str,
-        result: ResultCode,
-        data: Optional[Dict[str, Any]] = None,
-        error: Optional[str] = None,
-    ):
+    def _emit_action_result(self, action: str, result: ResultCode, data: Optional[Dict[str, Any]] = None, error: Optional[str] = None):
         payload = {
             "origin": self.name,
             "state": self.state.name,
@@ -106,9 +77,7 @@ class AHT10HandlerFSM(BaseHandlerFSM):
         if error is not None:
             payload["error"] = error
         if self.status_queue:
-            self.status_queue.put(
-                (self.name, Message(MessageID.ACTION_RESULT, payload))
-            )
+            self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
     def handle_message(self, message: Message):
         if self._ignore_scheduler_while_error(message):
@@ -155,29 +124,18 @@ class AHT10HandlerFSM(BaseHandlerFSM):
             data: dict[str, Any] = {}
             try:
                 warning_message = None
-                attempts = max(
-                    1,
-                    int(
-                        self._pending_params.get(
-                            "max_attempts", self.max_acquire_attempts
-                        )
-                    ),
-                )
+                attempts = max(1, int(self._pending_params.get("max_attempts", self.max_acquire_attempts)))
                 for attempt in range(1, attempts + 1):
                     raw = self.ll.read_measurement_raw(
                         timeout=float(self._pending_params.get("timeout", 2.0)),
-                        retry_on_null=bool(
-                            self._pending_params.get("retry_on_null", True)
-                        ),
+                        retry_on_null=bool(self._pending_params.get("retry_on_null", True)),
                     )
                     temperature_c, humidity_rh = self.ll.parse(raw)
                     data = {
                         "temperature_c": round(temperature_c, 2),
                         "humidity_rh": round(humidity_rh, 2),
                     }
-                    warning_message = self._plausibility_warning(
-                        temperature_c, humidity_rh
-                    )
+                    warning_message = self._plausibility_warning(temperature_c, humidity_rh)
                     if warning_message is None:
                         break
                     self.logger.warning(
@@ -203,10 +161,7 @@ class AHT10HandlerFSM(BaseHandlerFSM):
                 error_message = str(exc)
                 result = ResultCode.ERROR
             self._emit_action_result("acquire", result, data=data, error=error_message)
-            self.set_state(
-                State.IDLE if result == ResultCode.OK else State.ERROR,
-                self.status_queue,
-            )
+            self.set_state(State.IDLE if result == ResultCode.OK else State.ERROR, self.status_queue)
             self._on_entry_flag = False
 
         elif self.state == State.DISABLE and self._on_entry_flag:

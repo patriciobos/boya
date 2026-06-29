@@ -54,7 +54,7 @@ class ProtocolError(WindsonicError):
 
 class WindsonicLowLevel:
     DEFAULT_PORT_CANDIDATES = [f"/dev/ttyS{i}" for i in range(6)]  # ttyS0 .. ttyS5
-    DEFAULT_PREFERRED_PORT = "/dev/ttyS1"
+    DEFAULT_PREFERRED_PORT = "/dev/ttyS2"
     DEFAULT_BAUDRATE = 9600
     DEFAULT_TIMEOUT = 1.0
     DEFAULT_IDENTIFICATION = "Q"
@@ -90,9 +90,7 @@ class WindsonicLowLevel:
         self.port_candidates: List[str] = []
         self.baudrate: int = int(baudrate)
         self.timeout: float = float(timeout)
-        self.preferred_port: Optional[str] = (
-            preferred_port or self.DEFAULT_PREFERRED_PORT
-        )
+        self.preferred_port: Optional[str] = preferred_port or self.DEFAULT_PREFERRED_PORT
         self.show_ports: bool = bool(show_ports)
 
         # functional state preserved from original module
@@ -285,11 +283,7 @@ class WindsonicLowLevel:
             self.logger.error(self.last_error)
             return False
 
-        if (
-            self.is_open
-            and self.serial_connection is not None
-            and self.serial_connection.is_open
-        ):
+        if self.is_open and self.serial_connection is not None and self.serial_connection.is_open:
             self.logger.info("Serial transport already open on %s", self.port)
             return True
 
@@ -396,11 +390,7 @@ class WindsonicLowLevel:
         self.logger.info("Running smoke test")
         self._clear_error()
 
-        was_open = (
-            self.is_open
-            and self.serial_connection is not None
-            and self.serial_connection.is_open
-        )
+        was_open = self.is_open and self.serial_connection is not None and self.serial_connection.is_open
         temporarily_opened = False
         original_serial = self.serial_connection
         original_bus = self.bus
@@ -439,11 +429,7 @@ class WindsonicLowLevel:
         self._clear_error()
 
         report = self._build_full_test_report()
-        was_open = (
-            self.is_open
-            and self.serial_connection is not None
-            and self.serial_connection.is_open
-        )
+        was_open = self.is_open and self.serial_connection is not None and self.serial_connection.is_open
         temporarily_opened = False
 
         try:
@@ -479,9 +465,7 @@ class WindsonicLowLevel:
 
             if report["device_present"] and probe_details:
                 try:
-                    report["details"]["sample"] = self._sample_from_probe_details(
-                        probe_details
-                    )
+                    report["details"]["sample"] = self._sample_from_probe_details(probe_details)
                 except Exception as exc:
                     report["errors"].append(f"Sample parse failed: {exc}")
 
@@ -493,9 +477,7 @@ class WindsonicLowLevel:
                 "preferred_port": self.preferred_port,
             }
 
-            success = bool(
-                report["initialized"] and report["opened"] and report["device_present"]
-            )
+            success = bool(report["initialized"] and report["opened"] and report["device_present"])
             self._log_full_test_result(success, report)
             return success, report
 
@@ -541,7 +523,6 @@ class WindsonicLowLevel:
             "units": units,
             "status": status,
         }
-
     # ------------------------------------------------------------------
     # preserved functional API
     # ------------------------------------------------------------------
@@ -592,21 +573,13 @@ class WindsonicLowLevel:
                 time.sleep(self.spacing)
 
             if acquired == num_acq:
-                self.logger.info(
-                    "Acquisition completed successfully: %s samples", acquired
-                )
+                self.logger.info("Acquisition completed successfully: %s samples", acquired)
                 self.last_acquisition_ok = True
             elif acquired > 0:
-                self.logger.warning(
-                    "Acquisition partially completed: %s of %s samples",
-                    acquired,
-                    num_acq,
-                )
+                self.logger.warning("Acquisition partially completed: %s of %s samples", acquired, num_acq)
                 self.last_acquisition_ok = True
             else:
-                self.logger.error(
-                    "Acquisition incomplete: %s of %s samples", acquired, num_acq
-                )
+                self.logger.error("Acquisition incomplete: %s of %s samples", acquired, num_acq)
                 self.last_acquisition_ok = False
 
         except Exception as exc:
@@ -617,9 +590,7 @@ class WindsonicLowLevel:
             self.is_acquiring = False
 
     def is_acquisition_done(self) -> tuple[bool, bool]:
-        done = not self.is_acquiring and (
-            self.acquisition_thread is None or not self.acquisition_thread.is_alive()
-        )
+        done = not self.is_acquiring and (self.acquisition_thread is None or not self.acquisition_thread.is_alive())
         return done, self.last_acquisition_ok
 
     def verify_checksum(self, data: str) -> bool:
@@ -634,7 +605,7 @@ class WindsonicLowLevel:
 
         data_to_check = data[stx_index:etx_index]
         try:
-            checksum_received = int(data[etx_index + 1 :], 16)
+            checksum_received = int(data[etx_index + 1:], 16)
         except ValueError:
             return False
 
@@ -657,21 +628,15 @@ class WindsonicLowLevel:
 
 
 def main(argv=None) -> bool:
-    preferred_port = os.getenv(
-        "PREFERRED_PORT", WindsonicLowLevel.DEFAULT_PREFERRED_PORT
-    )
+    preferred_port = os.getenv("PREFERRED_PORT", WindsonicLowLevel.DEFAULT_PREFERRED_PORT)
 
     try:
-        baudrate = int(
-            os.getenv("WINDSONIC_BAUDRATE", str(WindsonicLowLevel.DEFAULT_BAUDRATE))
-        )
+        baudrate = int(os.getenv("WINDSONIC_BAUDRATE", str(WindsonicLowLevel.DEFAULT_BAUDRATE)))
     except Exception:
         baudrate = WindsonicLowLevel.DEFAULT_BAUDRATE
 
     try:
-        timeout = float(
-            os.getenv("WINDSONIC_TIMEOUT", str(WindsonicLowLevel.DEFAULT_TIMEOUT))
-        )
+        timeout = float(os.getenv("WINDSONIC_TIMEOUT", str(WindsonicLowLevel.DEFAULT_TIMEOUT)))
     except Exception:
         timeout = WindsonicLowLevel.DEFAULT_TIMEOUT
 

@@ -39,12 +39,7 @@ def _normalize_source(data: dict[str, Any], source: str | None) -> str | None:
 
 
 class SensorDataLogger:
-    def __init__(
-        self,
-        module_name: str,
-        include_module: bool = True,
-        file_stem: str | None = None,
-    ):
+    def __init__(self, module_name: str, include_module: bool = True, file_stem: str | None = None):
         self.module_name = module_name
         self.include_module = include_module
         stem = file_stem or module_name.lower()

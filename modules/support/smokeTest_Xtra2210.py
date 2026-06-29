@@ -40,9 +40,7 @@ def modbus_crc(data: bytes) -> int:
     return crc & 0xFFFF
 
 
-def build_read_input_registers_request(
-    slave_id: int, start_reg: int, count: int
-) -> bytes:
+def build_read_input_registers_request(slave_id: int, start_reg: int, count: int) -> bytes:
     payload = struct.pack(">BBHH", slave_id, 0x04, start_reg, count)
     crc = modbus_crc(payload)
     return payload + struct.pack("<H", crc)
@@ -82,7 +80,7 @@ def parse_modbus_response(resp: bytes, slave_id: int, register_count: int):
     regs = []
     for i in range(register_count):
         off = 3 + 2 * i
-        regs.append(struct.unpack(">H", resp[off : off + 2])[0])
+        regs.append(struct.unpack(">H", resp[off:off + 2])[0])
 
     return True, regs
 
@@ -106,20 +104,14 @@ def decode_block(start_reg: int, regs):
     elif start_reg == 0x311A and len(regs) >= 2:
         decoded["battery_soc_pct"] = regs[0]
         raw_temp = regs[1]
-        decoded["battery_temp_c"] = (
-            raw_temp / 100.0 if raw_temp not in (0x7FFF, 0xFFFF) else None
-        )
+        decoded["battery_temp_c"] = raw_temp / 100.0 if raw_temp not in (0x7FFF, 0xFFFF) else None
 
     elif start_reg == 0x311D and len(regs) >= 1:
         decoded["battery_rated_voltage_v"] = regs[0] / 100.0
 
     elif start_reg == 0x3200 and len(regs) >= 2:
-        decoded["battery_temp_c"] = (
-            regs[0] / 100.0 if regs[0] not in (0x7FFF, 0xFFFF) else None
-        )
-        decoded["device_temp_c"] = (
-            regs[1] / 100.0 if regs[1] not in (0x7FFF, 0xFFFF) else None
-        )
+        decoded["battery_temp_c"] = regs[0] / 100.0 if regs[0] not in (0x7FFF, 0xFFFF) else None
+        decoded["device_temp_c"] = regs[1] / 100.0 if regs[1] not in (0x7FFF, 0xFFFF) else None
 
     return decoded
 
@@ -135,18 +127,9 @@ def values_look_plausible(decoded: dict) -> bool:
         plausible = True
     if "battery_soc_pct" in decoded and 0 <= decoded["battery_soc_pct"] <= 100:
         plausible = True
-    if "battery_rated_voltage_v" in decoded and decoded["battery_rated_voltage_v"] in (
-        12.0,
-        24.0,
-        36.0,
-        48.0,
-    ):
+    if "battery_rated_voltage_v" in decoded and decoded["battery_rated_voltage_v"] in (12.0, 24.0, 36.0, 48.0):
         plausible = True
-    if (
-        "device_temp_c" in decoded
-        and decoded["device_temp_c"] is not None
-        and -40.0 <= decoded["device_temp_c"] <= 120.0
-    ):
+    if "device_temp_c" in decoded and decoded["device_temp_c"] is not None and -40.0 <= decoded["device_temp_c"] <= 120.0:
         plausible = True
 
     return plausible
@@ -189,7 +172,7 @@ def main():
             port=PORT,
             baudrate=BAUDRATE,
             bytesize=8,
-            parity="N",
+            parity='N',
             stopbits=1,
             timeout=TIMEOUT,
         ) as ser:
@@ -225,15 +208,11 @@ def main():
     print(f"  bloques con valores plausibles: {plausible_hits}")
 
     if successes >= 2 and plausible_hits >= 1:
-        print(
-            "\nCONFIRMADO: hay evidencia fuerte de un controlador EPEVER XTRA2210/XTRA en la línea RS485."
-        )
+        print("\nCONFIRMADO: hay evidencia fuerte de un controlador EPEVER XTRA2210/XTRA en la línea RS485.")
         raise SystemExit(0)
 
     if successes >= 1:
-        print(
-            "\nRESPONDE MODBUS, pero la identificación no quedó suficientemente confirmada como XTRA2210."
-        )
+        print("\nRESPONDE MODBUS, pero la identificación no quedó suficientemente confirmada como XTRA2210.")
         raise SystemExit(4)
 
     print("\nNo se detectó respuesta válida del dispositivo esperado.")

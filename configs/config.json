@@ -20,5 +20,6 @@
   "storage_guard_file_margin_factor": 1.1,
   "data_dir": "data",
   "logs_dir": "logs",
-  "iridium_transmit_enabled": false
+  "iridium_transmit_enabled": true,
+  "iridium_boot_message_enabled": true
 }

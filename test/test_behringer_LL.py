@@ -136,9 +136,19 @@ def test_output_path_is_flat_utc_recordings_file(tmp_path):
     assert re.fullmatch(r"recording_\d{8}_\d{6}\.wav", os.path.basename(output_path))
 
 
-def test_record_rejects_unavailable_storage_before_open(monkeypatch):
-    audio = BehringerLowLevel()
+def test_record_rejects_unavailable_storage_before_open(monkeypatch, tmp_path):
+    audio = BehringerLowLevel(recordings_dir=str(tmp_path))
     assert audio.init() is True
+
+    monkeypatch.setattr(
+        behringer_module,
+        "validate_recordings_dir",
+        lambda recordings_dir, create=True: DirectoryValidation(
+            ok=False,
+            path=tmp_path,
+            errors=[STORAGE_ERROR_RECORDINGS_DIR_UNAVAILABLE],
+        ),
+    )
 
     def fail_open():
         raise AssertionError("open should not be called when storage admission fails")

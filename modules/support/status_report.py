@@ -19,14 +19,7 @@ class StatusReport:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.mock_modules = set(get_mocked_module_names())
 
-    def update(
-        self,
-        origin: str,
-        state: str,
-        action: str | None,
-        result: str | None,
-        details: Any = None,
-    ) -> None:
+    def update(self, origin: str, state: str, action: str | None, result: str | None, details: Any = None) -> None:
         self.report["last_updated"] = utc_minus_3_timestamp()
         module_report = self.report["modules"].setdefault(origin, {})
         mode = "mock" if origin in self.mock_modules else "hardware"

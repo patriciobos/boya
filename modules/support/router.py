@@ -92,19 +92,13 @@ class Router:
 
         if origin == AUDIO_MODULE and message.id == MessageID.ACTION_RESULT:
             if message.params.get("result") != "ok":
-                self.logger.info(
-                    "AudioProc result is not OK; keeping Iridium on scheduled transmissions"
-                )
+                self.logger.info("AudioProc result is not OK; keeping Iridium on scheduled transmissions")
                 return False
             if message.params.get("output"):
                 self.latest_audio_summary = self._compact_audio_message(message)
-                self.logger.info(
-                    "Stored latest AudioProc result for scheduled Iridium audio transmit"
-                )
+                self.logger.info("Stored latest AudioProc result for scheduled Iridium audio transmit")
                 return False
-            self.logger.info(
-                "AudioProc result has no output; keeping Iridium on scheduled transmissions"
-            )
+            self.logger.info("AudioProc result has no output; keeping Iridium on scheduled transmissions")
             return False
 
         for rule in self.rules:
@@ -121,15 +115,11 @@ class Router:
             self.send(rule.target, routed_message)
             return True
 
-        self.logger.debug(
-            "No route matched for origin=%s message=%s", origin, message.id
-        )
+        self.logger.debug("No route matched for origin=%s message=%s", origin, message.id)
         return False
 
     def _store_sensor_reading(self, origin: str, message: Message) -> None:
-        self.latest_sensor_readings[origin] = self._compact_sensor_message(
-            origin, message
-        )
+        self.latest_sensor_readings[origin] = self._compact_sensor_message(origin, message)
         self.logger.info("Stored latest sensor reading for %s", origin)
 
     def _compact_sensor_message(self, origin: str, message: Message) -> dict[str, Any]:
@@ -159,13 +149,9 @@ class Router:
             "details": message.params.get("details", {}),
         }
 
-    def _route_compact_telemetry_to_iridium(
-        self, origin: str, message: Message
-    ) -> bool:
+    def _route_compact_telemetry_to_iridium(self, origin: str, message: Message) -> bool:
         if IRIDIUM_MODULE not in self.queues:
-            self.logger.warning(
-                "Iridium queue is not registered. Cannot send telemetry."
-            )
+            self.logger.warning("Iridium queue is not registered. Cannot send telemetry.")
             return False
 
         transmit_message = Message(

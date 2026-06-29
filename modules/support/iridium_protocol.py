@@ -13,11 +13,15 @@ from modules.support.system_config import PROJECT_ROOT, get_config_value
 
 MSG_SYSTEM_STATUS_V1 = 0x01
 MSG_SYSTEM_STATUS = MSG_SYSTEM_STATUS_V1
+MSG_BOOT_V1 = 0x02
+MSG_BOOT = MSG_BOOT_V1
 MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8 = 0x03
 MESSAGE_TYPE_AUDIO_STEREO_DELTA_PREVIOUS_INT8 = 0x04
 MESSAGE_TYPE_AUDIO_MONO_ABS_INT16 = 0x05
 MESSAGE_TYPE_AUDIO_STEREO_ABS_INT16 = 0x06
 SYSTEM_STATUS_PAYLOAD_FORMAT = ">BBBBHBHH"
+BOOT_PAYLOAD_FORMAT = ">BH"
+BOOT_PAYLOAD_SIZE = struct.calcsize(BOOT_PAYLOAD_FORMAT)
 SYSTEM_STATUS_PAYLOAD_SIZE = struct.calcsize(SYSTEM_STATUS_PAYLOAD_FORMAT)
 SYSTEM_STATUS_UNKNOWN_U16 = 0xFFFF
 SYSTEM_STATUS_UNKNOWN_U8 = 0xFF
@@ -135,6 +139,34 @@ def encode_uptime_minutes(value: Any) -> int:
     return encoded
 
 
+def encode_boot_uptime_minutes(value: Any) -> int:
+    numeric = _finite_number(value)
+    if numeric is None:
+        raise ValueError("uptime_minutes must be a finite numeric value")
+    uptime = int(round(numeric))
+    if not 0 <= uptime <= 0xFFFF:
+        raise ValueError("uptime_minutes must be in range 0..65535")
+    return uptime
+
+
+def pack_boot_payload(uptime_minutes: Any) -> bytes:
+    uptime_encoded = encode_boot_uptime_minutes(uptime_minutes)
+    return struct.pack(BOOT_PAYLOAD_FORMAT, MSG_BOOT_V1, uptime_encoded)
+
+
+def unpack_boot_message(payload: bytes) -> dict[str, Any]:
+    if len(payload) != BOOT_PAYLOAD_SIZE:
+        raise ValueError(f"boot message payload must be {BOOT_PAYLOAD_SIZE} bytes")
+    message_type, uptime_minutes = struct.unpack(BOOT_PAYLOAD_FORMAT, payload)
+    if message_type != MSG_BOOT_V1:
+        raise ValueError(f"invalid boot message type: {message_type}")
+    return {
+        "message_type": "MSG_BOOT",
+        "message_type_byte": message_type,
+        "uptime_minutes": uptime_minutes,
+    }
+
+
 def build_status_flags(
     *,
     storage_unavailable: bool = False,
@@ -223,9 +255,7 @@ def pack_system_status(
 
 def unpack_system_status(payload: bytes) -> dict[str, Any]:
     if len(payload) != SYSTEM_STATUS_PAYLOAD_SIZE:
-        raise ValueError(
-            f"system status payload must be {SYSTEM_STATUS_PAYLOAD_SIZE} bytes"
-        )
+        raise ValueError(f"system status payload must be {SYSTEM_STATUS_PAYLOAD_SIZE} bytes")
     (
         message_type,
         fsm_ok_bitmap,
@@ -239,17 +269,9 @@ def unpack_system_status(payload: bytes) -> dict[str, Any]:
     if message_type != MSG_SYSTEM_STATUS_V1:
         raise ValueError(f"invalid system status message type: {message_type}")
 
-    voltage_mv = (
-        None if battery_voltage_mv == SYSTEM_STATUS_UNKNOWN_U16 else battery_voltage_mv
-    )
-    soc_percent = (
-        None if battery_soc_percent == SYSTEM_STATUS_UNKNOWN_U8 else battery_soc_percent
-    )
-    free_gib_x10 = (
-        None
-        if storage_free_gib_x10 == SYSTEM_STATUS_UNKNOWN_U16
-        else storage_free_gib_x10
-    )
+    voltage_mv = None if battery_voltage_mv == SYSTEM_STATUS_UNKNOWN_U16 else battery_voltage_mv
+    soc_percent = None if battery_soc_percent == SYSTEM_STATUS_UNKNOWN_U8 else battery_soc_percent
+    free_gib_x10 = None if storage_free_gib_x10 == SYSTEM_STATUS_UNKNOWN_U16 else storage_free_gib_x10
     uptime = None if uptime_minutes == SYSTEM_STATUS_UNKNOWN_U16 else uptime_minutes
     return {
         "message_type": "MSG_SYSTEM_STATUS",
@@ -287,9 +309,7 @@ def status_details(fsm_ok_bitmap: int, ll_ok_bitmap: int) -> dict[str, Any]:
     }
 
 
-def expected_audio_band_count(
-    sample_rate_hz: float | int | None = None, bands_path: Path | None = None
-) -> int:
+def expected_audio_band_count(sample_rate_hz: float | int | None = None, bands_path: Path | None = None) -> int:
     if sample_rate_hz is None:
         sample_rate_hz = get_config_value("fs[Hz]", 192000)
     sample_rate_hz = float(sample_rate_hz)
@@ -307,9 +327,7 @@ def expected_audio_band_count(
     return count
 
 
-def _audio_channel_values(
-    relative_band_power_db: Any,
-) -> tuple[list[list[Any]], int, int]:
+def _audio_channel_values(relative_band_power_db: Any) -> tuple[list[list[Any]], int, int]:
     if not isinstance(relative_band_power_db, list):
         raise ValueError("relative_band_power_db must be a list")
     if not relative_band_power_db:
@@ -322,14 +340,10 @@ def _audio_channel_values(
         if channel_count is None:
             channel_count = len(row_values)
             if channel_count not in (1, 2):
-                raise ValueError(
-                    f"Unsupported AudioProc channel count: {channel_count}"
-                )
+                raise ValueError(f"Unsupported AudioProc channel count: {channel_count}")
             channels = [[] for _ in range(channel_count)]
         elif len(row_values) != channel_count:
-            raise ValueError(
-                "AudioProc channel count is not consistent across frequency bands"
-            )
+            raise ValueError("AudioProc channel count is not consistent across frequency bands")
         for channel_index, value in enumerate(row_values):
             channels[channel_index].append(value)
 
@@ -384,9 +398,7 @@ def pack_abs_int16_channel(q_values: list[int | None]) -> bytes:
         if q_value is None:
             encoded = AUDIOPROC_ABS_INT16_SENTINEL
         else:
-            encoded = max(
-                AUDIOPROC_ABS_INT16_MIN, min(AUDIOPROC_ABS_INT16_MAX, int(q_value))
-            )
+            encoded = max(AUDIOPROC_ABS_INT16_MIN, min(AUDIOPROC_ABS_INT16_MAX, int(q_value)))
         payload.extend(struct.pack(">h", encoded))
     return bytes(payload)
 
@@ -397,12 +409,8 @@ def unpack_abs_int16_channel(payload: bytes, n_bands: int) -> list[float | None]
         raise ValueError(f"ABS_INT16 channel payload must be {expected_size} bytes")
     values: list[float | None] = []
     for index in range(0, len(payload), 2):
-        q_value = struct.unpack(">h", payload[index : index + 2])[0]
-        values.append(
-            None
-            if q_value == AUDIOPROC_ABS_INT16_SENTINEL
-            else q_value / AUDIOPROC_DB_SCALE
-        )
+        q_value = struct.unpack(">h", payload[index:index + 2])[0]
+        values.append(None if q_value == AUDIOPROC_ABS_INT16_SENTINEL else q_value / AUDIOPROC_DB_SCALE)
     return values
 
 
@@ -421,9 +429,7 @@ def pack_delta_previous_int8_channel(q_values: list[int | None]) -> bytes:
 def unpack_delta_previous_int8_channel(payload: bytes, n_bands: int) -> list[float]:
     expected_size = 2 + max(0, int(n_bands) - 1)
     if len(payload) != expected_size:
-        raise ValueError(
-            f"DELTA_PREVIOUS_INT8 channel payload must be {expected_size} bytes"
-        )
+        raise ValueError(f"DELTA_PREVIOUS_INT8 channel payload must be {expected_size} bytes")
     if n_bands <= 0:
         raise ValueError("n_bands must be positive")
     q_values = [struct.unpack(">h", payload[:2])[0]]
@@ -446,9 +452,7 @@ def _audio_message_type(channel_count: int, packing: str) -> int:
         return MESSAGE_TYPE_AUDIO_MONO_ABS_INT16
     if channel_count == 2 and packing == AUDIO_PACKING_ABS_INT16:
         return MESSAGE_TYPE_AUDIO_STEREO_ABS_INT16
-    raise ValueError(
-        f"unsupported audio channel_count/packing: {channel_count}/{packing}"
-    )
+    raise ValueError(f"unsupported audio channel_count/packing: {channel_count}/{packing}")
 
 
 def _audio_type_details(message_type: int) -> tuple[int, str]:
@@ -467,18 +471,12 @@ def choose_audio_packing(relative_band_power_db: Any) -> dict[str, Any]:
     channels, band_count, channel_count = _audio_channel_values(relative_band_power_db)
     q_channels = [quantize_db_tenths(channel_values) for channel_values in channels]
     can_delta = all(can_pack_delta_previous_int8(q_values) for q_values in q_channels)
-    packing = (
-        AUDIO_PACKING_DELTA_PREVIOUS_INT8 if can_delta else AUDIO_PACKING_ABS_INT16
-    )
+    packing = AUDIO_PACKING_DELTA_PREVIOUS_INT8 if can_delta else AUDIO_PACKING_ABS_INT16
     message_type = _audio_message_type(channel_count, packing)
     if packing == AUDIO_PACKING_DELTA_PREVIOUS_INT8:
-        audio_payload = b"".join(
-            pack_delta_previous_int8_channel(q_values) for q_values in q_channels
-        )
+        audio_payload = b"".join(pack_delta_previous_int8_channel(q_values) for q_values in q_channels)
     else:
-        audio_payload = b"".join(
-            pack_abs_int16_channel(q_values) for q_values in q_channels
-        )
+        audio_payload = b"".join(pack_abs_int16_channel(q_values) for q_values in q_channels)
     return {
         "channels": channels,
         "q_channels": q_channels,
@@ -516,16 +514,11 @@ def build_audio_proc_payload(
         )
     message_type = packing_details["message_type"]
     epoch = utc_epoch_seconds(timestamp)
-    body = (
-        struct.pack(AUDIOPROC_HEADER_FORMAT, message_type, epoch)
-        + packing_details["audio_payload"]
-    )
+    body = struct.pack(AUDIOPROC_HEADER_FORMAT, message_type, epoch) + packing_details["audio_payload"]
     return body + struct.pack(">H", crc16_ccitt_false(body))
 
 
-def decode_audio_proc_payload(
-    payload: bytes, expected_band_count: int | None = None
-) -> dict[str, Any]:
+def decode_audio_proc_payload(payload: bytes, expected_band_count: int | None = None) -> dict[str, Any]:
     minimum_size = AUDIOPROC_HEADER_SIZE + AUDIOPROC_CRC_SIZE
     if len(payload) < minimum_size:
         raise ValueError(f"audio payload must be at least {minimum_size} bytes")
@@ -534,21 +527,15 @@ def decode_audio_proc_payload(
     expected_crc = struct.unpack(">H", payload[-AUDIOPROC_CRC_SIZE:])[0]
     actual_crc = crc16_ccitt_false(body)
     if actual_crc != expected_crc:
-        raise ValueError(
-            f"audio payload CRC mismatch: expected={expected_crc:#06x} actual={actual_crc:#06x}"
-        )
+        raise ValueError(f"audio payload CRC mismatch: expected={expected_crc:#06x} actual={actual_crc:#06x}")
 
-    message_type, epoch = struct.unpack(
-        AUDIOPROC_HEADER_FORMAT, body[:AUDIOPROC_HEADER_SIZE]
-    )
+    message_type, epoch = struct.unpack(AUDIOPROC_HEADER_FORMAT, body[:AUDIOPROC_HEADER_SIZE])
     channel_count, packing = _audio_type_details(message_type)
     audio_payload = body[AUDIOPROC_HEADER_SIZE:]
     if packing == AUDIO_PACKING_DELTA_PREVIOUS_INT8:
         if expected_band_count is None:
             if len(audio_payload) % channel_count != 0:
-                raise ValueError(
-                    "delta audio payload length is not divisible by channel count"
-                )
+                raise ValueError("delta audio payload length is not divisible by channel count")
             per_channel_size = len(audio_payload) // channel_count
             band_count = per_channel_size - 1
         else:
@@ -556,40 +543,28 @@ def decode_audio_proc_payload(
         per_channel_size = 2 + max(0, band_count - 1)
         expected_size = channel_count * per_channel_size
         if len(audio_payload) != expected_size:
-            raise ValueError(
-                f"delta audio payload must be {expected_size} bytes for {band_count} bands"
-            )
+            raise ValueError(f"delta audio payload must be {expected_size} bytes for {band_count} bands")
         channels = []
         for channel_index in range(channel_count):
             start = channel_index * per_channel_size
             channels.append(
-                unpack_delta_previous_int8_channel(
-                    audio_payload[start : start + per_channel_size], band_count
-                )
+                unpack_delta_previous_int8_channel(audio_payload[start:start + per_channel_size], band_count)
             )
     else:
         if expected_band_count is None:
             if len(audio_payload) % (channel_count * 2) != 0:
-                raise ValueError(
-                    "ABS audio payload length is not divisible by channel count"
-                )
+                raise ValueError("ABS audio payload length is not divisible by channel count")
             band_count = len(audio_payload) // (channel_count * 2)
         else:
             band_count = int(expected_band_count)
         per_channel_size = band_count * 2
         expected_size = channel_count * per_channel_size
         if len(audio_payload) != expected_size:
-            raise ValueError(
-                f"ABS audio payload must be {expected_size} bytes for {band_count} bands"
-            )
+            raise ValueError(f"ABS audio payload must be {expected_size} bytes for {band_count} bands")
         channels = []
         for channel_index in range(channel_count):
             start = channel_index * per_channel_size
-            channels.append(
-                unpack_abs_int16_channel(
-                    audio_payload[start : start + per_channel_size], band_count
-                )
-            )
+            channels.append(unpack_abs_int16_channel(audio_payload[start:start + per_channel_size], band_count))
 
     rows = []
     for band_index in range(band_count):
@@ -606,23 +581,21 @@ def decode_audio_proc_payload(
     }
 
 
-def decode_message(
-    payload: bytes, expected_audio_band_count: int | None = None
-) -> dict[str, Any]:
+def decode_message(payload: bytes, expected_audio_band_count: int | None = None) -> dict[str, Any]:
     if not payload:
         raise ValueError("Iridium payload is empty")
     message_type = payload[0]
     if message_type == MSG_SYSTEM_STATUS_V1:
         return unpack_system_status(payload)
+    if message_type == MSG_BOOT_V1:
+        return unpack_boot_message(payload)
     if message_type in {
         MESSAGE_TYPE_AUDIO_MONO_DELTA_PREVIOUS_INT8,
         MESSAGE_TYPE_AUDIO_STEREO_DELTA_PREVIOUS_INT8,
         MESSAGE_TYPE_AUDIO_MONO_ABS_INT16,
         MESSAGE_TYPE_AUDIO_STEREO_ABS_INT16,
     }:
-        decoded = decode_audio_proc_payload(
-            payload, expected_band_count=expected_audio_band_count
-        )
+        decoded = decode_audio_proc_payload(payload, expected_band_count=expected_audio_band_count)
         decoded["message_type_name"] = "MSG_AUDIO"
         return decoded
     raise ValueError(f"unknown Iridium message type: {message_type:#04x}")

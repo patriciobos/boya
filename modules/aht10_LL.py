@@ -1,3 +1,4 @@
+
 """AHT10 low-level driver (refactored, I2C-uniformized).
 
 This version follows the agreed stage-1 low-level conventions:
@@ -106,9 +107,7 @@ class AHT10LowLevel:
             self.close()
 
             self.address = int(address)
-            candidates = discover_i2c_buses(
-                bus if bus is not None else self.DEFAULT_BUS
-            )
+            candidates = discover_i2c_buses(bus if bus is not None else self.DEFAULT_BUS)
             self.bus_candidates = list(candidates)
             self.bus_num = int(bus) if bus is not None else None
             self.bus_forced = bus is not None
@@ -149,13 +148,9 @@ class AHT10LowLevel:
         last_exc: Optional[Exception] = None
         for busnum in candidates:
             try:
-                self.logger.info(
-                    "Trying I2C bus %s for AHT10@0x%02X", busnum, self.address
-                )
+                self.logger.info("Trying I2C bus %s for AHT10@0x%02X", busnum, self.address)
                 if SMBus is None:
-                    raise NotFound(
-                        "smbus2.SMBus is not available. Did the import fail?"
-                    )
+                    raise NotFound("smbus2.SMBus is not available. Did the import fail?")
                 self.bus = SMBus(busnum)
                 self.bus_num = busnum
                 self.is_open = True
@@ -227,9 +222,7 @@ class AHT10LowLevel:
         except OSError as exc:
             raise I2CError(f"I2C error during raw read({n}): {exc}") from exc
 
-    def _read_raw_with_retries(
-        self, n: int, max_attempts: int = 3, delay_s: float = 0.02
-    ) -> bytes:
+    def _read_raw_with_retries(self, n: int, max_attempts: int = 3, delay_s: float = 0.02) -> bytes:
         last_exc: Optional[Exception] = None
         for attempt in range(1, max_attempts + 1):
             try:
@@ -252,12 +245,8 @@ class AHT10LowLevel:
             time.sleep(delay_s)
 
         if last_exc is not None:
-            raise ProtocolError(
-                f"Could not read {n} bytes from AHT10: {last_exc}"
-            ) from last_exc
-        raise ProtocolError(
-            f"Could not read {n} bytes from AHT10 after {max_attempts} attempts"
-        )
+            raise ProtocolError(f"Could not read {n} bytes from AHT10: {last_exc}") from last_exc
+        raise ProtocolError(f"Could not read {n} bytes from AHT10 after {max_attempts} attempts")
 
     def initialize_sensor(self) -> bool:
         """Try the standard AHT10 initialization/calibration command."""
@@ -266,9 +255,7 @@ class AHT10LowLevel:
             time.sleep(0.04)
             return True
         except AHT10Error as exc:
-            self.logger.debug(
-                "AHT10 initialize command failed on bus %s: %s", self.bus_num, exc
-            )
+            self.logger.debug("AHT10 initialize command failed on bus %s: %s", self.bus_num, exc)
             return False
 
     def reset(self) -> bool:
@@ -294,9 +281,7 @@ class AHT10LowLevel:
         try:
             return int(bus.read_byte(self.address))
         except Exception as exc1:
-            self.logger.debug(
-                "read_status: read_byte failed on bus %s: %s", self.bus_num, exc1
-            )
+            self.logger.debug("read_status: read_byte failed on bus %s: %s", self.bus_num, exc1)
 
         # Fallback 2: raw read(1)
         try:
@@ -304,9 +289,7 @@ class AHT10LowLevel:
             if data:
                 return data[0]
         except Exception as exc2:
-            self.logger.debug(
-                "read_status: raw read(1) failed on bus %s: %s", self.bus_num, exc2
-            )
+            self.logger.debug("read_status: raw read(1) failed on bus %s: %s", self.bus_num, exc2)
 
         # Fallback 3: trigger + 6-byte payload, first byte is status
         try:
@@ -334,9 +317,7 @@ class AHT10LowLevel:
             status = self.read_status()
         return bool(status & 0x08)
 
-    def read_measurement_raw(
-        self, timeout: float = 1.0, retry_on_null: bool = True
-    ) -> bytes:
+    def read_measurement_raw(self, timeout: float = 1.0, retry_on_null: bool = True) -> bytes:
         """Trigger and read a standard 6-byte AHT10 measurement."""
         for attempt in range(1, 3 if retry_on_null else 2):
             self.logger.debug("AHT10 measurement attempt %s", attempt)
@@ -423,25 +404,19 @@ class AHT10LowLevel:
         except Exception as exc:
             msg = f"read_byte failed: {exc}"
             errors.append(msg)
-            details["checks"].append(
-                {"name": "read_byte", "ok": False, "error": str(exc)}
-            )
+            details["checks"].append({"name": "read_byte", "ok": False, "error": str(exc)})
 
         # Check 2: init/calibration command, then read status
         init_ok = self.initialize_sensor()
         details["checks"].append({"name": "initialize_sensor", "ok": init_ok})
         try:
             status = self.read_status()
-            details["checks"].append(
-                {"name": "read_status", "ok": True, "status": status}
-            )
+            details["checks"].append({"name": "read_status", "ok": True, "status": status})
             return True, errors, details
         except Exception as exc:
             msg = f"read_status failed: {exc}"
             errors.append(msg)
-            details["checks"].append(
-                {"name": "read_status", "ok": False, "error": str(exc)}
-            )
+            details["checks"].append({"name": "read_status", "ok": False, "error": str(exc)})
 
         # Check 3: full trigger+read(6)+parse
         try:
@@ -475,11 +450,7 @@ class AHT10LowLevel:
         }
         errors: list[str] = []
 
-        candidates = (
-            list(self.bus_candidates)
-            if self.bus_candidates
-            else discover_i2c_buses(self.DEFAULT_BUS)
-        )
+        candidates = list(self.bus_candidates) if self.bus_candidates else discover_i2c_buses(self.DEFAULT_BUS)
         if self.bus_num is not None and self.bus_num not in candidates:
             candidates = [self.bus_num] + candidates
 
@@ -606,13 +577,8 @@ class AHT10LowLevel:
 
             details["details"]["measurement"] = measurements[-1]
             details["details"]["measurement_attempts"] = measurements
-            details["errors"].append(
-                "Measurement values are outside plausible AHT10 range"
-            )
-            self.logger.error(
-                "AHT10 measurement outside plausible range: %s",
-                details["details"]["measurement"],
-            )
+            details["errors"].append("Measurement values are outside plausible AHT10 range")
+            self.logger.error("AHT10 measurement outside plausible range: %s", details["details"]["measurement"])
             return False, details
         except Exception as exc:
             details["errors"].append(str(exc))
@@ -638,9 +604,7 @@ __all__ = [
 ]
 
 
-def _run_self_test(
-    bus: Optional[int] = None, address: int = AHT10LowLevel.DEFAULT_ADDRESS
-) -> int:
+def _run_self_test(bus: Optional[int] = None, address: int = AHT10LowLevel.DEFAULT_ADDRESS) -> int:
     logger = logging.getLogger("aht10_LL")
     drv = AHT10LowLevel()
 
@@ -674,9 +638,7 @@ def main(argv: Optional[list[str]] = None) -> bool:
     import json
 
     parser = argparse.ArgumentParser(description="AHT10 low-level driver self-test")
-    parser.add_argument(
-        "--bus", "-b", type=int, default=None, help="Preferred I2C bus number"
-    )
+    parser.add_argument("--bus", "-b", type=int, default=None, help="Preferred I2C bus number")
     parser.add_argument(
         "--address",
         "-a",
@@ -718,5 +680,4 @@ def main(argv: Optional[list[str]] = None) -> bool:
 
 if __name__ == "__main__":
     import sys
-
     raise SystemExit(0 if main(sys.argv[1:]) else 1)

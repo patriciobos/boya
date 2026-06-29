@@ -3,20 +3,17 @@ import os
 import time
 from pathlib import Path
 
-from modules.support.base_fsm import (
-    BaseHandlerFSM,
-    State,
-    Message,
-    MessageID,
-    ResultCode,
-)
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.iridium_protocol import (
     AUDIOPROC_CRC_SIZE,
     AUDIOPROC_HEADER_SIZE,
+    MSG_BOOT,
     build_audio_proc_payload,
+    BOOT_PAYLOAD_SIZE,
     SYSTEM_STATUS_PAYLOAD_SIZE,
     build_status_flags,
     build_status_ok_bitmaps,
+    pack_boot_payload,
     pack_system_status,
     decode_audio_proc_payload,
     expected_audio_band_count,
@@ -42,14 +39,7 @@ from modules.support.storage_guard import (
     get_directory_size_bytes,
     validate_recordings_dir,
 )
-from modules.support.system_config import (
-    PROJECT_ROOT,
-    get_config_value,
-    get_data_path,
-    get_logs_path,
-    now_utc_minus_3,
-    utc_minus_3_timestamp,
-)
+from modules.support.system_config import PROJECT_ROOT, get_config_value, get_data_path, get_logs_path, now_utc_minus_3, utc_minus_3_timestamp
 
 
 class AudioProcPayloadUnavailable(ValueError):
@@ -62,25 +52,16 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         self.ll = get_low_level_class("Iridium")()
         self.status_queue = None
         self._pending_params = {}
+        self._boot_message_sent = False
 
     def _emit_state_result(self, result: ResultCode, details=None):
         if self.status_queue:
-            self.status_queue.put(
-                (
-                    self.name,
-                    Message(
-                        MessageID.STATE_RESULT,
-                        {
-                            "result": result.value,
-                            "details": details or {},
-                        },
-                    ),
-                )
-            )
+            self.status_queue.put((self.name, Message(MessageID.STATE_RESULT, {
+                "result": result.value,
+                "details": details or {},
+            })))
 
-    def _emit_action_result(
-        self, action: str, result: ResultCode, data=None, error=None, details=None
-    ):
+    def _emit_action_result(self, action: str, result: ResultCode, data=None, error=None, details=None):
         payload = {
             "origin": self.name,
             "state": self.state.name,
@@ -92,9 +73,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         if error:
             payload["error"] = error
         if self.status_queue:
-            self.status_queue.put(
-                (self.name, Message(MessageID.ACTION_RESULT, payload))
-            )
+            self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
     def _load_system_status(self):
         path = get_logs_path() / "system_status.json"
@@ -125,9 +104,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         soc_percent = data.get("battery_soc_pct")
         voltage_mv = None
         try:
-            voltage_mv = (
-                None if voltage_v is None else int(round(float(voltage_v) * 1000.0))
-            )
+            voltage_mv = None if voltage_v is None else int(round(float(voltage_v) * 1000.0))
         except (TypeError, ValueError):
             voltage_mv = None
 
@@ -164,18 +141,10 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         }
 
     def _storage_summary(self):
-        recordings_dir = str(
-            get_config_value("recordings_dir", "/storage/boya/recordings")
-        )
-        warning_bytes = int(
-            get_config_value("storage_guard_min_free_warning_bytes", 100 * GIB_BYTES)
-        )
-        critical_bytes = int(
-            get_config_value("storage_guard_min_free_critical_bytes", 50 * GIB_BYTES)
-        )
-        max_recordings_dir_bytes = int(
-            get_config_value("storage_guard_max_recordings_dir_bytes", 860 * GIB_BYTES)
-        )
+        recordings_dir = str(get_config_value("recordings_dir", "/storage/boya/recordings"))
+        warning_bytes = int(get_config_value("storage_guard_min_free_warning_bytes", 100 * GIB_BYTES))
+        critical_bytes = int(get_config_value("storage_guard_min_free_critical_bytes", 50 * GIB_BYTES))
+        max_recordings_dir_bytes = int(get_config_value("storage_guard_max_recordings_dir_bytes", 860 * GIB_BYTES))
 
         validation = validate_recordings_dir(recordings_dir, create=False)
         errors = set(validation.errors)
@@ -225,6 +194,43 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         except (OSError, ValueError, IndexError):
             return int(time.monotonic() // 60)
 
+    def _boot_message_enabled(self):
+        return bool(get_config_value("iridium_boot_message_enabled", True))
+
+    def _send_boot_message(self):
+        if self._boot_message_sent:
+            return True, {"mode": "boot", "skipped": True, "reason": "boot_message_already_sent"}
+
+        self._boot_message_sent = True
+        if not self._boot_message_enabled():
+            details = {"mode": "boot", "skipped": True, "reason": "iridium_boot_message_disabled"}
+            self.logger.info("Iridium boot message disabled by configuration")
+            return True, details
+
+        try:
+            uptime_minutes = self._uptime_minutes()
+            payload = pack_boot_payload(uptime_minutes)
+        except ValueError as exc:
+            self.logger.warning("Boot message payload validation failed: %s", exc)
+            return False, {"mode": "boot", "skipped": True, "reason": "invalid_uptime_minutes", "error": str(exc)}
+
+        details = {
+            "message_type": "boot",
+            "message_type_byte": MSG_BOOT,
+            "payload_size_bytes": len(payload),
+            "uptime_minutes": uptime_minutes,
+        }
+        ok, transmit_details = self._send_binary_or_log(
+            payload,
+            details,
+            clear_after_success=True,
+            max_attempts=1,
+            retry_delay_s=0.0,
+        )
+        if isinstance(transmit_details, dict):
+            return ok, {**details, **transmit_details}
+        return ok, details
+
     def _last_acquisition_incomplete(self, system_status):
         incomplete_reasons = {
             RECORDING_INTERRUPTED,
@@ -256,9 +262,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
 
     def _details_contain_any(self, value, needles):
         if isinstance(value, dict):
-            return any(
-                self._details_contain_any(item, needles) for item in value.values()
-            )
+            return any(self._details_contain_any(item, needles) for item in value.values())
         if isinstance(value, list):
             return any(self._details_contain_any(item, needles) for item in value)
         return str(value) in needles
@@ -276,9 +280,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             storage_quota_exceeded=storage["storage_quota_exceeded"],
             battery_warning=battery["battery_warning"],
             battery_critical=battery["battery_critical"],
-            last_acquisition_incomplete=self._last_acquisition_incomplete(
-                system_status
-            ),
+            last_acquisition_incomplete=self._last_acquisition_incomplete(system_status),
         )
         payload = pack_system_status(
             fsm_ok_bitmap=fsm_ok_bitmap,
@@ -343,17 +345,13 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         except FileNotFoundError as exc:
             raise ValueError(f"AudioProc output not found: {output_path}") from exc
         except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"Invalid AudioProc output JSON: {output_path}: {exc}"
-            ) from exc
+            raise ValueError(f"Invalid AudioProc output JSON: {output_path}: {exc}") from exc
 
     def _build_audio_proc_payload(self, audio):
         audio_data = self._load_audio_proc_data(audio)
         bands = audio_data.get("relative_band_power_db")
         if bands is None:
-            raise AudioProcPayloadUnavailable(
-                "AudioProc relative_band_power_db is not available"
-            )
+            raise AudioProcPayloadUnavailable("AudioProc relative_band_power_db is not available")
         if not audio_data.get("timestamp"):
             raise AudioProcPayloadUnavailable("AudioProc timestamp is not available")
 
@@ -365,9 +363,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         )
         message_type = payload[0]
         decoded = decode_audio_proc_payload(payload, expected_band_count=expected_bands)
-        audio_payload_bytes = max(
-            0, len(payload) - AUDIOPROC_HEADER_SIZE - AUDIOPROC_CRC_SIZE
-        )
+        audio_payload_bytes = max(0, len(payload) - AUDIOPROC_HEADER_SIZE - AUDIOPROC_CRC_SIZE)
         channel_count = decoded["channel_count"]
         details = {
             "message_type": "audioProc",
@@ -380,9 +376,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             "channel_count": channel_count,
             "audio_payload_size_bytes": audio_payload_bytes,
             "audio_value_count": expected_bands * channel_count,
-            "bytes_per_channel": (
-                audio_payload_bytes // channel_count if channel_count else 0
-            ),
+            "bytes_per_channel": audio_payload_bytes // channel_count if channel_count else 0,
             "audio_output": (audio or {}).get("output") or audio_data.get("output"),
             "audio_timestamp": audio_data["timestamp"],
             "encoding": "relative_band_power_db_q0.1_crc16_ccitt_false",
@@ -396,23 +390,15 @@ class IridiumHandlerFSM(BaseHandlerFSM):
         entry = {
             "timestamp": utc_minus_3_timestamp(),
             "mode": mode,
-            "payload_size_bytes": (
-                len(payload) if isinstance(payload, (bytes, bytearray)) else None
-            ),
-            "payload_hex": (
-                bytes(payload).hex()
-                if isinstance(payload, (bytes, bytearray))
-                else None
-            ),
+            "payload_size_bytes": len(payload) if isinstance(payload, (bytes, bytearray)) else None,
+            "payload_hex": bytes(payload).hex() if isinstance(payload, (bytes, bytearray)) else None,
             "details": details,
         }
         if skipped_reason:
             entry["skipped_reason"] = skipped_reason
         path = get_logs_path() / "iridium_transmit_requests.jsonl"
         with open(path, "a", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(entry, separators=(",", ":"), ensure_ascii=False) + "\n"
-            )
+            handle.write(json.dumps(entry, separators=(",", ":"), ensure_ascii=False) + "\n")
         self.logger.info(
             "Iridium transmit request logged: mode=%s size=%s skipped_reason=%s",
             entry["mode"],
@@ -420,18 +406,14 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             skipped_reason,
         )
 
-    def _send_binary_or_log(
-        self, payload, details, clear_after_success, max_attempts, retry_delay_s
-    ):
+    def _send_binary_or_log(self, payload, details, clear_after_success, max_attempts, retry_delay_s):
         if not self._transmit_enabled():
             skipped = {
                 "mode": "binary",
                 "skipped": True,
                 "reason": "iridium_transmit_disabled",
             }
-            self._log_transmit_request(
-                "binary", payload, details, skipped_reason=skipped["reason"]
-            )
+            self._log_transmit_request("binary", payload, details, skipped_reason=skipped["reason"])
             return True, skipped
 
         self._log_transmit_request("binary", payload, details)
@@ -491,7 +473,22 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             ok, details = self.ll.full_test()
             result = ResultCode.OK if ok else ResultCode.ERROR
             self._emit_action_result("test", result, details=details)
-            self.set_state(State.IDLE if ok else State.ERROR, self.status_queue)
+            if ok:
+                boot_ok, boot_details = self._send_boot_message()
+                if not boot_ok:
+                    self.logger.warning("Iridium boot message failed after successful test: %s", boot_details)
+                result_details = {
+                    "message_type_byte": boot_details.get("message_type_byte"),
+                    "transmit": boot_details,
+                }
+                self._emit_action_result(
+                    "transmit",
+                    ResultCode.OK if boot_ok else ResultCode.ERROR,
+                    details=result_details,
+                )
+                self.set_state(State.IDLE, self.status_queue)
+            else:
+                self.set_state(State.ERROR, self.status_queue)
             self._on_entry_flag = False
 
         elif self.state == State.IDLE and self._on_entry_flag:
@@ -510,9 +507,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             mode = self._pending_params.get("mode")
             max_attempts = int(self._pending_params.get("max_attempts", 3))
             retry_delay_s = float(self._pending_params.get("retry_delay_s", 10.0))
-            clear_after_success = bool(
-                self._pending_params.get("clear_after_success", True)
-            )
+            clear_after_success = bool(self._pending_params.get("clear_after_success", True))
             try:
                 if mode in ("alive", "system_status"):
                     payload, system_status_details = self._build_system_status_payload()
@@ -523,15 +518,10 @@ class IridiumHandlerFSM(BaseHandlerFSM):
                         max_attempts,
                         retry_delay_s,
                     )
-                    details = {
-                        "system_status": system_status_details,
-                        "transmit": transmit_details,
-                    }
+                    details = {"system_status": system_status_details, "transmit": transmit_details}
                 elif mode == "audio":
                     try:
-                        payload, audio_details = self._build_audio_proc_payload(
-                            self._pending_params.get("audio")
-                        )
+                        payload, audio_details = self._build_audio_proc_payload(self._pending_params.get("audio"))
                     except (AudioProcPayloadUnavailable, ValueError) as exc:
                         ok = True
                         details = {
@@ -566,9 +556,7 @@ class IridiumHandlerFSM(BaseHandlerFSM):
                             "allowed_modes": ["system_status", "alive", "audio"],
                         }
                     }
-                    self.logger.warning(
-                        "Skipping unsupported Iridium transmit mode: %s", mode
-                    )
+                    self.logger.warning("Skipping unsupported Iridium transmit mode: %s", mode)
 
                 result = ResultCode.OK if ok else ResultCode.ERROR
                 self._emit_action_result("transmit", result, details=details)

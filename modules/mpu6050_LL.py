@@ -23,6 +23,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.support.i2c_common import discover_i2c_buses
 from modules.support.log_utils import get_logger
 
+
 if TYPE_CHECKING:
     from smbus2 import SMBus as SMBusType
 else:
@@ -138,7 +139,7 @@ class MPU6050LowLevel:
     def _resolve_bus_candidates(self, bus: Optional[int]) -> list[int]:
         preferred = int(bus) if bus is not None else self.DEFAULT_BUS
         return list(discover_i2c_buses(preferred))
-
+    
     def _open_bus(self, busnum: int) -> SMBusType:
         self._require_i2c()
         SMBusCls = SMBus
@@ -164,6 +165,7 @@ class MPU6050LowLevel:
             "checks": [],
         }
 
+        whoami_success = False
         try:
             who = self.whoami()
             ok = who in (self.DEVICE_ID_68, self.DEVICE_ID_69)
@@ -182,9 +184,7 @@ class MPU6050LowLevel:
             details["checks"].append({"name": "read_all_raw", "ok": True, "raw": raw})
         except Exception as exc:
             errors.append(f"read_all_raw failed: {exc}")
-            details["checks"].append(
-                {"name": "read_all_raw", "ok": False, "error": str(exc)}
-            )
+            details["checks"].append({"name": "read_all_raw", "ok": False, "error": str(exc)})
 
         return False, errors, details
 
@@ -203,17 +203,14 @@ class MPU6050LowLevel:
         original_bus = self.bus_num
         original_address = self.address
         original_was_open = self.is_open and self.bus is not None
+        found = False
 
         if original_was_open:
             self.close()
 
-        candidates = (
-            list(self.bus_candidates)
-            if self.bus_candidates
-            else self._resolve_bus_candidates(None)
-        )
-        if self.bus_num is not None and self.bus_num not in candidates:
-            candidates = [self.bus_num] + candidates
+        candidates = [self.bus_num] if self.bus_forced and self.bus_num is not None else list(self.bus_candidates)
+        if not candidates:
+            candidates = self._resolve_bus_candidates(self.bus_num if self.bus_forced else None)
 
         for busnum in candidates:
             bus_entry: dict[str, Any] = {"bus": busnum, "addresses": []}
@@ -232,36 +229,29 @@ class MPU6050LowLevel:
 
                     present, probe_errors, probe_details = self._probe_current_bus()
                     address_entry["probe"] = probe_details
-                    errors.extend(
-                        [
-                            f"bus {busnum} addr 0x{address:02X}: {e}"
-                            for e in probe_errors
-                        ]
-                    )
+                    errors.extend([f"bus {busnum} addr 0x{address:02X}: {e}" for e in probe_errors])
 
                     if present:
                         scan_details["selected_bus"] = busnum
                         scan_details["selected_address"] = f"0x{address:02X}"
+                        found = True
                         return True, errors, scan_details
                 except Exception as exc:
                     address_entry["open_ok"] = False
                     address_entry["error"] = str(exc)
-                    errors.append(
-                        f"bus {busnum} addr 0x{address:02X}: open/probe failed: {exc}"
-                    )
+                    errors.append(f"bus {busnum} addr 0x{address:02X}: open/probe failed: {exc}")
                 finally:
-                    if self.is_open and not (scan_details["selected_bus"] == busnum and scan_details["selected_address"] == f"0x{address:02X}"):
-                        if self.bus is not None:
-                            try:
-                                self.bus.close()
-                            except Exception:
-                                pass
-                        self.bus = None
-                        self.is_open = False
+                    if self.bus is not None:
+                        try:
+                            self.bus.close()
+                        except Exception:
+                            pass
+                    self.bus = None
+                    self.is_open = False
 
-        self.bus_num = original_bus
-        self.address = original_address
-        if original_was_open and original_bus is not None:
+        if original_was_open and not found and original_bus is not None:
+            self.bus_num = original_bus
+            self.address = original_address
             self.open()
 
         return False, errors, scan_details
@@ -315,16 +305,15 @@ class MPU6050LowLevel:
             candidates = []
             if self.bus_num is not None:
                 candidates.append(self.bus_num)
-            for busnum in self.bus_candidates:
-                if busnum not in candidates:
-                    candidates.append(busnum)
+            candidates.extend([bus for bus in self.bus_candidates if bus != self.bus_num])
+            if not candidates:
+                candidates = self._resolve_bus_candidates(None)
+
         last_exc: Optional[Exception] = None
 
         for busnum in candidates:
             try:
-                self.logger.info(
-                    "Trying I2C bus %s for MPU6050@0x%02X", busnum, self.address
-                )
+                self.logger.info("Trying I2C bus %s for MPU6050@0x%02X", busnum, self.address)
                 self.bus = self._open_bus(busnum)
                 self.bus_num = busnum
                 self.is_open = True
@@ -336,9 +325,7 @@ class MPU6050LowLevel:
 
         self.bus = None
         self.is_open = False
-        self.bus_num = (
-            int(self.bus_num) if self.bus_forced and self.bus_num is not None else None
-        )
+        self.bus_num = int(self.bus_num) if self.bus_forced and self.bus_num is not None else None
         message = f"Open failed: {last_exc}" if last_exc else "Open failed"
         self._set_error(message)
         self.logger.error(message)
@@ -364,11 +351,7 @@ class MPU6050LowLevel:
             return False
 
     def probe(self) -> bool:
-        """Public probe against the currently-open bus only.
-
-        If the bus is not already open, attempt to open the configured
-       /preferred I2C bus before probing.
-        """
+        """Public probe against the currently-open bus only."""
         original_was_open = self.is_open and self.bus is not None
         if not original_was_open:
             if not self.open():
@@ -407,13 +390,12 @@ class MPU6050LowLevel:
             if present:
                 return True
 
-            present, scan_errors, scan_details = self._scan_for_device()
-            errors.extend(scan_errors)
-            if present:
-                self.logger.info(
-                    "Device detected during fallback scan: %s", scan_details
-                )
-                return True
+            if not self.bus_forced:
+                present, scan_errors, scan_details = self._scan_for_device()
+                errors.extend(scan_errors)
+                if present:
+                    self.logger.info("Device detected during fallback scan: %s", scan_details)
+                    return True
 
             if errors:
                 self._set_error("; ".join(errors[-3:]))
@@ -498,6 +480,11 @@ class MPU6050LowLevel:
                 present, fallback_errors, fallback_details = self._scan_for_device()
                 scan_errors.extend(fallback_errors)
                 scan_details["fallback_scan"] = fallback_details
+                if present:
+                    self.close()
+                    if not self.open():
+                        scan_errors.append(self.last_error or "Failed to reopen selected bus after scan")
+                        present = False
 
             details["opened"] = self.is_open
             details["device_present"] = present
@@ -552,15 +539,10 @@ class MPU6050LowLevel:
             )
             details["details"]["plausible"] = plausible
             if not plausible:
-                details["errors"].append(
-                    "Measured values are outside plausible MPU6050 ranges"
-                )
+                details["errors"].append("Measured values are outside plausible MPU6050 ranges")
                 return False, details
 
-            success = (
-                details["initialized"]
-                and details["device_present"]
-            )
+            success = details["initialized"] and details["device_present"]
             return success, details
         except Exception as exc:
             details["errors"].append(str(exc))
@@ -576,7 +558,7 @@ class MPU6050LowLevel:
                 else:
                     self.bus_num = original_bus_num
                     self.address = original_address
-            elif not details.get("device_present", False):
+            elif not details["device_present"]:
                 self.close()
                 self.bus_num = original_bus_num
                 self.address = original_address
@@ -615,9 +597,7 @@ class MPU6050LowLevel:
         try:
             bus.write_byte_data(self.address, reg, value & 0xFF)
         except OSError as exc:
-            raise I2CError(
-                f"I2C error during write_reg(0x{reg:02X}, 0x{value:02X}): {exc}"
-            ) from exc
+            raise I2CError(f"I2C error during write_reg(0x{reg:02X}, 0x{value:02X}): {exc}") from exc
 
     def read_block(self, reg: int, n: int) -> bytes:
         bus = self._require_bus()
@@ -625,9 +605,7 @@ class MPU6050LowLevel:
             data = bus.read_i2c_block_data(self.address, reg, n)
             return bytes(data)
         except OSError as exc:
-            raise I2CError(
-                f"I2C error during read_block(0x{reg:02X}, {n}): {exc}"
-            ) from exc
+            raise I2CError(f"I2C error during read_block(0x{reg:02X}, {n}): {exc}") from exc
 
     def whoami(self) -> int:
         return self.read_reg(self.REG_WHO_AM_I)
@@ -865,9 +843,7 @@ class MPU6050LowLevel:
         self.clear_accel_offsets()
         self.clear_gyro_offsets()
 
-    def calibrate_gyro(
-        self, samples: int = 500, delay: float = 0.005
-    ) -> Tuple[float, float, float]:
+    def calibrate_gyro(self, samples: int = 500, delay: float = 0.005) -> Tuple[float, float, float]:
         if samples <= 0:
             raise CalibrationError("samples must be > 0")
         if delay < 0:
@@ -877,9 +853,7 @@ class MPU6050LowLevel:
         sy = 0.0
         sz = 0.0
 
-        self.logger.info(
-            "Starting gyro calibration: samples=%s delay=%s", samples, delay
-        )
+        self.logger.info("Starting gyro calibration: samples=%s delay=%s", samples, delay)
         for _ in range(samples):
             gx, gy, gz = self.read_gyro_dps()
             sx += gx
@@ -956,9 +930,7 @@ class MPU6050LowLevel:
             "gz_dps": gz_dps,
         }
 
-    def tilt_from_accel(
-        self, accel_g: Tuple[float, float, float]
-    ) -> Tuple[float, float]:
+    def tilt_from_accel(self, accel_g: Tuple[float, float, float]) -> Tuple[float, float]:
         ax, ay, az = accel_g
 
         if az < 0.0:
@@ -978,9 +950,7 @@ class MPU6050LowLevel:
     def read_tilt_deg_corrected(self) -> Tuple[float, float]:
         return self.tilt_from_accel(self.read_accel_g_corrected())
 
-    def read_tilt_deg_avg(
-        self, samples: int = 10, delay: float = 0.02
-    ) -> Tuple[float, float]:
+    def read_tilt_deg_avg(self, samples: int = 10, delay: float = 0.02) -> Tuple[float, float]:
         if samples <= 0:
             raise CalibrationError("samples must be > 0")
         if delay < 0:
@@ -1011,9 +981,7 @@ __all__ = [
 ]
 
 
-def _run_self_test(
-    bus: Optional[int] = None, address: int = MPU6050LowLevel.DEFAULT_ADDRESS
-) -> int:
+def _run_self_test(bus: Optional[int] = None, address: int = MPU6050LowLevel.DEFAULT_ADDRESS) -> int:
     drv = MPU6050LowLevel()
 
     try:
@@ -1040,7 +1008,6 @@ def _run_self_test(
             drv.deinit()
         except Exception:
             pass
-
 
 def main(argv=None) -> bool:
     """

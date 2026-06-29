@@ -2,13 +2,7 @@
 
 from typing import Any, Dict, Optional
 
-from modules.support.base_fsm import (
-    BaseHandlerFSM,
-    State,
-    Message,
-    MessageID,
-    ResultCode,
-)
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
 from modules.ais_LL import _nmea_validate_checksum
@@ -22,30 +16,14 @@ class AISHandlerFSM(BaseHandlerFSM):
         self.status_queue = None
         self.data_logger = SensorDataLogger("AIS", include_module=False)
 
-    def _emit_state_result(
-        self, result: ResultCode, details: Optional[Dict[str, Any]] = None
-    ):
+    def _emit_state_result(self, result: ResultCode, details: Optional[Dict[str, Any]] = None):
         if self.status_queue:
-            self.status_queue.put(
-                (
-                    self.name,
-                    Message(
-                        MessageID.STATE_RESULT,
-                        {
-                            "result": result.value,
-                            "details": details or {},
-                        },
-                    ),
-                )
-            )
+            self.status_queue.put((self.name, Message(MessageID.STATE_RESULT, {
+                "result": result.value,
+                "details": details or {},
+            })))
 
-    def _emit_action_result(
-        self,
-        action: str,
-        result: ResultCode,
-        data: Optional[Dict[str, Any]] = None,
-        error: Optional[str] = None,
-    ):
+    def _emit_action_result(self, action: str, result: ResultCode, data: Optional[Dict[str, Any]] = None, error: Optional[str] = None):
         payload = {
             "origin": self.name,
             "state": self.state.name,
@@ -56,24 +34,16 @@ class AISHandlerFSM(BaseHandlerFSM):
         if error is not None:
             payload["error"] = error
         if self.status_queue:
-            self.status_queue.put(
-                (self.name, Message(MessageID.ACTION_RESULT, payload))
-            )
+            self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
-    def _normalize_measurement(
-        self, navigation: Dict[str, Any], lines: list[str]
-    ) -> Dict[str, Any]:
+    def _normalize_measurement(self, navigation: Dict[str, Any], lines: list[str]) -> Dict[str, Any]:
         return {
             "gps_fix": bool(navigation.get("fix")),
             "lat": navigation.get("lat"),
             "lon": navigation.get("lon"),
             "satellites": int(navigation.get("num_sats") or 0),
             "hdop": navigation.get("hdop"),
-            "own_transmit_messages": sum(
-                1
-                for line in lines
-                if isinstance(line, str) and line.startswith("!AIVDO")
-            ),
+            "own_transmit_messages": sum(1 for line in lines if isinstance(line, str) and line.startswith("!AIVDO")),
         }
 
     def _fresh_traffic_summary(self, lines: list[str]) -> Dict[str, int]:
@@ -96,9 +66,7 @@ class AISHandlerFSM(BaseHandlerFSM):
                     parse_nmea(line)
 
         return {
-            "lines_seen": len(
-                [line for line in lines if isinstance(line, str) and line.strip()]
-            ),
+            "lines_seen": len([line for line in lines if isinstance(line, str) and line.strip()]),
             "valid_nmea_lines": valid_nmea,
             "valid_ais_lines": valid_ais,
         }
@@ -169,10 +137,7 @@ class AISHandlerFSM(BaseHandlerFSM):
                 error_message = str(exc)
                 result = ResultCode.ERROR
             self._emit_action_result("acquire", result, data=data, error=error_message)
-            self.set_state(
-                State.IDLE if result == ResultCode.OK else State.ERROR,
-                self.status_queue,
-            )
+            self.set_state(State.IDLE if result == ResultCode.OK else State.ERROR, self.status_queue)
             self._on_entry_flag = False
 
         elif self.state == State.DISABLE and self._on_entry_flag:

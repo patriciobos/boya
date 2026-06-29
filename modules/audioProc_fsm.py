@@ -6,13 +6,7 @@ import json
 from pathlib import Path
 from threading import Thread
 
-from modules.support.base_fsm import (
-    BaseHandlerFSM,
-    State,
-    Message,
-    MessageID,
-    ResultCode,
-)
+from modules.support.base_fsm import BaseHandlerFSM, State, Message, MessageID, ResultCode
 from modules.support.data_logger import SensorDataLogger, data_source_for
 from modules.support.ll_factory import get_low_level_class
 from modules.support.system_config import PROJECT_ROOT, get_data_path
@@ -43,28 +37,16 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
         self._pending_params = {}
         self.status_queue = None
         self._processing_thread = None
-        self.data_logger = SensorDataLogger(
-            "AudioProc", include_module=False, file_stem="audioProc"
-        )
+        self.data_logger = SensorDataLogger("AudioProc", include_module=False, file_stem="audioProc")
 
     def _emit_state_result(self, result: ResultCode, details=None):
         if self.status_queue:
-            self.status_queue.put(
-                (
-                    self.name,
-                    Message(
-                        MessageID.STATE_RESULT,
-                        {
-                            "result": result.value,
-                            "details": details or {},
-                        },
-                    ),
-                )
-            )
+            self.status_queue.put((self.name, Message(MessageID.STATE_RESULT, {
+                "result": result.value,
+                "details": details or {},
+            })))
 
-    def _emit_action_result(
-        self, action: str, result: ResultCode, data=None, error=None, details=None
-    ):
+    def _emit_action_result(self, action: str, result: ResultCode, data=None, error=None, details=None):
         payload = {
             "origin": self.name,
             "state": self.state.name,
@@ -82,9 +64,7 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
             if "output" in data:
                 payload["output"] = data["output"]
         if self.status_queue:
-            self.status_queue.put(
-                (self.name, Message(MessageID.ACTION_RESULT, payload))
-            )
+            self.status_queue.put((self.name, Message(MessageID.ACTION_RESULT, payload)))
 
     def _latest_behringer_recording(self):
         readings_path = get_data_path() / "behringer_readings.jsonl"
@@ -121,11 +101,7 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
                 continue
             output_file = data.get("output_file")
             output_path = _project_absolute_path(output_file) if output_file else None
-            if (
-                output_path
-                and output_path.exists()
-                and output_path.name.startswith("audioProc_")
-            ):
+            if output_path and output_path.exists() and output_path.name.startswith("audioProc_"):
                 return output_file
         return None
 
@@ -188,13 +164,9 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
 
         elif self.state == State.PROCESS and self._on_entry_flag:
             self.logger.info("Entering PROCESS")
-            input_path = (
-                self._pending_params.get("input") or self._latest_behringer_recording()
-            )
+            input_path = self._pending_params.get("input") or self._latest_behringer_recording()
             if not input_path:
-                self._emit_action_result(
-                    "process", ResultCode.ERROR, error="no_input_available"
-                )
+                self._emit_action_result("process", ResultCode.ERROR, error="no_input_available")
                 self.set_state(State.ERROR, self.status_queue)
                 self._on_entry_flag = False
                 return
@@ -202,16 +174,8 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
 
             existing_output = self._existing_output_for(input_path)
             if existing_output is not None:
-                data = {
-                    "input": _project_relative_path(input_path),
-                    "output": existing_output,
-                }
-                self._emit_action_result(
-                    "process",
-                    ResultCode.OK,
-                    data=data,
-                    details={"skipped": "already_processed"},
-                )
+                data = {"input": _project_relative_path(input_path), "output": existing_output}
+                self._emit_action_result("process", ResultCode.OK, data=data, details={"skipped": "already_processed"})
                 self.set_state(State.IDLE, self.status_queue)
                 self._on_entry_flag = False
                 return
@@ -221,37 +185,19 @@ class AudioProcHandlerFSM(BaseHandlerFSM):
                     self.logger.info("Processing file in background: %s", path)
                     output_path = self.ll.process(path)
                     if output_path is None:
-                        self._emit_action_result(
-                            "process",
-                            ResultCode.ERROR,
-                            data={"input": _project_relative_path(path)},
-                        )
+                        self._emit_action_result("process", ResultCode.ERROR, data={"input": _project_relative_path(path)})
                         self.set_state(State.ERROR, self.status_queue)
                     else:
                         source = data_source_for(self.ll)
                         logged = self._log_success(path, output_path, source=source)
-                        self._emit_action_result(
-                            "process",
-                            ResultCode.OK,
-                            data={
-                                "input": logged["input_file"],
-                                "output": logged["output_file"],
-                            },
-                        )
+                        self._emit_action_result("process", ResultCode.OK, data={"input": logged["input_file"], "output": logged["output_file"]})
                         self.set_state(State.IDLE, self.status_queue)
                 except Exception as exc:
                     self.logger.exception("Processing thread failed: %s", exc)
-                    self._emit_action_result(
-                        "process",
-                        ResultCode.ERROR,
-                        data={"input": _project_relative_path(path)},
-                        error=str(exc),
-                    )
+                    self._emit_action_result("process", ResultCode.ERROR, data={"input": _project_relative_path(path)}, error=str(exc))
                     self.set_state(State.ERROR, self.status_queue)
 
-            self._processing_thread = Thread(
-                target=_run, args=(input_path,), daemon=True
-            )
+            self._processing_thread = Thread(target=_run, args=(input_path,), daemon=True)
             self._processing_thread.start()
             self._on_entry_flag = False
 

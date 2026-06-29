@@ -130,25 +130,15 @@ class AISLowLevel:
         self._buffer: List[str] = []
 
         # configuration
-        self.preferred_port = (
-            preferred_port or os.getenv("PREFERRED_PORT") or self.DEFAULT_PREFERRED_PORT
-        )
+        self.preferred_port = preferred_port or os.getenv("PREFERRED_PORT") or self.DEFAULT_PREFERRED_PORT
 
         try:
-            self.scan_window = (
-                max(1.0, float(scan_window))
-                if scan_window is not None
-                else self.DEFAULT_SCAN_WINDOW
-            )
+            self.scan_window = max(1.0, float(scan_window)) if scan_window is not None else self.DEFAULT_SCAN_WINDOW
         except Exception:
             self.scan_window = self.DEFAULT_SCAN_WINDOW
 
         try:
-            self.wait_for_fix = (
-                max(1.0, float(wait_for_fix))
-                if wait_for_fix is not None
-                else self.DEFAULT_WAIT_FOR_FIX
-            )
+            self.wait_for_fix = max(1.0, float(wait_for_fix)) if wait_for_fix is not None else self.DEFAULT_WAIT_FOR_FIX
         except Exception:
             self.wait_for_fix = self.DEFAULT_WAIT_FOR_FIX
 
@@ -248,7 +238,7 @@ class AISLowLevel:
             parity="N",
             stopbits=1,
         )
-
+    
     def _build_full_test_report(self) -> dict:
         return {
             "initialized": self.is_initialized,
@@ -267,9 +257,7 @@ class AISLowLevel:
         if self.serial is None or not self.serial.is_open:
             raise RuntimeError("Serial port is not open")
 
-        probe_timeout = max(
-            5.0, float(timeout if timeout is not None else self.scan_window)
-        )
+        probe_timeout = max(5.0, float(timeout if timeout is not None else self.scan_window))
 
         result = {
             "lines_seen": 0,
@@ -336,18 +324,12 @@ class AISLowLevel:
                     result["navigation"] = nav
 
                     if tag in (
-                        "GPRMC",
-                        "GNRMC",
-                        "GPGGA",
-                        "GNGGA",
-                        "GPGLL",
-                        "GNGLL",
-                        "GPGSA",
-                        "GNGSA",
-                        "GPGSV",
-                        "GNGSV",
-                        "GPTXT",
-                        "GNTXT",
+                        "GPRMC", "GNRMC",
+                        "GPGGA", "GNGGA",
+                        "GPGLL", "GNGLL",
+                        "GPGSA", "GNGSA",
+                        "GPGSV", "GNGSV",
+                        "GPTXT", "GNTXT",
                     ):
                         result["device_present"] = True
 
@@ -451,18 +433,12 @@ class AISLowLevel:
                     result["navigation"] = nav
 
                     if tag in (
-                        "GPRMC",
-                        "GNRMC",
-                        "GPGGA",
-                        "GNGGA",
-                        "GPGLL",
-                        "GNGLL",
-                        "GPGSA",
-                        "GNGSA",
-                        "GPGSV",
-                        "GNGSV",
-                        "GPTXT",
-                        "GNTXT",
+                        "GPRMC", "GNRMC",
+                        "GPGGA", "GNGGA",
+                        "GPGLL", "GNGLL",
+                        "GPGSA", "GNGSA",
+                        "GPGSV", "GNGSV",
+                        "GPTXT", "GNTXT",
                     ):
                         result["device_present"] = True
 
@@ -573,9 +549,7 @@ class AISLowLevel:
                     self.logger.info("Trying port=%s baud=%s", port_name, baud)
                     ser = self._open_serial_port(port_name, baud)
                     self._adopt_open_serial(ser, port_name, baud)
-                    self.logger.info(
-                        "Serial transport opened on %s @ %s", port_name, baud
-                    )
+                    self.logger.info("Serial transport opened on %s @ %s", port_name, baud)
                     return True
                 except Exception as exc:
                     last_exc = exc
@@ -695,9 +669,7 @@ class AISLowLevel:
 
             probe = self._probe_current_port(timeout=max(self.scan_window, 5.0))
             result = bool(probe.get("device_present", False))
-            self.logger.info(
-                "Smoke test completed: success=%s port=%s", result, self.port
-            )
+            self.logger.info("Smoke test completed: success=%s port=%s", result, self.port)
             return result
 
         except Exception as exc:
@@ -728,9 +700,7 @@ class AISLowLevel:
         original_bus = self.bus
         original_port = self.port
         original_baud = self.baud
-        original_is_open = (
-            self.is_open and self.serial is not None and self.serial.is_open
-        )
+        original_is_open = self.is_open and self.serial is not None and self.serial.is_open
 
         scan_details: List[dict] = []
 
@@ -778,9 +748,7 @@ class AISLowLevel:
                         self.is_open = True
 
                         self._reset_navigation()
-                        probe = self._probe_current_port(
-                            timeout=max(self.scan_window, 5.0)
-                        )
+                        probe = self._probe_current_port(timeout=max(self.scan_window, 5.0))
                         attempt_info["probe"] = probe
 
                         # restore temporary previous state
@@ -829,28 +797,20 @@ class AISLowLevel:
 
             fix_probe = None
 
-            if (
-                selected_ser is not None
-                and selected_port is not None
-                and selected_baud is not None
-            ):
+            if selected_ser is not None and selected_port is not None and selected_baud is not None:
                 self._adopt_open_serial(selected_ser, selected_port, selected_baud)
                 report["opened"] = True
                 report["device_present"] = True
 
                 try:
-                    fix_probe = self._wait_for_fix_on_current_port(
-                        timeout=self.wait_for_fix
-                    )
+                    fix_probe = self._wait_for_fix_on_current_port(timeout=self.wait_for_fix)
                 except Exception as exc:
                     report["errors"].append(f"Wait for fix failed: {exc}")
                     fix_probe = None
             else:
                 report["opened"] = False
                 report["device_present"] = False
-                report["errors"].append(
-                    "No AIS/GPS traffic detected on candidate ports"
-                )
+                report["errors"].append("No AIS/GPS traffic detected on candidate ports")
 
             if fix_probe is not None:
                 source_probe = fix_probe
@@ -949,25 +909,15 @@ class AISLowLevel:
             if tag in ("GPRMC", "GNRMC"):
                 if len(parts) >= 10:
                     status = parts[2]
-                    lat = (
-                        _nmea_coord_to_decimal(parts[3], parts[4])
-                        if len(parts) > 4
-                        else None
-                    )
-                    lon = (
-                        _nmea_coord_to_decimal(parts[5], parts[6])
-                        if len(parts) > 6
-                        else None
-                    )
+                    lat = _nmea_coord_to_decimal(parts[3], parts[4]) if len(parts) > 4 else None
+                    lon = _nmea_coord_to_decimal(parts[5], parts[6]) if len(parts) > 6 else None
 
                     ts_val = None
                     try:
                         hhmmss = parts[1]
                         ddmmyy = parts[9]
                         if hhmmss and ddmmyy:
-                            ts_val = datetime.strptime(
-                                ddmmyy + hhmmss.split(".")[0], "%d%m%y%H%M%S"
-                            )
+                            ts_val = datetime.strptime(ddmmyy + hhmmss.split(".")[0], "%d%m%y%H%M%S")
                     except Exception:
                         ts_val = None
 
@@ -975,27 +925,15 @@ class AISLowLevel:
                         {
                             "lat": lat if lat is not None else self.nav.get("lat"),
                             "lon": lon if lon is not None else self.nav.get("lon"),
-                            "timestamp": (
-                                ts_val
-                                if ts_val is not None
-                                else self.nav.get("timestamp")
-                            ),
+                            "timestamp": ts_val if ts_val is not None else self.nav.get("timestamp"),
                             "fix": status == "A",
                         }
                     )
 
             elif tag in ("GPGGA", "GNGGA"):
                 if len(parts) >= 9:
-                    lat = (
-                        _nmea_coord_to_decimal(parts[2], parts[3])
-                        if len(parts) > 3
-                        else None
-                    )
-                    lon = (
-                        _nmea_coord_to_decimal(parts[4], parts[5])
-                        if len(parts) > 5
-                        else None
-                    )
+                    lat = _nmea_coord_to_decimal(parts[2], parts[3]) if len(parts) > 3 else None
+                    lon = _nmea_coord_to_decimal(parts[4], parts[5]) if len(parts) > 5 else None
 
                     try:
                         fix_q = int(parts[6]) if parts[6] else 0
@@ -1025,16 +963,8 @@ class AISLowLevel:
 
             elif tag in ("GPGLL", "GNGLL"):
                 if len(parts) >= 7:
-                    lat = (
-                        _nmea_coord_to_decimal(parts[1], parts[2])
-                        if len(parts) > 2
-                        else None
-                    )
-                    lon = (
-                        _nmea_coord_to_decimal(parts[3], parts[4])
-                        if len(parts) > 4
-                        else None
-                    )
+                    lat = _nmea_coord_to_decimal(parts[1], parts[2]) if len(parts) > 2 else None
+                    lon = _nmea_coord_to_decimal(parts[3], parts[4]) if len(parts) > 4 else None
                     status = parts[6] if len(parts) > 6 else ""
 
                     self.nav.update(
@@ -1068,9 +998,7 @@ class AISLowLevel:
                             snr = blocks[i + 3]
                             if prn:
                                 try:
-                                    self.nav["satellites_in_view"][prn] = (
-                                        int(snr) if snr and snr.isdigit() else None
-                                    )
+                                    self.nav["satellites_in_view"][prn] = int(snr) if snr and snr.isdigit() else None
                                 except Exception:
                                     self.nav["satellites_in_view"][prn] = None
                 except Exception:
@@ -1134,16 +1062,12 @@ def main(argv=None) -> bool:
     preferred = os.getenv("PREFERRED_PORT", "/dev/ttyS3")
 
     try:
-        scan_window = float(
-            os.getenv("SCAN_WINDOW", str(AISLowLevel.DEFAULT_SCAN_WINDOW))
-        )
+        scan_window = float(os.getenv("SCAN_WINDOW", str(AISLowLevel.DEFAULT_SCAN_WINDOW)))
     except Exception:
         scan_window = AISLowLevel.DEFAULT_SCAN_WINDOW
 
     try:
-        wait_for_fix = float(
-            os.getenv("WAIT_FOR_FIX", str(AISLowLevel.DEFAULT_WAIT_FOR_FIX))
-        )
+        wait_for_fix = float(os.getenv("WAIT_FOR_FIX", str(AISLowLevel.DEFAULT_WAIT_FOR_FIX)))
     except Exception:
         wait_for_fix = AISLowLevel.DEFAULT_WAIT_FOR_FIX
 

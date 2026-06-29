@@ -10,11 +10,7 @@ from modules.behringer_fsm import BehringerHandlerFSM
 from modules.iridium_fsm import IridiumHandlerFSM
 from modules.mpu6050_fsm import MPU6050HandlerFSM
 from modules.support.base_fsm import Message, MessageID, State
-from modules.support.ll_factory import (
-    get_mocked_module_names,
-    is_mock_enabled,
-    validate_mock_configuration,
-)
+from modules.support.ll_factory import get_mocked_module_names, is_mock_enabled, validate_mock_configuration
 from modules.support.log_utils import get_logger
 from modules.support.router import Router
 from modules.support.status_report import StatusReport
@@ -25,7 +21,6 @@ import threading
 import time
 import math
 from datetime import datetime, timedelta
-
 
 def launch_fsm(handler_class, name):
     queue = Queue()
@@ -38,7 +33,7 @@ def launch_fsm(handler_class, name):
         "queue": queue,
         "status_queue": status_queue,
         "process": process,
-        "handler": handler,
+        "handler": handler
     }
 
 
@@ -100,17 +95,13 @@ class centralScheduler:
         """Return the next run aligned to regular slots from midnight UTC-3."""
         midnight = datetime(now.year, now.month, now.day, tzinfo=now.tzinfo)
         seconds_since_midnight = (now - midnight).total_seconds()
-        next_seconds = (
-            math.ceil(seconds_since_midnight / interval_seconds) * interval_seconds
-        )
+        next_seconds = math.ceil(seconds_since_midnight / interval_seconds) * interval_seconds
         next_run = midnight + timedelta(seconds=next_seconds)
         if next_run < now:
             next_run += timedelta(seconds=interval_seconds)
         return next_run
 
-    def _advance_next_run(
-        self, previous_run: datetime, now: datetime, interval_seconds: int
-    ) -> datetime:
+    def _advance_next_run(self, previous_run: datetime, now: datetime, interval_seconds: int) -> datetime:
         if previous_run > now:
             return previous_run
         missed_slots = int((now - previous_run).total_seconds() // interval_seconds) + 1
@@ -138,26 +129,9 @@ class centralScheduler:
                         if q:
                             if name == "Iridium":
                                 mode = self._iridium_mode_for_run(nr)
-                                q.put(
-                                    Message(
-                                        MessageID.SIG_TRANSMIT,
-                                        {
-                                            "mode": mode,
-                                            "origin": "Scheduler",
-                                            "scheduled_for": nr.isoformat(),
-                                        },
-                                    )
-                                )
+                                q.put(Message(MessageID.SIG_TRANSMIT, {"mode": mode, "origin": "Scheduler", "scheduled_for": nr.isoformat()}))
                             else:
-                                q.put(
-                                    Message(
-                                        MessageID.SIG_TIMEOUT,
-                                        {
-                                            "origin": "Scheduler",
-                                            "scheduled_for": nr.isoformat(),
-                                        },
-                                    )
-                                )
+                                q.put(Message(MessageID.SIG_TIMEOUT, {"origin": "Scheduler", "scheduled_for": nr.isoformat()}))
                     # increment next_run from the regular slot, not from current time, to avoid drift
                     self.next_run[name] = self._advance_next_run(nr, now, interval)
 
@@ -171,13 +145,7 @@ class ErrorRecoveryManager:
         self.attempts: dict[str, int] = {}
         self.irrecoverable: set[str] = set()
 
-    def handle_state(
-        self,
-        name: str,
-        state_name: str,
-        logger,
-        status_report: StatusReport | None = None,
-    ) -> None:
+    def handle_state(self, name: str, state_name: str, logger, status_report: StatusReport | None = None) -> None:
         if state_name == State.IDLE.name:
             self.attempts.pop(name, None)
             self.irrecoverable.discard(name)
@@ -197,15 +165,9 @@ class ErrorRecoveryManager:
                 "error": "Module failed irrecoverably",
                 "recovery_attempts": attempts,
             }
-            logger.error(
-                "[%s] Module failed irrecoverably after %s recovery attempts",
-                name,
-                attempts,
-            )
+            logger.error("[%s] Module failed irrecoverably after %s recovery attempts", name, attempts)
             if status_report is not None:
-                status_report.update(
-                    name, State.ERROR.name, "recover", "error", details
-                )
+                status_report.update(name, State.ERROR.name, "recover", "error", details)
             return
 
         entry = self.fsms.get(name)
@@ -216,18 +178,8 @@ class ErrorRecoveryManager:
 
         attempts += 1
         self.attempts[name] = attempts
-        logger.warning(
-            "[%s] ERROR reported; sending SIG_INIT recovery attempt %s/%s",
-            name,
-            attempts,
-            self.max_attempts,
-        )
-        queue.put(
-            Message(
-                MessageID.SIG_INIT, {"origin": "main", "recovery_attempt": attempts}
-            )
-        )
-
+        logger.warning("[%s] ERROR reported; sending SIG_INIT recovery attempt %s/%s", name, attempts, self.max_attempts)
+        queue.put(Message(MessageID.SIG_INIT, {"origin": "main", "recovery_attempt": attempts}))
 
 if __name__ == "__main__":
     logger = get_logger("main")
@@ -288,23 +240,15 @@ if __name__ == "__main__":
                             state_name = message.params["state"]
                             logger.info(f"[{name}] Nuevo estado: {state_name}")
                             status_report.update(name, state_name, None, None, {})
-                            error_recovery.handle_state(
-                                name, state_name, logger, status_report
-                            )
+                            error_recovery.handle_state(name, state_name, logger, status_report)
                         elif message.id == MessageID.ACTION_RESULT:
                             state = message.params["state"]
                             action = message.params["action"]
                             result = message.params["result"]
-                            logger.info(
-                                f"[{name}] Acción '{action}' en estado '{state}' → {result.upper()}"
-                            )
+                            logger.info(f"[{name}] Acción '{action}' en estado '{state}' → {result.upper()}")
                             if "file" in message.params:
-                                logger.info(
-                                    f"[{name}] Archivo generado: {message.params['file']}"
-                                )
-                            status_report.update(
-                                name, state, action, result, message.params
-                            )
+                                logger.info(f"[{name}] Archivo generado: {message.params['file']}")
+                            status_report.update(name, state, action, result, message.params)
                             # Let central scheduler know about action results (for retries, etc.)
                             try:
                                 central_scheduler.record_action_result(name, message)
