@@ -550,6 +550,7 @@ class MPU6050LowLevel:
             self.logger.exception("Full test failed: %s", exc)
             return False, details
         finally:
+            last_error_before_cleanup = self.last_error
             if original_was_open:
                 if not self.is_open:
                     self.bus_num = original_bus_num
@@ -564,6 +565,8 @@ class MPU6050LowLevel:
                 self.address = original_address
             details["initialized"] = self.is_initialized
             details["opened"] = self.is_open
+            if last_error_before_cleanup is not None:
+                self.last_error = last_error_before_cleanup
 
     def deinit(self) -> bool:
         """Release all resources and reset lifecycle state."""

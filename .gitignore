@@ -106,3 +106,5 @@ test.wav
 # OS files
 .DS_Store
 Thumbs.db
+
+scripts/payloads/S

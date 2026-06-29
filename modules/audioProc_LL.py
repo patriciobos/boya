@@ -11,6 +11,8 @@ import math
 import re
 import numpy as np
 import wave
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.support.system_config import CONFIG_PATH, PROJECT_ROOT
 import pandas as pd
 from scipy.signal import butter, lfilter, welch
@@ -20,8 +22,6 @@ from scipy.stats import chi2
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.support.log_utils import get_logger
 from modules.support.system_config import now_utc_minus_3
 

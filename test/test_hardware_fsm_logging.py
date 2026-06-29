@@ -92,6 +92,25 @@ def _has_meaningful_value(value) -> bool:
     return True
 
 
+def _is_missing_hardware_error(message: str | None) -> bool:
+    if not message:
+        return False
+    normalized = message.lower()
+    missing_patterns = [
+        "no such file or directory",
+        "no such device or address",
+        "remote i/o error",
+        "could not open any i2c bus",
+        "basic probe failed",
+        "basic probe failed after scanning all candidate",
+        "device_present=false",
+        "no ais/gps traffic detected",
+        "no nmea device detected",
+        "no serial ports available",
+    ]
+    return any(pattern in normalized for pattern in missing_patterns)
+
+
 @pytest.mark.hardware
 @pytest.mark.timeout(180)
 @pytest.mark.parametrize("module_name", _enabled_modules())
@@ -122,6 +141,15 @@ def test_hardware_fsm_acquire_logs_real_reading(module_name, monkeypatch):
 
     fsm.handle_message(Message(MessageID.SIG_INIT))
     _drive_until(fsm, {State.IDLE, State.ERROR}, timeout_s=45.0)
+    if fsm.state == State.ERROR:
+        last_error = getattr(fsm.ll, "last_error", None)
+        if _is_missing_hardware_error(last_error):
+            pytest.skip(
+                f"Hardware unavailable for {module_name}: {last_error or 'unknown error'}"
+            )
+        pytest.fail(
+            f"{module_name} entered ERROR state during init/test: {last_error or 'unknown error'}"
+        )
     assert fsm.state == State.IDLE
 
     fsm.handle_message(acquire_message)

@@ -108,6 +108,42 @@ def _summarize_error(parsed, returncode, stderr, reason):
     return ""
 
 
+def _is_missing_hardware_result(result):
+    if result.get("success"):
+        return False
+
+    error = (result.get("error") or "").lower()
+    parsed = result.get("parsed")
+    parsed_text = ""
+    if parsed is not None:
+        parsed_text = json.dumps(parsed).lower()
+
+    missing_patterns = [
+        "no such file or directory",
+        "no such device or address",
+        "remote i/o error",
+        "could not open any i2c bus",
+        "basic probe failed after scanning all candidate",
+        "device_present=false",
+        "no ais/gps traffic detected",
+        "no nmea device detected",
+        "no serial ports available",
+        "bus .*: open failed",
+        "could not probe",
+    ]
+
+    if "device_present=false" in error:
+        return True
+
+    if any(pattern in error for pattern in missing_patterns):
+        return True
+
+    if any(pattern in parsed_text for pattern in missing_patterns):
+        return True
+
+    return False
+
+
 def _run_script(script: Path, timeout: int):
     module_name = f"modules.{script.stem}"
     cmd = [os.environ.get("PYTHON", sys.executable), str(script)]
@@ -269,6 +305,14 @@ def test_run_all_ll_scripts_and_report(tmp_path):
 
     failed = [r for r in results if not r["success"]]
     if failed:
+        missed = [r for r in failed if _is_missing_hardware_result(r)]
+        if len(missed) == len(failed):
+            missed_names = ", ".join(r["name"] for r in missed)
+            pytest.skip(
+                f"Skipping LL scripts due to missing hardware: {missed_names}. "
+                f"Summary: {summary_file}. Details: {report_file}"
+            )
+
         failed_names = ", ".join(r["name"] for r in failed)
         pytest.fail(
             f"Some LL scripts failed: {failed_names}. "
