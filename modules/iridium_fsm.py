@@ -227,7 +227,9 @@ class IridiumHandlerFSM(BaseHandlerFSM):
             max_attempts=1,
             retry_delay_s=0.0,
         )
-        return ok, transmit_details
+        if isinstance(transmit_details, dict):
+            return ok, {**details, **transmit_details}
+        return ok, details
 
     def _last_acquisition_incomplete(self, system_status):
         incomplete_reasons = {
@@ -475,6 +477,15 @@ class IridiumHandlerFSM(BaseHandlerFSM):
                 boot_ok, boot_details = self._send_boot_message()
                 if not boot_ok:
                     self.logger.warning("Iridium boot message failed after successful test: %s", boot_details)
+                result_details = {
+                    "message_type_byte": boot_details.get("message_type_byte"),
+                    "transmit": boot_details,
+                }
+                self._emit_action_result(
+                    "transmit",
+                    ResultCode.OK if boot_ok else ResultCode.ERROR,
+                    details=result_details,
+                )
                 self.set_state(State.IDLE, self.status_queue)
             else:
                 self.set_state(State.ERROR, self.status_queue)
