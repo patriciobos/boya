@@ -99,6 +99,7 @@ data/audio_proc/
 modules/recordings/
 modules/support/behringer_mock/
 test.wav
+scripts/payload_reports/
 
 # Keep reference data under support/ and docs/ versioned. If a generated data file
 # must become a fixture, add it explicitly with git add -f.

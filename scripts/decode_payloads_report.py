@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
+import math
 import re
 from pathlib import Path
 from datetime import datetime, timezone
@@ -158,6 +160,94 @@ def _wrapped_json_text(obj: dict, width: int = 125) -> str:
     return "\n".join(out_lines)
 
 
+def _audio_proc_frequency_labels(band_count: int) -> list[str]:
+    bands_path = Path(__file__).resolve().parents[1] / "support" / "third_octave_bands.csv"
+    labels: list[str] = []
+
+    try:
+        with bands_path.open("r", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                if len(labels) >= band_count:
+                    break
+                fc = row.get("fc")
+                fl = row.get("fl")
+                fh = row.get("fh")
+                if fc is None or fl is None or fh is None:
+                    continue
+                try:
+                    labels.append(
+                        f"{float(fc):g} Hz ({float(fl):g}-{float(fh):g} Hz)"
+                    )
+                except ValueError:
+                    labels.append(f"{fc} Hz")
+    except FileNotFoundError:
+        pass
+
+    if len(labels) < band_count:
+        labels.extend(f"Band {i + 1}" for i in range(len(labels), band_count))
+
+    return labels
+
+
+def _build_audio_proc_table(decoded: dict, style) -> Table | None:
+    relative_power = decoded.get("relative_band_power_db")
+    if not isinstance(relative_power, list) or not relative_power:
+        return None
+
+    band_count = len(relative_power)
+    frequency_labels = _audio_proc_frequency_labels(band_count)
+    first_row = relative_power[0]
+    channel_count = 1
+    if isinstance(first_row, list):
+        channel_count = len(first_row)
+
+    cells_per_row = 4
+    rows = []
+    row_count = math.ceil(band_count / cells_per_row)
+
+    for row_index in range(row_count):
+        row_cells = []
+        for col_index in range(cells_per_row):
+            band_index = row_index + col_index * row_count
+            if band_index >= band_count:
+                row_cells.append("")
+                continue
+
+            band_label = frequency_labels[band_index]
+            value = relative_power[band_index]
+            if isinstance(value, list):
+                if channel_count == 1:
+                    value_text = f"{float(value[0]):.1f} dB"
+                else:
+                    value_text = "<br/>".join(
+                        xml_escape(f"Ch{ch + 1}: {float(val):.1f} dB")
+                        for ch, val in enumerate(value)
+                    )
+            else:
+                value_text = f"{float(value):.1f} dB"
+
+            cell_html = (
+                f"<b>Band {band_index + 1}</b><br/>"
+                f"{xml_escape(band_label)}<br/>"
+                f"{value_text}"
+            )
+            row_cells.append(Paragraph(cell_html, style))
+
+        rows.append(row_cells)
+
+    table = Table(rows, colWidths=[65 * mm] * cells_per_row, hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    return table
+
+
 def build_pdf(rows: list[dict], pdf_path: Path) -> None:
     styles = getSampleStyleSheet()
 
@@ -304,6 +394,13 @@ def build_pdf(rows: list[dict], pdf_path: Path) -> None:
         story.append(Spacer(1, 3 * mm))
         story.append(Paragraph(xml_escape(r["filename"]), styles["Heading3"]))
 
+        if r["kind"] == "AudioProc" and isinstance(r.get("decoded"), dict):
+            audio_table = _build_audio_proc_table(r["decoded"], table_cell_style)
+            if audio_table is not None:
+                story.append(Paragraph("AudioProc: banda vs potencia relativa", styles["Heading4"]))
+                story.append(audio_table)
+                story.append(Spacer(1, 4 * mm))
+
         detail = {
             "filename": r["filename"],
             "imei": r["imei"],
@@ -321,6 +418,63 @@ def build_pdf(rows: list[dict], pdf_path: Path) -> None:
         ))
 
     doc.build(story)
+
+
+def build_pdf_for_payload(row: dict, pdf_path: Path) -> None:
+    styles = getSampleStyleSheet()
+    title_style = styles["Title"]
+    normal_style = styles["Normal"]
+    code_style = ParagraphStyle(
+        "SmallCode",
+        parent=styles["Code"],
+        fontName="Courier",
+        fontSize=6.5,
+        leading=7.5,
+    )
+
+    page_size = landscape(A4)
+
+    doc = SimpleDocTemplate(
+        str(pdf_path),
+        pagesize=page_size,
+        rightMargin=9 * mm,
+        leftMargin=9 * mm,
+        topMargin=10 * mm,
+        bottomMargin=10 * mm,
+    )
+
+    story = []
+    story.append(Paragraph(f"Reporte payload Iridium SBD", title_style))
+    story.append(Spacer(1, 5 * mm))
+    story.append(Paragraph(f"Archivo: {xml_escape(str(row.get('filename', '')))}", normal_style))
+    story.append(Paragraph(f"MOMSN: {row.get('momsn')}", normal_style))
+    story.append(Paragraph(f"Tamaño: {row.get('size_bytes')} bytes", normal_style))
+    story.append(Paragraph(f"Tipo: {xml_escape(str(row.get('kind', '')))}", normal_style))
+    story.append(Paragraph(f"Decodificado correctamente: {'Sí' if row.get('ok') else 'No'}", normal_style))
+    if row.get("error"):
+        story.append(Paragraph(f"Error: {xml_escape(str(row['error']))}", normal_style))
+
+    story.append(Spacer(1, 6 * mm))
+    story.append(Paragraph("Detalle JSON", styles["Heading2"]))
+
+    detail = {
+        "filename": row.get("filename"),
+        "imei": row.get("imei"),
+        "momsn": row.get("momsn"),
+        "size_bytes": row.get("size_bytes"),
+        "ok": row.get("ok"),
+        "kind": row.get("kind"),
+        "error": row.get("error"),
+        "decoded": row.get("decoded"),
+    }
+
+    story.append(Preformatted(
+        _wrapped_json_text(detail, width=125),
+        code_style,
+    ))
+
+    doc.build(story)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -341,6 +495,11 @@ def main() -> int:
         type=int,
         default=49,
         help="Expected AudioProc band count.",
+    )
+    parser.add_argument(
+        "--write-individual-pdfs",
+        action="store_true",
+        help="Generate one PDF report per payload in the output directory.",
     )
     args = parser.parse_args()
 
@@ -372,6 +531,14 @@ def main() -> int:
 
     build_pdf(rows, pdf_path)
 
+    if args.write_individual_pdfs:
+        for row in rows:
+            filename = row.get("filename") or "payload"
+            pdf_name = Path(filename).with_suffix(".pdf")
+            build_pdf_for_payload(row, output_dir / pdf_name)
+
+        print(f"PDFs individuales: {len(rows)}")
+
     ok = sum(1 for row in rows if row["ok"])
     print(f"Analizados: {len(rows)}")
     print(f"Decodificados OK: {ok}")
@@ -379,8 +546,6 @@ def main() -> int:
     print(f"JSONL: {jsonl_path}")
     print(f"JSON: {json_path}")
     print(f"PDF: {pdf_path}")
-
-    return 0
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 import json
 import math
@@ -487,3 +488,74 @@ def test_audio_proc_payload_rejects_bad_crc():
         assert "CRC mismatch" in str(exc)
     else:
         raise AssertionError("expected ValueError for bad CRC")
+
+
+def test_decode_iridium_message_batch_generates_executive_reports(tmp_path):
+    payload_dir = tmp_path / "payloads"
+    output_dir = tmp_path / "reports"
+    payload_dir.mkdir()
+
+    status_payload = pack_system_status(
+        fsm_ok_bitmap=0xAA,
+        ll_ok_bitmap=0x55,
+        battery_voltage_mv=12340,
+        battery_soc_percent=76,
+        storage_free_gib=12.3,
+        uptime_minutes=45,
+    )
+    audio_payload = build_audio_proc_payload(
+        timestamp=0,
+        relative_band_power_db=[[1.0], [1.2]],
+        expected_band_count=2,
+    )
+
+    status_name = "1_19f0d7530d64a567_300534063350070_000001.sbd"
+    audio_name = "2_19f0dac206b58df1_300534063350070_000002.sbd"
+    (payload_dir / status_name).write_bytes(status_payload)
+    (payload_dir / audio_name).write_bytes(audio_payload)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/decode_iridium_message.py",
+            "--input-dir",
+            str(payload_dir),
+            "--output-dir",
+            str(output_dir),
+            "--expected-audio-band-count",
+            "2",
+        ],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert "Analizados: 2" in result.stdout
+    assert "Reportes individuales: 2" in result.stdout
+
+    decoded = json.loads((output_dir / "payloads_decoded.json").read_text())
+    assert [row["momsn"] for row in decoded] == [1, 2]
+    assert all(row["ok"] for row in decoded)
+
+    pdfs = [
+        output_dir / Path(status_name).with_suffix(".pdf"),
+        output_dir / Path(audio_name).with_suffix(".pdf"),
+        output_dir / "payloads_report.pdf",
+    ]
+    for pdf_path in pdfs:
+        pdf_bytes = pdf_path.read_bytes()
+        assert pdf_bytes.startswith(b"%PDF-1.4")
+        assert b"/MediaBox [0 0 595.28 841.89]" in pdf_bytes
+
+    status_pdf = (output_dir / Path(status_name).with_suffix(".pdf")).read_bytes()
+    assert b"MSG_SYSTEM_STATUS" in status_pdf
+    assert b"fsm_ok_bitmap" in status_pdf
+    assert b"ll_ok_bitmap" in status_pdf
+    assert b"status_flags" in status_pdf
+    assert b"storage_unavailable" in status_pdf
+
+    audio_pdf = (output_dir / Path(audio_name).with_suffix(".pdf")).read_bytes()
+    assert b"MSG_AUDIO" in audio_pdf
+    assert b"Bandas AudioProc" in audio_pdf
+    assert b"Banda" in audio_pdf
+    assert b"Ch1" in audio_pdf

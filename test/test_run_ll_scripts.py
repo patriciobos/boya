@@ -130,6 +130,8 @@ def _is_missing_hardware_result(result):
         "no serial ports available",
         "bus .*: open failed",
         "could not probe",
+        "connection timed out",
+        "errno 110",
     ]
 
     if "device_present=false" in error:
