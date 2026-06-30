@@ -468,6 +468,38 @@ def test_iridium_fsm_transmits_system_status_binary_with_mock(monkeypatch, tmp_p
     fsm.ll.deinit()
 
 
+def test_iridium_fsm_sends_boot_message_after_init(monkeypatch, tmp_path):
+    modules = _reload_modules_with_mocks(monkeypatch)
+    iridium_module = modules["Iridium"]
+
+    logs_path = tmp_path / "logs"
+    data_path = tmp_path / "data"
+    logs_path.mkdir()
+    data_path.mkdir()
+    (logs_path / "system_status.json").write_text(json.dumps({"modules": {}}), encoding="utf-8")
+    monkeypatch.setattr(iridium_module, "get_logs_path", lambda: logs_path)
+    monkeypatch.setattr(iridium_module, "get_data_path", lambda: data_path)
+    monkeypatch.setattr(iridium_module, "get_config_value", lambda key, default=None: True)
+
+    fsm = iridium_module.IridiumHandlerFSM()
+    status_queue = Queue()
+    fsm.status_queue = status_queue
+
+    fsm.handle_message(Message(MessageID.SIG_INIT))
+    assert _wait_for_state(fsm, {State.IDLE, State.ERROR})
+    assert fsm.state == State.IDLE
+
+    messages = _drain_status_queue(status_queue)
+    action_results = [msg[1] for msg in messages if msg[1].id == MessageID.ACTION_RESULT]
+    assert action_results
+    details = action_results[-1].params["details"]
+    assert details["transmit"]["mode"] == "binary"
+    assert details["transmit"]["size"] == 3
+    assert details["message_type_byte"] == 0x02
+
+    fsm.ll.deinit()
+
+
 def test_iridium_fsm_logs_audio_binary_when_transmit_disabled(monkeypatch, tmp_path):
     modules = _reload_modules_with_mocks(monkeypatch)
     iridium_module = modules["Iridium"]

@@ -8,6 +8,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# Ensure repo root is on PYTHONPATH when running as a script.
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from modules.support.iridium_protocol import decode_message
 
 
